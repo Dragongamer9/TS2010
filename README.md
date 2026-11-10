@@ -48,7 +48,7 @@ into one PNG ([`docs/formats/route.md`](docs/formats/route.md)); the section con
 `sound-tool info / export` reads `.wav` sounds (PCM and MS ADPCM) and exports plain WAVs;
 `sound-player ARCHIVE NAME` plays one through SDL2 ([`docs/formats/sound.md`](docs/formats/sound.md)).
 
-`src/input/KeyBindings` reads the game's key bindings exactly as `trainz.exe` does (parser traced) (`UserData/settings/keyboard.txt`;
+`src/input/KeyBindings` reads the game's key bindings, following the traced combo parser and key-name table in `trainz.exe` (how the game matches modifiers and converts live key presses is not confirmed) (`UserData/settings/keyboard.txt`;
 [`docs/formats/keyboard.md`](docs/formats/keyboard.md)). `input-tool list / shared / press` shows the bindings,
 and `key-tester KEYBOARD.txt` (SDL2) prints the actions each key press triggers.
 
