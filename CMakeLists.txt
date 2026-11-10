@@ -27,6 +27,7 @@ endif()
 
 add_library(trainz_content
   src/common/DataDirs.cpp
+  src/common/SafeOutput.cpp
   src/content/ArchivePath.cpp
   src/content/CfilCodec.cpp
   src/content/JaArchive.cpp
@@ -49,6 +50,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_corruption.cpp
     tests/test_path_kuid.cpp
     tests/test_real_install.cpp
+    tests/test_safe_output.cpp
   )
   target_link_libraries(content_tests PRIVATE trainz_content GTest::gtest_main)
   target_include_directories(content_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

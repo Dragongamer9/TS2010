@@ -8,11 +8,13 @@
 //   ja-tool verify  ARCHIVE                 (decode every entry, report problems)
 //   ja-tool extract ARCHIVE [--out DIR] [--folder F] [NAME...]
 //
-// Archives are only ever opened read-only. extract writes only to --out
-// (default ~/.local/share/trainz-native/extracted/<archive>), refuses any
-// output folder inside the Trainz install or $TRAINZ_DATA_DIR, and never
+// Archives are only ever opened read-only. extract writes only inside
+// ~/.local/share/trainz-native (default .../extracted/<archive>; --out must be
+// inside it too), refuses anything inside the Trainz install or
+// $TRAINZ_DATA_DIR, follows no symlinks below the port folder, and never
 // overwrites an existing file.
 #include "common/DataDirs.h"
+#include "common/SafeOutput.h"
 #include "content/ArchivePath.h"
 #include "content/ContentError.h"
 #include "content/JaArchive.h"
@@ -24,6 +26,8 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -93,42 +97,26 @@ fs::path safeRelativePath(const std::string& name) {
     return rel;
 }
 
-// Writes one entry to `target`, which must not exist yet. Removes the partial
-// file on failure (only a file this function created itself).
-void writeNewFile(const JaArchive& archive, const JaEntry& entry, const fs::path& target) {
-    const int fd = ::open(target.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
-    if (fd < 0) {
-        throw ContentError("cannot create '" + target.string() + "': " + std::strerror(errno));
-    }
-    try {
-        auto stream = archive.openStream(entry);
-        std::vector<std::uint8_t> buf(1 << 20);
-        for (;;) {
-            const std::size_t n = stream.read(buf);
-            if (n == 0) {
-                break;
-            }
-            std::size_t done = 0;
-            while (done < n) {
-                const ssize_t w = ::write(fd, buf.data() + done, n - done);
-                if (w < 0) {
-                    if (errno == EINTR) {
-                        continue;
-                    }
-                    throw ContentError("cannot write '" + target.string() + "': " + std::strerror(errno));
-                }
-                done += static_cast<std::size_t>(w);
-            }
+// Streams one entry's decoded bytes into an already-open new file.
+void writeEntry(const JaArchive& archive, const JaEntry& entry, int fd) {
+    auto stream = archive.openStream(entry);
+    std::vector<std::uint8_t> buf(1 << 20);
+    for (;;) {
+        const std::size_t n = stream.read(buf);
+        if (n == 0) {
+            break;
         }
-    } catch (...) {
-        ::close(fd);
-        ::unlink(target.c_str());
-        throw;
-    }
-    if (::close(fd) != 0) {
-        const int err = errno;
-        ::unlink(target.c_str());
-        throw ContentError("cannot finish '" + target.string() + "': " + std::strerror(err));
+        std::size_t done = 0;
+        while (done < n) {
+            const ssize_t w = ::write(fd, buf.data() + done, n - done);
+            if (w < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                throw ContentError("cannot write '" + entry.name + "': " + std::strerror(errno));
+            }
+            done += static_cast<std::size_t>(w);
+        }
     }
 }
 
@@ -196,15 +184,17 @@ int cmdExtract(const JaArchive& a, const fs::path& archivePath, fs::path outDir,
     if (outDir.empty()) {
         outDir = trainz::common::portDataDir() / "extracted" / archivePath.stem();
     }
-    for (const auto& guard : trainz::common::protectedDirsFor(archivePath)) {
-        if (trainz::common::isInsideOrSame(outDir, guard)) {
-            std::cerr << "refusing to write into '" << outDir.string() << "': it is inside '" << guard.string()
-                      << "', which belongs to the Trainz install or your content. Pick a folder elsewhere.\n";
-            return 2;
-        }
+    // Only inside ~/.local/share/trainz-native, never inside the install, no symlinks followed.
+    std::optional<trainz::common::SafeOutputDir> out;
+    try {
+        out.emplace(trainz::common::SafeOutputDir::open(outDir, trainz::common::protectedDirsFor(archivePath)));
+    } catch (const std::runtime_error& err) {
+        std::cerr << err.what() << "\n";
+        return 2;
     }
 
     std::vector<const JaEntry*> chosen;
+    std::size_t hidden = 0;
     if (!names.empty()) {
         for (const auto& n : names) {
             const JaEntry* e = a.find(n);
@@ -215,17 +205,20 @@ int cmdExtract(const JaArchive& a, const fs::path& archivePath, fs::path outDir,
             chosen.push_back(e);
         }
     } else {
-        chosen = a.listFolder(folder);
+        // Pick the row the game would use for each name (first in the index)
+        // before sorting by offset, so duplicates resolve like find().
+        for (const JaEntry* e : a.listFolder(folder)) {
+            if (a.isLookupWinner(*e)) {
+                chosen.push_back(e);
+            } else {
+                ++hidden;
+            }
+        }
     }
     std::sort(chosen.begin(), chosen.end(),
               [](const JaEntry* x, const JaEntry* y) { return x->dataOffset < y->dataOffset; });
+    chosen.erase(std::unique(chosen.begin(), chosen.end()), chosen.end());
 
-    std::error_code ec;
-    fs::create_directories(outDir, ec);
-    if (ec) {
-        std::cerr << "cannot create '" << outDir.string() << "': " << ec.message() << "\n";
-        return 1;
-    }
     std::size_t ok = 0;
     std::size_t failed = 0;
     for (const JaEntry* e : chosen) {
@@ -235,20 +228,18 @@ int cmdExtract(const JaArchive& a, const fs::path& archivePath, fs::path outDir,
             std::cerr << "skipped unsafe name: '" << e->name << "'\n";
             continue;
         }
-        const fs::path target = outDir / rel;
         try {
-            fs::create_directories(target.parent_path(), ec);
-            if (ec) {
-                throw ContentError("cannot create '" + target.parent_path().string() + "': " + ec.message());
-            }
-            writeNewFile(a, *e, target);
+            out->createFile(rel, [&](int fd) { writeEntry(a, *e, fd); });
             ++ok;
-        } catch (const ContentError& err) {
+        } catch (const std::exception& err) {
             ++failed;
             std::cerr << "error: " << err.what() << "\n";
         }
     }
-    std::printf("extracted %zu file(s) to %s, %zu failed\n", ok, outDir.c_str(), failed);
+    if (hidden > 0) {
+        std::cerr << hidden << " duplicate row(s) skipped (the game uses the first row with each name)\n";
+    }
+    std::printf("extracted %zu file(s) to %s, %zu failed\n", ok, out->path().c_str(), failed);
     return failed ? 1 : 0;
 }
 

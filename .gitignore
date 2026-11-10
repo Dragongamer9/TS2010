@@ -1,6 +1,6 @@
 /build*/
 /.cache/
 compile_commands.json
-# Never commit the game's own files.
+# The game's own files stay out while this repo is public (they are N3V's copyrighted content).
 *.ja
 *.cdp

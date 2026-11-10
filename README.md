@@ -8,17 +8,23 @@ What exists so far: a **read-only reader for the game's `.ja` content archives**
 (`Base.ja`, `Data.ja`, `Builtin/*.ja`). It comes with the `ja-tool` command and
 tests. The format is described in [`docs/formats/ja.md`](docs/formats/ja.md).
 
-## Your game data is safe
+## How it protects your game data
 
 - **Read-only.** Game files are opened read-only (`O_RDONLY`, and `O_NOATIME`
-  when allowed). Nothing in the install or your own content is ever written,
-  moved, renamed or deleted.
+  when allowed). The reader has no code that writes, moves, renames or deletes
+  anything.
 - **One folder for everything the port makes:** `~/.local/share/trainz-native/`
-  (or `$XDG_DATA_HOME/trainz-native`). By default `ja-tool extract` writes to
-  `~/.local/share/trainz-native/extracted/<archive>/`.
-- **Guarded output.** `ja-tool extract` refuses an output folder inside the
-  Trainz install or inside `$TRAINZ_DATA_DIR`. It never overwrites an existing
-  file, and it skips archive names that could escape the output folder.
+  (or `$XDG_DATA_HOME/trainz-native`). `ja-tool extract` writes only there; by
+  default to `~/.local/share/trainz-native/extracted/<archive>/`. `--out` must
+  point inside that folder too.
+- **Guarded output.**
+  - Extraction refuses any folder inside the Trainz install or `$TRAINZ_DATA_DIR`.
+  - Every folder below `~/.local/share/trainz-native/` is opened without
+    following symlinks, so a symlink can't redirect a write into the game.
+  - Existing files are never overwritten, and archive names that could escape
+    the output folder are skipped.
+  - These rules are covered by the tests in `tests/test_safe_output.cpp`. They
+    haven't yet been run against a real install.
 
 ## Build
 
@@ -77,4 +83,4 @@ They:
 To decode everything, add `TRAINZ_FULL_VERIFY=1`. That's about 7 GB, so expect
 a while on a hard drive.
 
-Don't commit game files to this repo.
+Game files are kept out of the repo while it is public (see `.gitignore`).

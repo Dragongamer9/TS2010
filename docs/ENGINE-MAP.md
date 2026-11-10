@@ -177,7 +177,7 @@ packs and asset versions (kuid2 VERSION). It needs a trace through
 
 | Format | Extension(s) | Status | Layout / evidence |
 |---|---|---|---|
-| Archive | `.ja` | **Confirmed** | See 1.2 |
+| Archive | `.ja` | Layout checked on sampled archives; decoder partly validated | See 1.2 |
 | Content package | `.cdp` (`.cdp2`) | Seen | `"Unable to write archive file. Needs to be .cdp file extension"` (`trainz.exe`, `TADDaemon.exe`); `TrainzUtil createCDP <file.cdp> <kuid…>`; `ContentManager.exe` file filter `CDP file (*.cdp;*.cdp2)`. Not sampled |
 | Asset config (text) | `config.txt` | **Confirmed** | In the samples: UTF-8 with BOM and CRLF line ends (what the parser accepts beyond that is not traced); `key  value` lines, `name { … }` sub-blocks, quoted strings, `<kuid…>` values, `-fr` style language suffixes (`username-fr`). Parser: `Jet::ConfigData` in `KernelStandard_7c.dll` (88 exports; writer `ConfigData::Write` `0x10011350`). `config.txt` referenced in `trainz.exe` at `0x61fea8`, `0x6212c7`, `0x64804f`, `0x648e51`, `0x66c8fe`, `0x7ccec3` |
 | Asset config (binary) | `.chump` | Header confirmed | Magic `ACS$`, `u32` version 1, then a tagged tree (strings such as `\x05kuid`). Readers `ConfigData::ReadBin` `0x10013220` / `0x10013290` / `0x100133c0`, `ReadBinFile` `0x10012a50`; writer `WriteBinFile` `0x10012880`. Also used for settings and UI strings (`interfaceFrench.chump` …) |
