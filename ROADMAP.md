@@ -4,7 +4,7 @@
 
 `[████░░░░░░░░░░░░░░░░]`
 
-*Last updated: 2026-11-10, after the sound reader (step 9).*
+*Last updated: 2026-11-10, after the `keyboard.txt` reader (step 10).*
 
 This file is updated with every change that moves the project forward. The
 percentage is a **weighted estimate**, not a measurement: see
@@ -42,8 +42,8 @@ percentage is a **weighted estimate**, not a measurement: see
 | 6 | Materials and shaders (`m.onetex` …, `vtx.txt`/`pxl.txt`) | 6 | 0% | Claude | Map to modern shaders; Cg is discontinued. |
 | 7 | Animation: `.kin` (`ANIM`) + `anim-tool` | 4 | 60% | Claude | `INFO`/`EVNT`/`SKEL`/`FRAM` worked out from data; C++ reader, posing in `mesh-tool preview --kin` ([`docs/formats/animation.md`](docs/formats/animation.md)). **Real data:** parses in CI. Playback is **implemented in `model-viewer`, awaiting a run on screen**. **Missing:** whether bone positions are absolute or parent-relative, what events do. **Whole disc:** all 2,629 animations fit. |
 | 8 | Routes: `mapfile.gnd` / `.trk` / `.obs` / `.bmk` + a route viewer | 10 | 15% | Claude (viewer) | `mapfile.gnd` outer structure worked out; C++ reader and `route-tool` ([`docs/formats/route.md`](docs/formats/route.md)); **real data:** the disc route parses in CI. **Missing:** section contents (needs `trainz.exe` 0x81ec70/0x8298c0 traced), `.trk`, `.obs`, `.bmk`, more routes from `Builtin\1.ja`–`7.ja`. **Whole disc:** 50 routes / 15,243 sections follow the outer structure. |
-| 9 | Sound: WAV/MP3 playback, 3D positioning | 4 | 40% | Claude (decoding/playback layer) | WAV reader (PCM 8/16-bit, MS ADPCM) checked on all 5,874 disc WAVs; `sound-tool` export and an SDL2 `sound-player` ([`docs/formats/sound.md`](docs/formats/sound.md)). **Missing:** MP3 (6 files), playback heard on a real machine, `soundscript`/3D positioning/looping. |
-| 10 | Input: keyboard, mouse, joystick (SDL) + `keyboard.txt` bindings | 2 | 0% | Claude (device layer) | |
+| 9 | Sound: WAV/MP3 playback, 3D positioning | 4 | 40% | Claude (decoding/playback layer) | WAV reader (PCM 8/16-bit, MS ADPCM): 5,870 of the 5,874 disc WAVs decode, 4 are refused as unsupported; `sound-tool` export and an SDL2 `sound-player` ([`docs/formats/sound.md`](docs/formats/sound.md)). **Missing:** MP3 (6 files), playback heard on a real machine, `soundscript`/3D positioning/looping. |
+| 10 | Input: keyboard, mouse, joystick (SDL) + `keyboard.txt` bindings | 2 | 30% | Claude (device layer) | `keyboard.txt` reader in C++ ([`docs/formats/keyboard.md`](docs/formats/keyboard.md)); key names and aliases taken from the game's own table in `trainz.exe` (about file offset 0x543b10). **Real data:** the shipped file reads in full (6 groups, 383 actions, every key name known). **Missing:** mapping to SDL scancodes and live key events, mouse, joystick, what `camera_car  alt ctrl shift c a r z` means to the game. |
 | 11 | Sessions: `profile.dat` / `.obs` / `.trk` / `.lyr` | 4 | 0% | Claude (reader) | |
 | 12 | TrainzScript: compiler, VM, native bindings (`.gs`/`.gsl`/`.gse`) | 15 | 0% | owner / other | The biggest, riskiest piece. `.gse` may be encrypted. |
 | 13 | Train simulation: physics, brakes, coupling, signals, AI drivers | 15 | 0% | owner / other | **Not mapped at all yet**; it's in `trainz.exe` with no symbols. |
@@ -53,8 +53,8 @@ percentage is a **weighted estimate**, not a measurement: see
 | 17 | Validation on Dad's PC (real-install tests, full archive verify, speed on the hard drive) | 4 | 40% | Claude + owner | **Started:** real game data in the private repo (`testdata/ts2010`), all `RealInstall.*` tests run in CI with a full decode. **Missing:** the same tests on Dad's full install, speed on his hard drive. **Whole disc surveyed** (170,167 Builtin entries plus Base/Data scans; [`docs/DISC-SURVEY.md`](docs/DISC-SURVEY.md)). |
 | | **Total** | **102** | | | |
 
-**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.60 + 4×0.60 + 8×0.60 + 4×0.60 + 10×0.15 + 4×0.40 + 4×0.40) ÷ 102 =
-23.25 ÷ 102 = 22.79% → **23%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
+**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.60 + 4×0.60 + 8×0.60 + 4×0.60 + 10×0.15 + 4×0.40 + 2×0.30 + 4×0.40) ÷ 102 =
+23.85 ÷ 102 = 23.38% → **23%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
 102 weight points.
 
 ---
@@ -86,7 +86,8 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
-| 2026-11-10 | 23% | Step 9 (0% → 40%): WAV reader (PCM + MS ADPCM), `sound-tool`, SDL2 `sound-player`; all 5,874 disc WAVs pass under the same rules in Python. Survey docs corrected (15,243 sections, 170,167 Builtin entries; repair described as likely, not proven; direct apt on Hearth OS). |
+| 2026-11-10 | 23% | Step 10 (0% → 30%): `keyboard.txt` reader (`src/input/KeyBindings`), key names from the game's table in `trainz.exe`; the shipped file reads in full (383 actions); the odd `camera_car` line warns instead of guessing. `sound-player` now builds whenever SDL2 is present (ChatGPT review). Overall 23.25 → 23.85 ÷ 102 = 23.38%, still 23%. |
+| 2026-11-10 | 23% | Step 9 (0% → 40%): WAV reader (PCM + MS ADPCM), `sound-tool`, SDL2 `sound-player`; under the same rules in Python, 5,870 of the 5,874 disc WAVs decode and 4 are refused as unsupported (3 MP3-in-WAV, 1 MPEG stream). Survey docs corrected (15,243 sections, 170,167 Builtin entries; repair described as likely, not proven; direct apt on Hearth OS). |
 | 2026-11-10 | 21% | **Whole-disc survey** of all 8 `Builtin` archives + Base/Data (170,167 entries in `Builtin\1.ja`–`8.ja`, plus Base/Data scans; [`docs/DISC-SURVEY.md`](docs/DISC-SURVEY.md)): found UTF-16 material text, texture INFO 0x106, a next-line config string, and 65 meshes that look damaged by a text-mode transfer (repair to a consistent file added). Steps 1→90%, 2→85%, 4→60%, 5→60%, 7→60%, 8→15%, 17→40%. Viewer honours `TRAINZ_WERROR` (ChatGPT review). |
 | 2026-11-10 | 19% | Step 5 (50% → 55%): `model-viewer` (SDL2 + OpenGL 2.1): textured meshes, mouse orbit/zoom, `.kin` playback; built in CI but not yet run on a screen. CI report step now keeps the test exit status; ENGINE-MAP updated for the full Base/Data decode and GEOM v101 (ChatGPT review). |
 | 2026-11-10 | 19% | First C++ run on **real game data** (repo now private): `Base.ja`, `Data.ja` and a real subset of `8.ja` in `testdata/ts2010`; all 10 `RealInstall.*` tests pass in CI with a full decode. It found GEOM v101 (fixed). Steps 1→85%, 2→80%, 3→60%, 4→55%, 5→50%, 7→55%, 8→12%, 17→25%. |

@@ -43,6 +43,7 @@ add_library(trainz_content
   src/content/ReadOnlyFile.cpp
   src/content/SoundFile.cpp
   src/content/TextureFile.cpp
+  src/input/KeyBindings.cpp
   src/view/MeshPreview.cpp
 )
 target_include_directories(trainz_content PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -83,20 +84,20 @@ target_compile_options(route-tool PRIVATE ${TRAINZ_WARNINGS})
 if(TRAINZ_BUILD_VIEWER)
   find_package(SDL2 QUIET)
   find_package(OpenGL QUIET)
+  # SDL and GL headers use C idioms, so these programs get the basic warnings only.
+  if(SDL2_FOUND)
+    add_executable(sound-player tools/viewer/sound_player.cpp)
+    target_link_libraries(sound-player PRIVATE trainz_content SDL2::SDL2)
+    target_compile_options(sound-player PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
+  else()
+    message(STATUS "sound-player and model-viewer not built: install libsdl2-dev")
+  endif()
   if(SDL2_FOUND AND OpenGL_FOUND)
     add_executable(model-viewer tools/viewer/model_viewer.cpp)
     target_link_libraries(model-viewer PRIVATE trainz_content SDL2::SDL2 OpenGL::GL)
-    # SDL and GL headers use C idioms, so the viewer gets the basic warnings only.
-    target_compile_options(model-viewer PRIVATE -Wall -Wextra)
-    add_executable(sound-player tools/viewer/sound_player.cpp)
-    target_link_libraries(sound-player PRIVATE trainz_content SDL2::SDL2)
-    target_compile_options(sound-player PRIVATE -Wall -Wextra)
-    if(TRAINZ_WERROR)
-      target_compile_options(model-viewer PRIVATE -Werror)
-      target_compile_options(sound-player PRIVATE -Werror)
-    endif()
-  else()
-    message(STATUS "model-viewer not built: install libsdl2-dev and libgl-dev")
+    target_compile_options(model-viewer PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
+  elseif(SDL2_FOUND)
+    message(STATUS "model-viewer not built: install libgl-dev")
   endif()
 endif()
 
@@ -110,6 +111,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_asset_index.cpp
     tests/test_cfil.cpp
     tests/test_ground.cpp
+    tests/test_keybindings.cpp
     tests/test_mesh.cpp
     tests/test_corruption.cpp
     tests/test_path_kuid.cpp

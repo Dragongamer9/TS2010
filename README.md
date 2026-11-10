@@ -48,6 +48,9 @@ into one PNG ([`docs/formats/route.md`](docs/formats/route.md)); the section con
 `sound-tool info / export` reads `.wav` sounds (PCM and MS ADPCM) and exports plain WAVs;
 `sound-player ARCHIVE NAME` plays one through SDL2 ([`docs/formats/sound.md`](docs/formats/sound.md)).
 
+`src/input/KeyBindings` reads the game's key bindings (`UserData/settings/keyboard.txt`;
+[`docs/formats/keyboard.md`](docs/formats/keyboard.md)).
+
 ## How it protects your game data
 
 - **Read-only.** Game files are opened read-only (`O_RDONLY`, and `O_NOATIME`
@@ -127,4 +130,4 @@ They:
 To decode everything, add `TRAINZ_FULL_VERIFY=1`. That's about 7 GB, so expect
 a while on a hard drive.
 
-Game files are kept out of the repo while it is public (see `.gitignore`).
+Game files are in the repo only because it is private (see `.gitignore` and `testdata/README.md`).

@@ -12,8 +12,10 @@
 #include "content/AssetIndex.h"
 #include "content/Kuid.h"
 #include "content/MeshFile.h"
+#include "content/ReadOnlyFile.h"
 #include "content/SoundFile.h"
 #include "content/TextureFile.h"
+#include "input/KeyBindings.h"
 
 #include <gtest/gtest.h>
 
@@ -409,4 +411,28 @@ TEST_F(RealInstall, SoundsDecode) {
     }
     std::cout << "  sounds decoded: " << decoded << ", known unsupported: " << knownUnsupported << "\n";
     EXPECT_EQ(failures, 0u);
+}
+
+TEST_F(RealInstall, KeyboardBindingsRead) {
+    const fs::path file = root / "UserData" / "settings" / "keyboard.txt";
+    std::error_code ec;
+    if (!fs::is_regular_file(file, ec)) {
+        GTEST_SKIP() << "no " << file;
+    }
+    const auto f = ReadOnlyFile::open(file);
+    std::vector<std::uint8_t> data(static_cast<std::size_t>(std::min<std::uint64_t>(f.size(), 1u << 20)));
+    f.readExact(0, data);
+    const auto kb = trainz::input::parseKeyBindings(data);
+    std::size_t actions = 0;
+    for (const auto& [group, list] : kb.groups) {
+        actions += list.size();
+    }
+    std::cout << "  keyboard.txt: " << kb.groups.size() << " groups, " << actions << " actions, "
+              << kb.warnings.size() << " warnings\n";
+    // Every key name must be known; only "not a modifier" warnings (camera_car) are expected.
+    for (const auto& w : kb.warnings) {
+        std::cout << "  " << w << "\n";
+        EXPECT_NE(w.find("is not a modifier"), std::string::npos) << w;
+    }
+    EXPECT_GT(actions, 0u);
 }
