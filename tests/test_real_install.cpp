@@ -371,8 +371,12 @@ TEST_F(RealInstall, RouteGroundFilesParse) {
             }
             try {
                 const auto g = trainz::content::parseGround(a.readLimited(e, std::size_t{1} << 30));
+                // Every section's data must decode to exactly its end offset.
+                for (const auto& s : g.sections) {
+                    (void)trainz::content::parseGroundSection(s, g.version);
+                }
                 ++parsed;
-                std::cout << "  " << e.name << ": " << g.sections.size() << " sections\n";
+                std::cout << "  " << e.name << ": " << g.sections.size() << " sections decoded\n";
             } catch (const ContentError& err) {
                 ++failures;
                 std::cout << "  ground problem: " << e.name << ": " << err.what() << "\n";

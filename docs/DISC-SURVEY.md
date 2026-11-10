@@ -30,7 +30,7 @@ disc**: `Builtin\1.ja`–`8.ja`, and `Base.ja` / `Data.ja` in separate scans.
 | Animations (`.kin`) | 2,629 | **all fit** |
 | `config.chump` | 19,112 | **all parse**; all 17,388 top-level asset KUIDs match their `hash-XX/kuid…` folder |
 | `config.txt` | 70 | **all parse** after one grammar fix: a string value may start on the next line (`3.ja` `kuid -13:151000/train`) |
-| Route terrain (`mapfile.gnd`) | 50 routes, 15,243 sections | **all** laid out back to back to the end of the file; `Secs` 15,237 tags, `Sec5` only 6; 5 routes have two sections at one position |
+| Route terrain (`mapfile.gnd`) | 50 routes, 15,243 sections | **all** laid out back to back to the end of the file; `Secs` 15,237 tags, `Sec5` only 6. **Section data (re-checked 2026-11-10 with the traced layout):** every section decodes to exactly its end offset. No two sections share a position; the "5 routes with two sections at one position" came from the old, wrongly grouped index (see `formats/route.md`) |
 
 ## The damaged meshes
 
@@ -66,6 +66,6 @@ proof):
 - `config.txt`: a string value may start on the line after its key.
 - Textures: INFO version 262 is known; a text descriptor gets a clear error.
 - `repairTextModeDamage()` / `parseMeshOrRepair()` for the 65 damaged meshes.
-- `mapfile.gnd`: the two header words after the section count are **not**
-  constants. They vary per route (e.g. −2/5, 0/1, 42/−10) and look like
-  signed numbers, perhaps an origin. Their meaning is unknown.
+- `mapfile.gnd`: byte 3 is a version (13 on every disc route). The "two header words" after the
+  section count were the x, y of section 0: an index entry is `{x, y, tag, start, end}`
+  (traced in `trainz.exe` 0x6d2aa0; corrected 2026-11-10).

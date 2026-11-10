@@ -191,7 +191,7 @@ packs and asset versions (kuid2 VERSION). It needs a trace through
 | Image sources | `.tga`, `.bmp`, `.jpg` | Confirmed (standard) | Standard headers. `KernelResources:tga/bmp/jpg` plugins; JPEG through `ijl10.dll` (Intel JPEG Library), imported by `KernelStandard_7c.dll` |
 | Shader / material text | `vtx.txt`, `pxl.txt`, `material.txt` | Seen | `plugins.ini` entries. ARB assembly programs embedded in the DLLs (`PARAM texMat[4] = { state.matrix.texture[0] }`) |
 | Trees | `.srt` | Header confirmed | Magic `SRT 05.0.1` (SpeedTree). Read by `bin\plugins\TNISpeedTree.dll` |
-| Route terrain | `mapfile.gnd` | Outer structure checked on one route; section contents not decoded | `GND\r`, section count, 20-byte index (reversed tag `Sec5`/`Secs`, start, end, x, y), unknown extra header, then per section: data + 8192-byte 64×64 overview map, back to back. Section class chosen at `trainz.exe` `0x6d293e` (`Sec5` → `0x81ec70`, else `0x8298c0`). See [`formats/route.md`](formats/route.md) |
+| Route terrain | `mapfile.gnd` | Header, index and section data traced and checked on all 50 disc routes (15,243 sections); world data block not decoded | `GND` + u8 version (13), section count, entries `{x, y, reversed tag, start, end}` (loader `trainz.exe` `0x6d2aa0`). Section data (`0x82be00` Secs / `0x821200` Sec5): 250 texture slots (weight + KUID), up to 36×36 cells, then 76×76 (Secs) or 148×148 (Sec5) vertices (`0x6f0e50`: textures, weights, height). Then a 64×64 u16 overview map (`0x6e4070`). See [`formats/route.md`](formats/route.md) |
 | Route objects | `mapfile.obs` | Seen | Strings `mapfile.obs`, `.obs` |
 | Route track | `mapfile.trk` | Seen | Strings `mapfile.trk`, `.trk` |
 | Route bookmarks | `mapfile.bmk` | Seen | 330-byte sample: `u32 7`, then float positions |
@@ -379,7 +379,7 @@ Each step can be tested against the real data before the next one starts.
 ## 6. Open questions
 
 - `FIL ` hash algorithm; the meaning of the `"FIL!"` tag; the last `ARCHINFO` field.
-- Inner layouts of `GEOM`, `NINF`, `INFL`, `MMTF` `INFO`, `.kin`, `.gnd`,
+- Inner layouts of `GEOM`, `NINF`, `INFL`, `MMTF` `INFO`, `.kin`, the `.gnd` world data,
   `.trk`, `.obs`, `profile.dat`, `.gsl`, `.gse`.
 - Search order and version resolution between `local`, `editing`, the built-in
   `.ja` files and kuid2 versions.

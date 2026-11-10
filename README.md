@@ -42,8 +42,8 @@ model-viewer      /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 58422 50128/benthd.
 ([`docs/formats/animation.md`](docs/formats/animation.md)); `mesh-tool preview --kin ANIM.kin --frame N`
 shows a mesh in that pose.
 
-`route-tool info / overview` lists a route's terrain sections and stitches their overview maps
-into one PNG ([`docs/formats/route.md`](docs/formats/route.md)); the section contents are not decoded yet.
+`route-tool info / overview` decodes a route's terrain sections (texture slots, vertices with heights) and stitches their overview maps
+into one PNG ([`docs/formats/route.md`](docs/formats/route.md)). The world data block after the index is not decoded yet.
 
 `sound-tool info / export` reads `.wav` sounds (PCM and MS ADPCM) and exports plain WAVs;
 `sound-player ARCHIVE NAME` plays one through SDL2 ([`docs/formats/sound.md`](docs/formats/sound.md)).
