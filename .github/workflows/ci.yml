@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: ${{ matrix.compiler }} / ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+      # LeakSanitizer needs ptrace inside the container.
+      options: --cap-add=SYS_PTRACE
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        variant: [asan-ubsan, release]
+    env:
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+    steps:
+      - name: Install Debian packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git cmake ninja-build g++ clang libgtest-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: |
+          if [ "${{ matrix.compiler }}" = gcc ]; then CXX=g++; else CXX=clang++; fi
+          if [ "${{ matrix.variant }}" = asan-ubsan ]; then
+            EXTRA="-DCMAKE_BUILD_TYPE=Debug -DTRAINZ_SANITIZE=ON"
+          else
+            EXTRA="-DCMAKE_BUILD_TYPE=Release"
+          fi
+          cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=$CXX -DTRAINZ_WERROR=ON $EXTRA
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: CLI smoke test
+        run: |
+          ./build/ja-tool > usage.txt 2>&1 || true
+          grep -q usage usage.txt
+          if ./build/ja-tool info /nonexistent.ja; then
+            echo "ja-tool should fail on a missing file"; exit 1
+          fi

@@ -1,0 +1,6 @@
+/build*/
+/.cache/
+compile_commands.json
+# Never commit the game's own files.
+*.ja
+*.cdp

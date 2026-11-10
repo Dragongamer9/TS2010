@@ -1,0 +1,58 @@
+cmake_minimum_required(VERSION 3.25)
+project(trainz_native LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+option(TRAINZ_BUILD_TESTS "Build the tests (needs libgtest-dev)" ON)
+option(TRAINZ_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(TRAINZ_WERROR "Treat compiler warnings as errors" OFF)
+
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  message(FATAL_ERROR "trainz-native targets Linux only")
+endif()
+
+set(TRAINZ_WARNINGS -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Wcast-align
+                    -Woverloaded-virtual)
+if(TRAINZ_WERROR)
+  list(APPEND TRAINZ_WARNINGS -Werror)
+endif()
+
+if(TRAINZ_SANITIZE)
+  add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g)
+  add_link_options(-fsanitize=address,undefined)
+endif()
+
+add_library(trainz_content
+  src/common/DataDirs.cpp
+  src/content/ArchivePath.cpp
+  src/content/CfilCodec.cpp
+  src/content/JaArchive.cpp
+  src/content/Kuid.cpp
+  src/content/ReadOnlyFile.cpp
+)
+target_include_directories(trainz_content PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_options(trainz_content PRIVATE ${TRAINZ_WARNINGS})
+
+add_executable(ja-tool tools/ja_tool.cpp)
+target_link_libraries(ja-tool PRIVATE trainz_content)
+target_compile_options(ja-tool PRIVATE ${TRAINZ_WARNINGS})
+
+if(TRAINZ_BUILD_TESTS)
+  enable_testing()
+  find_package(GTest REQUIRED)
+  add_executable(content_tests
+    tests/test_archive.cpp
+    tests/test_cfil.cpp
+    tests/test_corruption.cpp
+    tests/test_path_kuid.cpp
+    tests/test_real_install.cpp
+  )
+  target_link_libraries(content_tests PRIVATE trainz_content GTest::gtest_main)
+  target_include_directories(content_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+  include(GoogleTest)
+  # RealInstall.* tests skip themselves unless TRAINZ_DATA_DIR is set.
+  gtest_discover_tests(content_tests DISCOVERY_MODE PRE_TEST)
+endif()
