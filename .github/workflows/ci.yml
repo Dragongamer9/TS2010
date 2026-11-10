@@ -46,8 +46,16 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Test
+      - name: Test (includes the real game data in testdata/ts2010, read-only)
+        env:
+          TRAINZ_DATA_DIR: ${{ github.workspace }}/testdata/ts2010
+          TRAINZ_FULL_VERIFY: "1"
         run: ctest --test-dir build --output-on-failure
+
+      - name: Real game data report
+        env:
+          TRAINZ_DATA_DIR: ${{ github.workspace }}/testdata/ts2010
+        run: ./build/content_tests --gtest_filter='RealInstall.*' --gtest_brief=0 | grep -vE '^  index warning:' | tail -n 80
 
       - name: CLI smoke test
         run: |

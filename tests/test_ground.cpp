@@ -60,6 +60,12 @@ TEST(Ground, ParsesSectionsAndOverviews) {
     EXPECT_TRUE(g.warnings.empty());
 }
 
+TEST(Ground, DuplicatePositionsAreWarnedAbout) {
+    const auto g = parseGround(gnd({{"Sec5", -1, 0, 10}, {"Secs", -1, 0, 10}, {"Secs", 0, 0, 10}}));
+    ASSERT_EQ(g.warnings.size(), 1u);
+    EXPECT_NE(g.warnings[0].find("both at (-1, 0)"), std::string::npos);
+}
+
 TEST(Ground, Errors) {
     EXPECT_THROW(parseGround(bytesOf("GND")), ContentError);
     Bytes b = gnd({{"Secs", 0, 0, 10}});

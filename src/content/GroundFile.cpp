@@ -60,6 +60,28 @@ GroundFile parseGround(std::span<const std::uint8_t> data) {
         }
         g.sections.push_back(std::move(s));
     }
+    // Two sections at the same grid position: seen once in the disc route
+    // ((-1, 0): one Sec5 and one Secs). Not an error, but worth knowing.
+    {
+        std::vector<std::size_t> order(g.sections.size());
+        for (std::size_t i = 0; i < order.size(); ++i) {
+            order[i] = i;
+        }
+        std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+            const auto& sa = g.sections[a];
+            const auto& sb = g.sections[b];
+            return sa.x != sb.x ? sa.x < sb.x : (sa.y != sb.y ? sa.y < sb.y : a < b);
+        });
+        for (std::size_t k = 1; k < order.size(); ++k) {
+            const auto& p = g.sections[order[k - 1]];
+            const auto& q = g.sections[order[k]];
+            if (p.x == q.x && p.y == q.y) {
+                g.warnings.push_back("sections " + std::to_string(order[k - 1]) + " (" + p.tag + ") and " +
+                                     std::to_string(order[k]) + " (" + q.tag + ") are both at (" + std::to_string(p.x) +
+                                     ", " + std::to_string(p.y) + ")");
+            }
+        }
+    }
     // Sections must not overlap (each owns [start, end + 8192)).
     std::vector<const GroundSection*> byStart;
     for (const auto& s : g.sections) {

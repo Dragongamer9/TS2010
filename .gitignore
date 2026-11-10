@@ -1,6 +1,9 @@
 /build*/
 /.cache/
 compile_commands.json
-# The game's own files stay out while this repo is public (they are N3V's copyrighted content).
+# Game files: only the test data below may be committed, and only while this
+# repository is PRIVATE (it is N3V's copyrighted content from Dad's own copy).
 *.ja
 *.cdp
+!testdata/ts2010/*.ja
+!testdata/ts2010/Builtin/*.ja
