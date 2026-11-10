@@ -127,6 +127,43 @@ TEST(Wav, MsAdpcmHandComputed) {
     EXPECT_EQ(s.samples, (std::vector<std::int16_t>{50, 100, 116, 100}));
 }
 
+// Regression: with extreme coefficients from the file, s1*c0 + s2*c1 needs more than
+// 32 bits (2 * 32768 * 32768 = 2^31). It must clamp, not overflow.
+TEST(Wav, MsAdpcmExtremeCoefficientsDoNotOverflow) {
+    Bytes extra;
+    putU16(extra, 8);
+    putU16(extra, 4);  // samples per block
+    putU16(extra, 1);  // one coefficient pair
+    putU16(extra, 0x8000);
+    putU16(extra, 0x8000);  // (-32768, -32768)
+    Bytes block = {0x00};
+    putU16(block, 16);      // delta
+    putU16(block, 0x8000);  // sample1 -32768
+    putU16(block, 0x8000);  // sample2 -32768
+    block.push_back(0x00);  // two zero nibbles
+    const auto s = decodeWav(riff({fmt(2, 1, 11025, 4, 8, extra), chunk("data", block)}));
+    // 2^31 / 256 clamps to 32767; then (32767*-32768 + -32768*-32768) / 256 = 128.
+    EXPECT_EQ(s.samples, (std::vector<std::int16_t>{-32768, -32768, 32767, 128}));
+}
+
+// Regression: the step size grows by up to 3x per nibble (adaptation 768/256). Without
+// a cap, a run of loud nibbles overflows int within a handful of samples.
+TEST(Wav, MsAdpcmStepSizeIsCapped) {
+    constexpr std::uint16_t kSamples = 2 + 2 * 40;
+    Bytes block = {0x00};
+    putU16(block, 32767);  // the largest starting delta
+    putU16(block, 0);
+    putU16(block, 0);
+    for (int i = 0; i < 40; ++i) {
+        block.push_back(0x88);  // nibble 8 (-8, adaptation 768) twice per byte
+    }
+    const auto s = decodeWav(riff({fmt(2, 1, 11025, 4, static_cast<std::uint16_t>(block.size()),
+                                       adpcmExtra(kSamples)),
+                                   chunk("data", block)}));
+    ASSERT_EQ(s.samples.size(), kSamples);
+    EXPECT_EQ(s.samples.back(), -32768);  // pinned at the bottom, no wrap-around
+}
+
 TEST(Wav, MsAdpcmPartialLastBlock) {
     Bytes data;
     for (int k = 0; k < 2; ++k) {

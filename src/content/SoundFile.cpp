@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <limits>
 #include <utility>
 
 namespace trainz::content {
@@ -39,6 +40,9 @@ bool looksLikeBareMpegAudio(std::span<const std::uint8_t> d) {
 // Microsoft ADPCM (the standard algorithm, as in the Windows msadpcm codec).
 const std::array<int, 16> kAdaptation = {230, 230, 230, 230, 307, 409, 512, 614,
                                          768, 614, 512, 409, 307, 230, 230, 230};
+
+// The largest step size that 768 * delta can still hold in an int.
+constexpr int kMaxAdpcmDelta = std::numeric_limits<int>::max() / 768;
 
 void decodeMsAdpcm(const WavInfo& w, std::span<const std::uint8_t> d, PcmSound& out) {
     const unsigned ch = w.channels;
@@ -92,13 +96,19 @@ void decodeMsAdpcm(const WavInfo& w, std::span<const std::uint8_t> d, PcmSound& 
             for (int half = 0; half < 2 && produced < samplesPerBlock; ++half) {
                 const int nib = half == 0 ? (b[i] >> 4) : (b[i] & 0x0F);
                 const int signedNib = nib >= 8 ? nib - 16 : nib;
-                const int predicted = (s1[c] * coef[static_cast<std::size_t>(pred[c])][0] +
-                                       s2[c] * coef[static_cast<std::size_t>(pred[c])][1]) / 256;
-                const int sample = std::clamp(predicted + signedNib * delta[c], -32768, 32767);
+                // 64-bit: coefficients come from the file, and 2 * 32768 * 32768 needs 33 bits.
+                const std::int64_t predicted =
+                    (std::int64_t{s1[c]} * coef[static_cast<std::size_t>(pred[c])][0] +
+                     std::int64_t{s2[c]} * coef[static_cast<std::size_t>(pred[c])][1]) / 256;
+                const int sample = static_cast<int>(
+                    std::clamp<std::int64_t>(predicted + std::int64_t{signedNib} * delta[c], -32768, 32767));
                 out.samples.push_back(static_cast<std::int16_t>(sample));
                 s2[c] = s1[c];
                 s1[c] = sample;
-                delta[c] = std::max(16, (kAdaptation[static_cast<std::size_t>(nib)] * delta[c]) / 256);
+                // Capped like ffmpeg's adpcm_ms: unbounded, the step size overflows after a few
+                // loud nibbles (it grows by up to 3x each time). Real files never get near the cap.
+                delta[c] = std::clamp((kAdaptation[static_cast<std::size_t>(nib)] * delta[c]) / 256, 16,
+                                      kMaxAdpcmDelta);
                 if (++c == ch) {
                     c = 0;
                     ++produced;
