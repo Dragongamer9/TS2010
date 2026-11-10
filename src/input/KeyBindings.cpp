@@ -111,6 +111,11 @@ std::optional<std::string> canonicalKey(std::string_view name) {
         }
     }
     for (const auto& k : keyTable()) {
+        // The port's own canonical names are accepted too (so describe() output reads
+        // back); the game's files only use the names from its table.
+        if (n == lower(k.canonical)) {
+            return std::string(k.canonical);
+        }
         for (const char* alias : k.names) {
             if (n == alias) {
                 return std::string(k.canonical);
@@ -118,6 +123,28 @@ std::optional<std::string> canonicalKey(std::string_view name) {
         }
     }
     return std::nullopt;
+}
+
+std::vector<std::string> allCanonicalKeys() {
+    std::vector<std::string> out;
+    for (char c = 'A'; c <= 'Z'; ++c) {
+        out.emplace_back(1, c);
+    }
+    for (char c = '0'; c <= '9'; ++c) {
+        out.emplace_back(1, c);
+    }
+    for (int f = 1; f <= 15; ++f) {
+        out.push_back("F" + std::to_string(f));
+    }
+    for (const auto& k : keyTable()) {
+        out.emplace_back(k.canonical);
+    }
+    return out;
+}
+
+bool isModifierKey(std::string_view k) {
+    return k == "LeftShift" || k == "RightShift" || k == "LeftCtrl" || k == "RightCtrl" || k == "LeftAlt" ||
+           k == "RightAlt";
 }
 
 std::string describe(const KeyCombo& c) {

@@ -60,6 +60,38 @@ Ghidra 12.1 is needed.
 Numpad aliases name the same physical key (`KP9, KPPgUp`), so the reader keeps
 one copy of a repeated combo.
 
+## From a key press to actions (the port's own rules)
+
+`src/input/ActionMap` answers "which actions does this press trigger?":
+
+- Modifiers must match exactly (`shift W` does not trigger an action bound to `w`).
+  Left and right Shift/Ctrl/Alt count the same.
+- Pressing a modifier key on its own (`leftcontrolkey` in `camera_mod_control`) is
+  matched without its own flag.
+- Every action bound to the combo comes back, group by group in the order asked.
+
+**Shared keys are normal.** In the shipped file 52 combos are bound to more than
+one action in the same group (driver 15, surveyor 27, menu 5, standard_dialog 5).
+For example, `W` is `train_cabin_throttle_up`, `train_dcc_up` and
+`train_cabin_regulator_up`, and Surveyor tools reuse letters. The game must pick
+by mode (cab vs DCC, the current Surveyor tool). That choice is not traced; it
+belongs to the parts that use the input (steps 13 and 14).
+
+`input-tool shared KEYBOARD.txt` lists them; `input-tool press KEYBOARD.txt driver "alt 1"`
+shows what a press triggers.
+
+## SDL (src/input/SdlKeys, needs libsdl2-dev)
+
+Each canonical name maps to one SDL **scancode**, a physical key position. The game
+imports `DINPUT8.dll`, whose `DIK_` codes are positional too, so a binding stays on
+the same key on any keyboard layout. Which `DIK_` code each game name stands for
+is assumed from the names on a US layout (the game's name-to-code table is not
+traced). Every name round-trips name → scancode → name with no two names sharing
+a scancode (`tests/test_sdl_keys.cpp`).
+
+`key-tester KEYBOARD.txt [GROUPS]` opens a small window and prints what each
+key press triggers. It's built in CI but **has not been run on a screen yet**.
+
 ## Unknowns
 
 - **`driver/camera_car  alt ctrl shift c a r z`** (line 116): plain letters
@@ -72,4 +104,5 @@ one copy of a repeated combo.
 - Whether the game writes this file back (key rebinding in the options screen).
   The port must never write into Dad's install; any rebinding will be saved in
   `~/.local/share/trainz-native/`.
-- The mapping to SDL scancodes isn't written yet.
+- Whether the game ignores extra held modifiers (the port requires an exact match).
+- Mouse and joystick bindings: none are in `keyboard.txt`; not looked at yet.

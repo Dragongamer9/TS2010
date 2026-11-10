@@ -42,7 +42,14 @@ struct KeyBindings {
 };
 
 // The canonical name for a key name or alias, or nullopt if it is not a key.
+// The canonical names themselves ("LeftShift", "Grave") are accepted as well.
 std::optional<std::string> canonicalKey(std::string_view name);
+
+// Every canonical name canonicalKey can return (letters, digits, F1-F15, then the table).
+std::vector<std::string> allCanonicalKeys();
+
+// True for LeftShift/RightShift/LeftCtrl/RightCtrl/LeftAlt/RightAlt.
+bool isModifierKey(std::string_view canonical);
 
 // "ctrl+shift+F5" style text, for display.
 std::string describe(const KeyCombo& combo);

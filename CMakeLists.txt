@@ -43,6 +43,7 @@ add_library(trainz_content
   src/content/ReadOnlyFile.cpp
   src/content/SoundFile.cpp
   src/content/TextureFile.cpp
+  src/input/ActionMap.cpp
   src/input/KeyBindings.cpp
   src/view/MeshPreview.cpp
 )
@@ -77,6 +78,10 @@ add_executable(sound-tool tools/sound_tool.cpp)
 target_link_libraries(sound-tool PRIVATE trainz_content)
 target_compile_options(sound-tool PRIVATE ${TRAINZ_WARNINGS})
 
+add_executable(input-tool tools/input_tool.cpp)
+target_link_libraries(input-tool PRIVATE trainz_content)
+target_compile_options(input-tool PRIVATE ${TRAINZ_WARNINGS})
+
 add_executable(route-tool tools/route_tool.cpp)
 target_link_libraries(route-tool PRIVATE trainz_content)
 target_compile_options(route-tool PRIVATE ${TRAINZ_WARNINGS})
@@ -89,8 +94,15 @@ if(TRAINZ_BUILD_VIEWER)
     add_executable(sound-player tools/viewer/sound_player.cpp)
     target_link_libraries(sound-player PRIVATE trainz_content SDL2::SDL2)
     target_compile_options(sound-player PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
+    # SDL key mapping: a small library so its tests run without a window.
+    add_library(trainz_input_sdl src/input/SdlKeys.cpp)
+    target_link_libraries(trainz_input_sdl PUBLIC trainz_content SDL2::SDL2)
+    target_compile_options(trainz_input_sdl PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
+    add_executable(key-tester tools/viewer/key_tester.cpp)
+    target_link_libraries(key-tester PRIVATE trainz_input_sdl)
+    target_compile_options(key-tester PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
   else()
-    message(STATUS "sound-player and model-viewer not built: install libsdl2-dev")
+    message(STATUS "sound-player, key-tester and model-viewer not built: install libsdl2-dev")
   endif()
   if(SDL2_FOUND AND OpenGL_FOUND)
     add_executable(model-viewer tools/viewer/model_viewer.cpp)
@@ -105,6 +117,7 @@ if(TRAINZ_BUILD_TESTS)
   enable_testing()
   find_package(GTest REQUIRED)
   add_executable(content_tests
+    tests/test_action_map.cpp
     tests/test_animation.cpp
     tests/test_archive.cpp
     tests/test_asset_config.cpp
@@ -125,4 +138,10 @@ if(TRAINZ_BUILD_TESTS)
   include(GoogleTest)
   # RealInstall.* tests skip themselves unless TRAINZ_DATA_DIR is set.
   gtest_discover_tests(content_tests DISCOVERY_MODE PRE_TEST)
+  if(TARGET trainz_input_sdl)
+    add_executable(sdl_input_tests tests/test_sdl_keys.cpp)
+    target_link_libraries(sdl_input_tests PRIVATE trainz_input_sdl GTest::gtest_main)
+    target_compile_options(sdl_input_tests PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
+    gtest_discover_tests(sdl_input_tests DISCOVERY_MODE PRE_TEST)
+  endif()
 endif()

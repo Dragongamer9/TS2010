@@ -49,7 +49,8 @@ into one PNG ([`docs/formats/route.md`](docs/formats/route.md)); the section con
 `sound-player ARCHIVE NAME` plays one through SDL2 ([`docs/formats/sound.md`](docs/formats/sound.md)).
 
 `src/input/KeyBindings` reads the game's key bindings (`UserData/settings/keyboard.txt`;
-[`docs/formats/keyboard.md`](docs/formats/keyboard.md)).
+[`docs/formats/keyboard.md`](docs/formats/keyboard.md)). `input-tool list / shared / press` shows the bindings,
+and `key-tester KEYBOARD.txt` (SDL2) prints the actions each key press triggers.
 
 ## How it protects your game data
 
