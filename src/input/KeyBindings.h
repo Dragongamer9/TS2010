@@ -48,7 +48,9 @@ std::optional<std::string> canonicalKey(std::string_view name);
 std::string describe(const KeyCombo& combo);
 
 // Parses keyboard.txt. Throws trainz::content::ContentError on syntax errors;
-// unknown key names become warnings, and that combo is skipped.
+// unknown key names become warnings, and that combo is skipped. Extra words
+// before the key that are not modifiers are ignored with a warning and the last
+// word is taken as the key: an unconfirmed guess (see docs/formats/keyboard.md).
 KeyBindings parseKeyBindings(std::span<const std::uint8_t> data);
 
 }  // namespace trainz::input

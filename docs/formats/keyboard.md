@@ -63,8 +63,11 @@ one copy of a repeated combo.
 ## Unknowns
 
 - **`driver/camera_car  alt ctrl shift c a r z`** (line 116): plain letters
-  where modifiers go. The reader warns, ignores `c a r`, and binds
-  `ctrl+alt+shift+Z`. What the game does with this line is unknown.
+  where modifiers go. The reader binds `ctrl+alt+shift+Z`, ignores `c a r`, and
+  warns about each one. That is the port's own **unconfirmed guess**: it
+  assumes the last word is the key, as on every other line. The game might
+  instead read a key sequence, reject the line, or do something else; its
+  parser has not been traced.
 - Which group wins when the same key is bound in two active groups.
 - Whether the game writes this file back (key rebinding in the options screen).
   The port must never write into Dad's install; any rebinding will be saved in

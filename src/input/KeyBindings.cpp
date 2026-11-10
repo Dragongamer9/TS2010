@@ -209,7 +209,8 @@ KeyBindings parseKeyBindings(std::span<const std::uint8_t> data) {
                         kc.alt = true;
                     } else {
                         kb.warnings.push_back(group.key + "/" + item.key + ": '" + words[i] +
-                                              "' is not a modifier; ignored (how the game reads this is unknown)");
+                                              "' is not a modifier; ignored, and the last word taken as the key "
+                                              "(an unconfirmed guess; the game's reading is not traced)");
                     }
                 }
                 const auto key = canonicalKey(words.back());
