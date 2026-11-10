@@ -46,9 +46,11 @@ Bytes geom(std::uint32_t version, std::uint32_t flags = 0, const std::string& bo
     putU32(b, 2);  // triangles
     putU32(b, 6);  // indices
     putU32(b, 2);  // face normals
-    putU32(b, 0);
+    if (version != 101) {
+        putU32(b, 0);
+    }
     const std::size_t nameBlock = bone.empty() ? 0 : (bone.size() + 4) / 4 * 4;
-    if (version != 102) {
+    if (version >= 200) {
         putU32(b, static_cast<std::uint32_t>(nameBlock));
         const Bytes n = padded(bone, nameBlock);
         b.insert(b.end(), n.begin(), n.end());
@@ -137,6 +139,16 @@ TEST(Mesh, Geometry102) {
     EXPECT_EQ(g.vertexNormals.size(), 4u);
     EXPECT_EQ(g.faceNormals.size(), 2u);
     EXPECT_TRUE(g.boneName.empty());
+}
+
+TEST(Mesh, Geometry101HasOneHeaderWordLess) {
+    // Seen once: Data.ja surveyor/mark/mark.pm (found by the first real-data CI run).
+    const auto g = parseGeometryChunk(geom(101));
+    EXPECT_EQ(g.version, 101u);
+    ASSERT_EQ(g.vertices.size(), 4u);
+    EXPECT_FLOAT_EQ(g.vertices[2].x, 1.0f);
+    EXPECT_EQ(g.indices.back(), 1);
+    EXPECT_EQ(g.faceNormals.size(), 2u);
 }
 
 TEST(Mesh, Geometry200WithBoneName) {

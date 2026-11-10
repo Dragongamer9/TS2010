@@ -9,7 +9,8 @@
 **How this was worked out.** The layout comes **from the data**: the reader
 code in `Render3DFoundation_7c.dll` (`IndexedMeshDefinition`,
 `IndexedMeshDefinitionOld`) has not been traced. It was checked with a Python
-prototype on every `.im` and `.pm` in `Base.ja` and `Builtin\8.ja`:
+prototype on every `.im` and `.pm` in `Base.ja` and `Builtin\8.ja`
+(`Data.ja` was missed at first; see below):
 - 7,982 mesh parts in total;
 - **every `GEOM` and `MATL` chunk is accounted for byte by byte**;
 - every index is below its vertex count;
@@ -17,8 +18,12 @@ prototype on every `.im` and `.pm` in `Base.ja` and `Builtin\8.ja`:
   degenerate faces).
 
 A real mesh, the 70-ton ore car body (`kuid2 90361 120204 2`), was rendered
-from end and side and looks right. The C++ reader has been tested on made-up
-files in CI only.
+from end and side and looks right.
+
+**C++ on real data:** CI runs the reader on `Base.ja`, `Data.ja` and a real
+subset of `8.ja` (see `testdata/README.md`). The first run found one mesh in
+`Data.ja` with GEOM **version 101**, which the survey had missed. Its layout
+fits exactly with one header word fewer than version 102.
 
 ## 1. File
 
@@ -47,6 +52,7 @@ Counts seen in `8.ja` + `Base.ja`:
 
 | Version | Header | Count in data |
 |---|---|---:|
+| 101 | `101, 4, f, nv, nt, ni, nf` (28 bytes) | 1 (`Data.ja` `surveyor/mark/mark.pm`) |
 | 102 | `102, 4, f, nv, nt, ni, nf, 0` (32 bytes) | 112 |
 | 200 | `200, 4, f, nv, nt, ni, nf, 0, nameLen` (36 bytes) | 5,790 |
 | 201 | `201, 4, flags, f, nv, nt, ni, nf, 0, nameLen` (40 bytes) | 2,080 |

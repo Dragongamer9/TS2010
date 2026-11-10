@@ -120,8 +120,8 @@ MeshGeometry parseGeometryChunk(std::span<const std::uint8_t> data) {
     Reader r(data, "GEOM");
     MeshGeometry g;
     g.version = r.u32();
-    if (g.version != 102 && g.version != 200 && g.version != 201) {
-        throw ContentError("GEOM version " + std::to_string(g.version) + " is unknown (102, 200, 201 are known)");
+    if (g.version != 101 && g.version != 102 && g.version != 200 && g.version != 201) {
+        throw ContentError("GEOM version " + std::to_string(g.version) + " is unknown (101, 102, 200, 201 are known)");
     }
     (void)r.u32();  // word 1: always 4 in the data
     if (g.version == 201) {
@@ -135,9 +135,11 @@ MeshGeometry parseGeometryChunk(std::span<const std::uint8_t> data) {
     const std::uint32_t nt = r.u32();
     const std::uint32_t ni = r.u32();
     const std::uint32_t nf = r.u32();
-    (void)r.u32();  // always 0 in the data
+    if (g.version != 101) {
+        (void)r.u32();  // always 0 in the data; v101 does not have this word
+    }
     std::uint32_t nameBlock = 0;
-    if (g.version != 102) {
+    if (g.version >= 200) {
         nameBlock = r.u32();
     }
     if (nv > kMaxVertices || nt > kMaxFaces || nf != nt || static_cast<std::uint64_t>(ni) != 3ull * nt ||

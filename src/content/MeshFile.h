@@ -36,7 +36,7 @@ struct MeshVertex {
 };
 
 struct MeshGeometry {
-    std::uint32_t version = 0;  // 102, 200 or 201
+    std::uint32_t version = 0;  // 101, 102, 200 or 201
     std::uint32_t flags = 0;    // v201 word 2; 1 = an extra 3-float value per vertex follows the face normals
     float headerValue = 0;      // the float in the header; meaning unknown
     std::string boneName;       // v200/201 optional name block (e.g. "b.r.door1"); empty if none
