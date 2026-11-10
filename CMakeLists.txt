@@ -46,6 +46,7 @@ add_library(trainz_content
   src/content/Mp3Decoder.cpp
   src/content/ReadOnlyFile.cpp
   src/content/SoundFile.cpp
+  src/content/TextureDescriptor.cpp
   src/content/TextureFile.cpp
   src/input/ActionMap.cpp
   src/input/KeyBindings.cpp
@@ -166,6 +167,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_safe_output.cpp
     tests/test_sound.cpp
     tests/test_texture.cpp
+    tests/test_texture_descriptor.cpp
   )
   target_link_libraries(content_tests PRIVATE trainz_content GTest::gtest_main)
   target_include_directories(content_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

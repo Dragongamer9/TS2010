@@ -1,7 +1,7 @@
 // texture-tool: inspect .texture files (and loose .tga / .bmp / .jpg images)
 // and convert them to PNG for viewing.
 //
-//   texture-tool info FILE                        a loose .texture, .tga, .bmp, .jpg/.jpeg
+//   texture-tool info FILE                        a loose .texture, .texture.txt, .tga, .bmp, .jpg/.jpeg
 //   texture-tool info ARCHIVE.ja NAME             one inside a .ja archive
 //   texture-tool png  ARCHIVE.ja NAME [--mip N] [--out DIR]
 //   texture-tool png  FILE [--mip N] [--out DIR]
@@ -12,7 +12,9 @@
 #include "common/PngWriter.h"
 #include "common/SafeOutput.h"
 #include "content/ContentError.h"
+#include "content/ArchivePath.h"
 #include "content/ImageFile.h"
+#include "content/TextureDescriptor.h"
 #include "content/JaArchive.h"
 #include "content/ReadOnlyFile.h"
 #include "content/TextureFile.h"
@@ -40,7 +42,7 @@ int usage() {
     std::cerr << "usage:\n"
                  "  texture-tool info FILE | ARCHIVE.ja NAME\n"
                  "  texture-tool png  FILE | ARCHIVE.ja NAME  [--mip N] [--out DIR]\n"
-                 "  (FILE / NAME: .texture, .tga, .bmp, .jpg or .jpeg; --mip is for .texture only)\n";
+                 "  (FILE / NAME: .texture, .texture.txt, .tga, .bmp, .jpg or .jpeg; --mip is for .texture only)\n";
     return 2;
 }
 
@@ -108,9 +110,59 @@ int main(int argc, char** argv) {
         std::uint32_t outH = 0;
         std::vector<std::uint8_t> rgba;
         const ImageKind kind = imageKindFromName(shownName);
-        if (kind != ImageKind::Unknown) {
-            // .tga / .bmp / .jpg: one image, no mip levels.
-            RgbaImage img = decodeImage(kind, bytes);
+        const bool isDescriptor = shownName.size() > 12 &&
+                                  asciiLower(shownName.substr(shownName.size() - 12)) == ".texture.txt";
+        const bool loose = kind != ImageKind::Unknown || isDescriptor;
+        if (loose) {
+            // .tga / .bmp / .jpg, or a .texture.txt naming them: one image, no mip levels.
+            RgbaImage img;
+            if (isDescriptor) {
+                const TextureDescriptor d = parseTextureDescriptor(bytes);
+                for (const auto& w : d.warnings) {
+                    std::cerr << "warning: " << w << "\n";
+                }
+                if (d.primary.empty()) {
+                    std::cerr << "the descriptor names no Primary image\n";
+                    return 1;
+                }
+                // The images sit next to the descriptor: in the same archive, or the same folder.
+                auto load = [&](const std::string& n) {
+                    std::vector<std::uint8_t> b;
+                    std::string name;
+                    if (pos.size() == 2) {
+                        const auto archive = JaArchive::open(pos[0]);
+                        name = resolveDescriptorPath(shownName, n);
+                        const JaEntry* ie = archive.find(name);
+                        if (ie == nullptr) {
+                            throw ContentError("'" + name + "' (named by the descriptor) is not in the archive");
+                        }
+                        b = archive.readLimited(*ie, kMaxTextureFile);
+                    } else {
+                        name = (fs::path(pos[0]).parent_path() / n).string();
+                        const auto f = ReadOnlyFile::open(name);
+                        if (f.size() > kMaxTextureFile) {
+                            throw ContentError("'" + name + "' is too large for a texture");
+                        }
+                        b.resize(static_cast<std::size_t>(f.size()));
+                        f.readExact(0, b);
+                    }
+                    return decodeImage(imageKindFromName(name), b);
+                };
+                const RgbaImage primary = load(d.primary[0]);
+                const bool same = !d.alpha.empty() && asciiLower(d.alpha[0]) == asciiLower(d.primary[0]);
+                RgbaImage alpha;
+                if (!d.alpha.empty() && !same) {
+                    alpha = load(d.alpha[0]);
+                }
+                img = composeDescriptorImage(primary, d.alpha.empty() ? nullptr : (same ? &primary : &alpha), same);
+                img.description = "descriptor: Primary " + d.primary[0] +
+                                  (d.alpha.empty() ? std::string(", no Alpha (opaque)")
+                                                   : ", Alpha " + d.alpha[0] + (same ? " (its own alpha)" : " (grey mask)")) +
+                                  (d.wrapS ? std::string(", wrap ") + (*d.wrapS ? "s" : "-") + (*d.wrapT ? "t" : "-") : "") +
+                                  (d.alphaHint ? ", AlphaHint " + std::to_string(static_cast<int>(*d.alphaHint)) : "");
+            } else {
+                img = decodeImage(kind, bytes);
+            }
             for (const auto& w : img.warnings) {
                 std::cerr << "warning: " << w << "\n";
             }
@@ -127,11 +179,11 @@ int main(int argc, char** argv) {
             outH = img.height;
             rgba = std::move(img.rgba);
         }
-        const TextureFile tex = kind != ImageKind::Unknown ? TextureFile{} : parseTexture(bytes);
+        const TextureFile tex = loose ? TextureFile{} : parseTexture(bytes);
         for (const auto& w : tex.warnings) {
             std::cerr << "warning: " << w << "\n";
         }
-        if (kind == ImageKind::Unknown && cmd == "info") {
+        if (!loose && cmd == "info") {
             std::printf("%s\n  %ux%u %s, %zu mip levels, INFO version %u\n  INFO words:", shownName.c_str(),
                         tex.info.width, tex.info.height, pixelFormatName(tex.info.format), tex.mips.size(),
                         tex.info.version);
@@ -141,7 +193,7 @@ int main(int argc, char** argv) {
             std::printf("\n");
             return 0;
         }
-        if (kind == ImageKind::Unknown) {
+        if (!loose) {
             if (mipLevel < 0 || static_cast<std::size_t>(mipLevel) >= tex.mips.size()) {
                 std::cerr << "--mip must be 0.." << tex.mips.size() - 1 << "\n";
                 return 2;

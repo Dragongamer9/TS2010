@@ -19,7 +19,7 @@ asset-tool find     /path/to/TS2010 "<kuid:447264:1073>"
 asset-tool versions /path/to/TS2010 5:6
 ```
 
-`texture-tool` shows a `.texture` and saves it as a PNG under
+`texture-tool` shows a `.texture`, a `.texture.txt` descriptor (combining its Primary and Alpha images; [`docs/formats/texture-descriptor.md`](docs/formats/texture-descriptor.md)) or a loose image, and saves it as a PNG under
 `~/.local/share/trainz-native/textures/` ([`docs/formats/texture.md`](docs/formats/texture.md)):
 
 ```sh

@@ -9,12 +9,14 @@
 #include "content/ImageFile.h"
 #include "content/JaArchive.h"
 #include "content/AnimationFile.h"
+#include "content/ArchivePath.h"
 #include "content/AssetConfig.h"
 #include "content/AssetIndex.h"
 #include "content/Kuid.h"
 #include "content/MeshFile.h"
 #include "content/ReadOnlyFile.h"
 #include "content/SoundFile.h"
+#include "content/TextureDescriptor.h"
 #include "content/TextureFile.h"
 #include "input/KeyBindings.h"
 
@@ -27,6 +29,7 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <regex>
 #include <string>
 #include <vector>
@@ -529,4 +532,63 @@ TEST_F(RealInstall, LooseImagesDecode) {
         std::cout << "    " << n << "  " << d << "\n";
     }
     EXPECT_EQ(failures, 0u);
+}
+
+TEST_F(RealInstall, TextureDescriptorsResolve) {
+    // Every .texture.txt parses without warnings, and its Primary/Alpha images exist
+    // next to it in the same archive, decode, and combine.
+    std::size_t descriptors = 0;
+    std::size_t combined = 0;
+    std::size_t skippedJpeg = 0;
+    std::size_t problems = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        for (const auto& e : a.entries()) {
+            if (e.name.size() < 12 || e.name.compare(e.name.size() - 12, 12, ".texture.txt") != 0 ||
+                !a.isLookupWinner(e)) {
+                continue;
+            }
+            ++descriptors;
+            try {
+                const auto d = parseTextureDescriptor(a.readLimited(e, 64 * 1024));
+                for (const auto& w : d.warnings) {
+                    ++problems;
+                    std::cout << "  " << e.name << ": " << w << "\n";
+                }
+                if (d.primary.empty()) {
+                    continue;
+                }
+                auto load = [&](const std::string& n) -> std::optional<RgbaImage> {
+                    const std::string full = resolveDescriptorPath(e.name, n);
+                    const JaEntry* img = a.find(full);
+                    if (img == nullptr) {
+                        throw ContentError("missing image " + full);
+                    }
+                    const ImageKind kind = imageKindFromName(full);
+                    if (kind == ImageKind::Jpeg && !jpegSupported()) {
+                        return std::nullopt;
+                    }
+                    return decodeImage(kind, a.readLimited(*img, std::size_t{256} << 20));
+                };
+                const auto primary = load(d.primary[0]);
+                std::optional<RgbaImage> alpha;
+                const bool same = !d.alpha.empty() && asciiLower(d.alpha[0]) == asciiLower(d.primary[0]);
+                if (!d.alpha.empty() && !same) {
+                    alpha = load(d.alpha[0]);
+                }
+                if (!primary || (!d.alpha.empty() && !same && !alpha)) {
+                    ++skippedJpeg;
+                    continue;
+                }
+                (void)composeDescriptorImage(*primary, d.alpha.empty() ? nullptr : (same ? &*primary : &*alpha), same);
+                ++combined;
+            } catch (const ContentError& err) {
+                ++problems;
+                std::cout << "  " << e.name << ": " << err.what() << "\n";
+            }
+        }
+    }
+    std::cout << "  texture descriptors: " << descriptors << ", combined: " << combined
+              << ", skipped (no libjpeg): " << skippedJpeg << ", problems: " << problems << "\n";
+    EXPECT_EQ(problems, 0u);
 }
