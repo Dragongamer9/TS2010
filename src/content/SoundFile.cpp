@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <utility>
 
 namespace trainz::content {
 
@@ -16,6 +17,23 @@ constexpr std::uint16_t kTagMsAdpcm = 2;
 constexpr std::uint16_t kTagMp3 = 85;
 
 std::int16_t loadS16LE(const std::uint8_t* p) { return static_cast<std::int16_t>(loadU16LE(p)); }
+
+// An MP3 file without a RIFF header: an ID3v2 tag, or an MPEG audio frame
+// header (11 sync bits, a valid version, a layer, a bitrate index other than
+// "bad" and a valid sample-rate index).
+bool looksLikeBareMpegAudio(std::span<const std::uint8_t> d) {
+    if (d.size() >= 10 && std::memcmp(d.data(), "ID3", 3) == 0) {
+        return true;
+    }
+    if (d.size() < 4 || d[0] != 0xFF || (d[1] & 0xE0) != 0xE0) {
+        return false;
+    }
+    const unsigned version = (d[1] >> 3) & 3u;  // 1 is reserved
+    const unsigned layer = (d[1] >> 1) & 3u;    // 0 is reserved
+    const unsigned bitrate = d[2] >> 4;         // 15 is bad
+    const unsigned rate = (d[2] >> 2) & 3u;     // 3 is reserved
+    return version != 1 && layer != 0 && bitrate != 15 && rate != 3;
+}
 
 
 // Microsoft ADPCM (the standard algorithm, as in the Windows msadpcm codec).
@@ -98,7 +116,8 @@ void decodeMsAdpcm(const WavInfo& w, std::span<const std::uint8_t> d, PcmSound& 
 
 WavInfo parseWav(std::span<const std::uint8_t> data) {
     if (data.size() >= 4 && data[0] == 0 && data[1] == 0 && data[2] == 1 && data[3] == 0xBA) {
-        throw ContentError("this is an MPEG stream, not a WAV file (it has a .wav name)");
+        // The one on the disc is DVD-style video: MPEG-2 video plus AC-3 audio.
+        throw ContentError("this is an MPEG program stream (a video container), not a WAV file (it has a .wav name)");
     }
     if (data.size() < 12 || std::memcmp(data.data(), "RIFF", 4) != 0 || std::memcmp(data.data() + 8, "WAVE", 4) != 0) {
         throw ContentError("not a RIFF/WAVE file");
@@ -163,6 +182,11 @@ WavInfo parseWav(std::span<const std::uint8_t> data) {
 }
 
 PcmSound decodeWav(std::span<const std::uint8_t> data) {
+    if (looksLikeBareMpegAudio(data)) {
+        PcmSound s = decodeMp3(data);
+        s.warnings.insert(s.warnings.begin(), "this .wav is really an MP3 stream (no RIFF header); decoded as MP3");
+        return s;
+    }
     const WavInfo w = parseWav(data);
     PcmSound out;
     out.channels = w.channels;
@@ -195,8 +219,23 @@ PcmSound decodeWav(std::span<const std::uint8_t> data) {
         case kTagMsAdpcm:
             decodeMsAdpcm(w, d, out);
             return out;
-        case kTagMp3:
-            throw ContentError("MP3 inside a WAV file is not decoded yet (3 files on the disc)");
+        case kTagMp3: {
+            if (!mp3DecodingAvailable()) {
+                throw ContentError("MP3 inside a WAV file: MP3 decoding is not built in (install libmpg123-dev and rebuild)");
+            }
+            PcmSound s = decodeMp3(d);
+            if (s.channels != w.channels || s.sampleRate != w.sampleRate) {
+                out.warnings.push_back("the WAV header says " + std::to_string(w.channels) + " channel(s), " +
+                                       std::to_string(w.sampleRate) + " Hz; the MP3 stream is " +
+                                       std::to_string(s.channels) + " channel(s), " + std::to_string(s.sampleRate) +
+                                       " Hz, which is used");
+            }
+            out.channels = s.channels;
+            out.sampleRate = s.sampleRate;
+            out.samples = std::move(s.samples);
+            out.warnings.insert(out.warnings.end(), s.warnings.begin(), s.warnings.end());
+            return out;
+        }
         default:
             throw ContentError("WAV format tag " + std::to_string(w.formatTag) + " is not supported");
     }

@@ -29,7 +29,8 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates git cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev
+            ca-certificates git cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev \
+            pkg-config libmpg123-dev
 
       - uses: actions/checkout@v4
 
@@ -48,6 +49,9 @@ jobs:
 
       - name: Check the model viewer was built
         run: test -x build/model-viewer && test -x build/sound-player && test -x build/key-tester && test -x build/sdl_input_tests
+
+      - name: Check MP3 decoding was built in
+        run: grep -q TRAINZ_HAVE_MPG123 build/compile_commands.json
 
       - name: Test (includes the real game data in testdata/ts2010, read-only)
         env:

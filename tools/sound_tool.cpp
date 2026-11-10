@@ -1,7 +1,9 @@
-// sound-tool: inspect .wav sounds and export them as plain 16-bit PCM WAV.
+// sound-tool: inspect .wav and .mp3 sounds and export them as plain 16-bit PCM WAV.
 //
 //   sound-tool info   ARCHIVE.ja NAME
 //   sound-tool export ARCHIVE.ja NAME [--out DIR]
+//
+// MP3 (a .mp3 file, or MP3 inside a .wav) needs a build with libmpg123.
 //
 // Game files are only read; exports go below ~/.local/share/trainz-native/sounds
 // (or --out inside it).
@@ -46,6 +48,17 @@ int main(int argc, char** argv) {
             return 1;
         }
         const auto bytes = archive.readLimited(*e, std::size_t{256} << 20);
+        const bool isMp3 = e->name.size() >= 4 && e->name.compare(e->name.size() - 4, 4, ".mp3") == 0;
+        if (cmd == "info" && isMp3) {
+            const PcmSound s = decodeMp3(bytes);
+            for (const auto& m : s.warnings) {
+                std::cerr << "warning: " << m << "\n";
+            }
+            std::printf("%s: MP3, %u channel(s), %u Hz, %zu sample frames (%.3f s), %zu bytes\n", e->name.c_str(),
+                        s.channels, s.sampleRate, s.samples.size() / s.channels,
+                        static_cast<double>(s.samples.size() / s.channels) / s.sampleRate, bytes.size());
+            return 0;
+        }
         if (cmd == "info") {
             const WavInfo w = parseWav(bytes);
             for (const auto& m : w.warnings) {
@@ -62,7 +75,7 @@ int main(int argc, char** argv) {
             std::cerr << "unknown command\n";
             return 2;
         }
-        const PcmSound s = decodeWav(bytes);
+        const PcmSound s = decodeSoundFile(e->name, bytes);
         for (const auto& m : s.warnings) {
             std::cerr << "warning: " << m << "\n";
         }
@@ -76,6 +89,9 @@ int main(int argc, char** argv) {
             if (c == '/' || c == '\\' || c == ':') {
                 c = '_';
             }
+        }
+        if (isMp3) {
+            file += ".wav";  // the export is a PCM WAV
         }
         out.createFile(file, [&](int fd) {
             std::size_t done = 0;

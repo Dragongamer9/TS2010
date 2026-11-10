@@ -10,6 +10,7 @@ option(TRAINZ_BUILD_TESTS "Build the tests (needs libgtest-dev)" ON)
 option(TRAINZ_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(TRAINZ_WERROR "Treat compiler warnings as errors" OFF)
 option(TRAINZ_BUILD_VIEWER "Build model-viewer if SDL2 and OpenGL are installed (libsdl2-dev, libgl-dev)" ON)
+option(TRAINZ_WITH_MPG123 "Decode MP3 sounds if libmpg123 is installed (libmpg123-dev)" ON)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
   message(FATAL_ERROR "trainz-native targets Linux only")
@@ -40,6 +41,7 @@ add_library(trainz_content
   src/content/JirfFile.cpp
   src/content/Kuid.cpp
   src/content/MeshFile.cpp
+  src/content/Mp3Decoder.cpp
   src/content/ReadOnlyFile.cpp
   src/content/SoundFile.cpp
   src/content/TextureFile.cpp
@@ -49,6 +51,21 @@ add_library(trainz_content
 )
 target_include_directories(trainz_content PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(trainz_content PRIVATE ${TRAINZ_WARNINGS})
+
+# MP3 decoding is optional: without libmpg123, decodeMp3 throws a clear error.
+if(TRAINZ_WITH_MPG123)
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(MPG123 QUIET IMPORTED_TARGET libmpg123)
+  endif()
+endif()
+if(MPG123_FOUND)
+  message(STATUS "MP3 decoding: libmpg123 ${MPG123_VERSION}")
+  target_compile_definitions(trainz_content PRIVATE TRAINZ_HAVE_MPG123=1)
+  target_link_libraries(trainz_content PRIVATE PkgConfig::MPG123)
+else()
+  message(STATUS "MP3 decoding not built: install libmpg123-dev (and pkg-config)")
+endif()
 
 add_executable(ja-tool tools/ja_tool.cpp)
 target_link_libraries(ja-tool PRIVATE trainz_content)
@@ -126,6 +143,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_ground.cpp
     tests/test_keybindings.cpp
     tests/test_mesh.cpp
+    tests/test_mp3.cpp
     tests/test_corruption.cpp
     tests/test_path_kuid.cpp
     tests/test_real_install.cpp
