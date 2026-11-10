@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 
 namespace trainz::content {
 
@@ -168,6 +169,12 @@ std::optional<std::size_t> imageByteSize(PixelFormat f, std::uint32_t w, std::ui
 }
 
 TextureFile parseTexture(std::span<const std::uint8_t> data) {
+    // One file on the disc (Builtin\6.ja parkeerplaats.texture.texture) is a
+    // text descriptor ("Primary=parkeerplaats.bmp") under a .texture name.
+    static constexpr char kDescriptor[] = "Primary=";
+    if (data.size() >= sizeof kDescriptor - 1 && std::memcmp(data.data(), kDescriptor, sizeof kDescriptor - 1) == 0) {
+        throw ContentError("this is a texture descriptor text file (.texture.txt style), not a binary .texture");
+    }
     const JirfFile jirf = parseJirf(data);
     if (jirf.form != "MMTF") {
         throw ContentError("not a texture (JIRF form is '" + jirf.form + "', expected 'MMTF')");
@@ -189,9 +196,9 @@ TextureFile parseTexture(std::span<const std::uint8_t> data) {
     tex.info.format = static_cast<PixelFormat>(tex.info.words[kInfoWordFormat]);
     tex.info.width = tex.info.words[kInfoWordWidth];
     tex.info.height = tex.info.words[kInfoWordHeight];
-    if (tex.info.version != 0x107 && tex.info.version != 0x103) {
+    if (tex.info.version != 0x107 && tex.info.version != 0x106 && tex.info.version != 0x103) {
         tex.warnings.push_back("INFO version " + std::to_string(tex.info.version) +
-                               " has not been seen before (259 and 263 have)");
+                               " has not been seen before (259, 262 and 263 have)");
     }
     const auto& t = tex.info;
     if (t.width == 0 || t.height == 0 || t.width > kMaxTextureSize || t.height > kMaxTextureSize) {

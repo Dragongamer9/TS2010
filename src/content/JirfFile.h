@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -38,5 +39,14 @@ JirfFile parseJirf(std::span<const std::uint8_t> data);
 // Parses a run of chunks (tag, u32 size, data) inside a chunk's data, e.g. the
 // sub-chunks of a mesh "CHNK". baseOffset is added to the reported offsets.
 std::vector<JirfChunk> parseJirfChunks(std::span<const std::uint8_t> data, std::size_t baseOffset = 0);
+
+// Some files on the TS2010 disc were damaged before they were packed: a
+// text-mode transfer turned every 0x0A byte into 0x0D 0x0A (65 meshes in
+// Builtin\1.ja-4.ja). Such a file is exactly (declared size + number of
+// CR LF pairs) long. This returns the repaired bytes (every CR LF turned back
+// into LF) only when the result is a JIRF file whose declared size matches
+// exactly; otherwise nullopt. The game itself probably cannot read these
+// files; the strict parsers reject them, and only tools use this repair.
+std::optional<std::vector<std::uint8_t>> repairTextModeDamage(std::span<const std::uint8_t> data);
 
 }  // namespace trainz::content

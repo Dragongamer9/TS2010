@@ -132,7 +132,7 @@ int main(int argc, char** argv) {
             std::cerr << "'" << name << "' is not in " << archivePath.string() << "\n";
             return 1;
         }
-        MeshFile mesh = parseMesh(archive.readLimited(*e, kMaxFile));
+        MeshFile mesh = parseMeshOrRepair(archive.readLimited(*e, kMaxFile));
         for (const auto& wmsg : mesh.warnings) {
             std::cerr << "warning: " << wmsg << "\n";
         }

@@ -55,6 +55,26 @@ std::vector<JirfChunk> parseJirfChunks(std::span<const std::uint8_t> data, std::
     return out;
 }
 
+std::optional<std::vector<std::uint8_t>> repairTextModeDamage(std::span<const std::uint8_t> data) {
+    if (data.size() >= 8 && std::memcmp(data.data(), "JIRF", 4) == 0 &&
+        static_cast<std::uint64_t>(loadU32LE(data.data() + 4)) + 8 == data.size()) {
+        return std::nullopt;  // consistent as stored: nothing to repair
+    }
+    std::vector<std::uint8_t> out;
+    out.reserve(data.size());
+    for (std::size_t i = 0; i < data.size(); ++i) {
+        if (data[i] == 0x0D && i + 1 < data.size() && data[i + 1] == 0x0A) {
+            continue;  // drop the CR of every CR LF
+        }
+        out.push_back(data[i]);
+    }
+    if (out.size() == data.size() || out.size() < 8 || std::memcmp(out.data(), "JIRF", 4) != 0 ||
+        static_cast<std::uint64_t>(loadU32LE(out.data() + 4)) + 8 != out.size()) {
+        return std::nullopt;
+    }
+    return out;
+}
+
 JirfFile parseJirf(std::span<const std::uint8_t> data) {
     if (data.size() < 12) {
         throw ContentError("too small to be a JIRF file (" + std::to_string(data.size()) + " bytes)");

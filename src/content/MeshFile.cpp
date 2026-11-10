@@ -52,6 +52,43 @@ public:
         pos_ += n;
         return std::string(p, len);
     }
+    // A length-prefixed MATL text field. Bit 30 of the length marks UTF-16LE
+    // text (seen in 56 materials in Builtin\1.ja-4.ja, e.g. coalman.im); the
+    // low 30 bits are the byte count. Returned as UTF-8.
+    std::string matlText(std::uint32_t lengthField) {
+        constexpr std::uint32_t kWide = 0x40000000u;
+        const std::uint32_t n = lengthField & ~kWide;
+        if (n > kMaxNameBlock) {
+            throw ContentError(std::string(what_) + ": text of " + std::to_string(n) + " bytes is too long");
+        }
+        if (!(lengthField & kWide)) {
+            return text(n);
+        }
+        need(n);
+        std::string out;
+        const std::uint8_t* p = d_.data() + pos_;
+        for (std::size_t i = 0; i + 1 < n; i += 2) {
+            std::uint32_t c = static_cast<std::uint32_t>(p[i] | (p[i + 1] << 8));
+            if (c == 0) {
+                break;
+            }
+            if (c >= 0xD800 && c <= 0xDFFF) {
+                c = '?';  // surrogates are not expected in these names
+            }
+            if (c < 0x80) {
+                out.push_back(static_cast<char>(c));
+            } else if (c < 0x800) {
+                out.push_back(static_cast<char>(0xC0 | (c >> 6)));
+                out.push_back(static_cast<char>(0x80 | (c & 0x3F)));
+            } else {
+                out.push_back(static_cast<char>(0xE0 | (c >> 12)));
+                out.push_back(static_cast<char>(0x80 | ((c >> 6) & 0x3F)));
+                out.push_back(static_cast<char>(0x80 | (c & 0x3F)));
+            }
+        }
+        pos_ += n;
+        return out;
+    }
     std::size_t pos() const { return pos_; }
     std::size_t left() const { return d_.size() - pos_; }
 
@@ -85,11 +122,7 @@ Material parseMaterialChunk(std::span<const std::uint8_t> data) {
     if (m.version != 102 && m.version != 103) {
         throw ContentError("MATL version " + std::to_string(m.version) + " is unknown (102 and 103 are known)");
     }
-    const std::uint32_t nameLen = r.u32();
-    if (nameLen > kMaxNameBlock) {
-        throw ContentError("MATL name of " + std::to_string(nameLen) + " bytes is too long");
-    }
-    m.name = r.text(nameLen);
+    m.name = r.matlText(r.u32());
     m.kind = materialKind(m.name);
     for (auto& v : m.values) {
         v = r.f32();
@@ -101,11 +134,7 @@ Material parseMaterialChunk(std::span<const std::uint8_t> data) {
     for (std::uint32_t i = 0; i < count; ++i) {
         MaterialTexture t;
         t.type = r.u32();
-        const std::uint32_t len = r.u32();
-        if (len > kMaxNameBlock) {
-            throw ContentError("MATL texture path of " + std::to_string(len) + " bytes is too long");
-        }
-        t.originalPath = r.text(len);
+        t.originalPath = r.matlText(r.u32());
         t.fileName = lastPathPart(t.originalPath);
         t.amount = r.f32();
         m.textures.push_back(std::move(t));
@@ -241,6 +270,26 @@ MeshFile parseMesh(std::span<const std::uint8_t> data) {
         mesh.parts.push_back(std::move(part));
     }
     return mesh;
+}
+
+MeshFile parseMeshOrRepair(std::span<const std::uint8_t> data, bool* repaired) {
+    if (repaired) {
+        *repaired = false;
+    }
+    try {
+        return parseMesh(data);
+    } catch (const ContentError&) {
+        const auto fixed = repairTextModeDamage(data);
+        if (!fixed) {
+            throw;
+        }
+        MeshFile m = parseMesh(*fixed);
+        m.warnings.push_back("file was damaged by a text-mode transfer (CR LF for LF) and has been repaired in memory");
+        if (repaired) {
+            *repaired = true;
+        }
+        return m;
+    }
 }
 
 }  // namespace trainz::content

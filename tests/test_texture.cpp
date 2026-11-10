@@ -124,6 +124,15 @@ TEST(Texture, RejectsInconsistentFiles) {
     EXPECT_THROW(parseTexture(jirf("MMTF", {jirfChunk("MMAP", l1)})), ContentError);  // no INFO
 }
 
+TEST(Texture, DescriptorTextGetsAClearError) {
+    try {
+        (void)parseTexture(bytesOf("Primary=parkeerplaats.bmp\r\nTile=st\r\n"));
+        FAIL() << "expected an error";
+    } catch (const ContentError& e) {
+        EXPECT_NE(std::string(e.what()).find("descriptor"), std::string::npos);
+    }
+}
+
 TEST(Texture, EveryTruncationAndByteChangeIsSafe) {
     const Bytes good = texture(PixelFormat::DXT1, 4, 4, 3, {Bytes(8, 0xAB), Bytes(8, 0xCD), Bytes(8, 0xEF)});
     auto tryAll = [](const Bytes& b) {

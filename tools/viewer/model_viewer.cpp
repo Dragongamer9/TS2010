@@ -105,7 +105,7 @@ int main(int argc, char** argv) {
             std::cerr << "'" << argv[2] << "' is not in " << argv[1] << "\n";
             return 1;
         }
-        original = parseMesh(archive->readLimited(*e, kMaxFile));
+        original = parseMeshOrRepair(archive->readLimited(*e, kMaxFile));
         title = "model-viewer - " + e->name;
         const std::string folder = e->name.find('/') == std::string::npos ? "" : e->name.substr(0, e->name.rfind('/') + 1);
         for (const auto& part : original.parts) {

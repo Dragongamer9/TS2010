@@ -7,7 +7,7 @@
 // ('Sec5' -> 0x81ec70, 'Secs' -> 0x8298c0, picked at 0x6d293e), which have
 // not been traced.
 //
-//   "GND\r"  u32 sectionCount  u32 (0)  u32 (4)
+//   "GND\r"  u32 sectionCount  i32  i32   (the two words vary per route; meaning unknown)
 //   sectionCount x { char tag[4] (stored reversed: "5ceS" = Sec5), u32 start, u32 end, i32 x, i32 y }
 //   ... further header data (meaning unknown) ...
 //   per section: bytes [start, end) = section data, then 8192 bytes = 64x64 u16 overview map
@@ -32,8 +32,8 @@ struct GroundSection {
 };
 
 struct GroundFile {
-    std::uint32_t headerWord2 = 0;  // 0 in the sample
-    std::uint32_t headerWord3 = 0;  // 4 in the sample
+    std::uint32_t headerWord2 = 0;  // varies per route (signed?); meaning unknown
+    std::uint32_t headerWord3 = 0;  // varies per route (signed?); meaning unknown
     std::vector<GroundSection> sections;  // in index order
     std::vector<std::uint8_t> extraHeader;  // bytes between the index and the first section (meaning unknown)
     std::vector<std::string> warnings;

@@ -226,6 +226,10 @@ private:
                     ++i_;
                     node.type = ConfigType::Group;
                     parseBlock(node, depth + 1);
+                } else if (!atEnd() && t_[i_] == '"') {
+                    // The value is a string that starts on the next line (seen in
+                    // Builtin\3.ja kuid -13:151000 "description"). Keys never start with '"'.
+                    parseString(node);
                 } else {
                     i_ = saveI;
                     line_ = saveLine;

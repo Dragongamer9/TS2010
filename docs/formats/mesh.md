@@ -25,6 +25,8 @@ subset of `8.ja` (see `testdata/README.md`). The first run found one mesh in
 `Data.ja` with GEOM **version 101**, which the survey had missed. Its layout
 fits exactly with one header word fewer than version 102.
 
+**Whole disc:** See [`../DISC-SURVEY.md`](../DISC-SURVEY.md) for the check across the whole disc (all 8 `Builtin` archives). It found UTF-16 text in `MATL`, 65 meshes damaged by a text-mode transfer before the disc was made, and 476 files with harmless extra bytes at the end.
+
 ## 1. File
 
 ```
@@ -82,7 +84,8 @@ float extra[nv][3]     v201 with flags & 1 only (40 parts); meaning unknown
 
 ```
 u32 version            102 (5,904) or 103 (2,078)
-u32 nameLen            NUL-padded name follows
+u32 nameLen            NUL-padded name follows; if bit 30 (0x40000000) is set the text is UTF-16LE
+                       and the low 30 bits are its byte count (56 materials on the disc). Same for texture paths.
 char name[nameLen]     e.g. "*shed*6A392CC2*floor*m.onetex" or "wall.m.tbumptex"
 float values[16]       colours and shininess (e.g. 1.0s, 0.1255s, 10.0); individual meaning not confirmed
 u32 textureCount

@@ -238,6 +238,13 @@ TEST(ConfigText, MultiLineStrings) {
     EXPECT_EQ(cfg.root.child("next")->text, "x");
 }
 
+TEST(ConfigText, StringValueOnTheNextLine) {
+    // Builtin\3.ja kuid -13:151000: the value of "description" starts on the next line.
+    const auto cfg = text("kind \"traincar\"\r\ndescription\r\n\"Double Door Boxcar\"\r\nnext 1\r\n");
+    EXPECT_EQ(cfg.root.child("description")->text, "Double Door Boxcar");
+    EXPECT_EQ(cfg.root.child("next")->ints.at(0), 1);
+}
+
 TEST(ConfigText, KeyWithoutValueAndComments) {
     const auto cfg = text("// a comment\nempty\nafter 1\n");
     ASSERT_EQ(cfg.root.children.size(), 2u);

@@ -7,6 +7,8 @@
 - **Checked:** every `.texture` in `Base.ja`, `Data.ja` and `Builtin\8.ja`
   (6,666 files), using a Python prototype of the same rules. Since 2026-11-10 the C++ reader also runs in CI on real game data (`Base.ja`, `Data.ja` and a real subset of `8.ja`; see `testdata/README.md`).
 
+**Whole disc:** all 89,524 `.texture` files fit. See [`../DISC-SURVEY.md`](../DISC-SURVEY.md) for the check across the whole disc (all 8 `Builtin` archives).
+
 ## 1. Container – checked
 
 ```
@@ -25,8 +27,8 @@
 
 ## 2. INFO – checked (fields 0, 2, 4, 5, 6) / unknown (the rest)
 
-There are two versions: **0x107** with an 80-byte INFO (6,637 files) and
-**0x103** with 60 bytes (29 files).
+Three versions are known: **0x107** with an 80-byte INFO, **0x103** with 60 bytes,
+and **0x106** (195 files on the whole disc, found by the survey).
 
 | Word | Meaning | Evidence |
 |---:|---|---|

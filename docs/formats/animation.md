@@ -16,6 +16,8 @@ checked with a Python prototype on **all 135** `.kin` files in `Base.ja`,
 
 Since 2026-11-10 the C++ reader also runs in CI on real game data (`Base.ja`, `Data.ja` and a real subset of `8.ja`; see `testdata/README.md`).
 
+**Whole disc:** all 2,629 `.kin` files fit. See [`../DISC-SURVEY.md`](../DISC-SURVEY.md) for the check across the whole disc (all 8 `Builtin` archives).
+
 ## 1. File
 
 Every file has its chunks in this order:

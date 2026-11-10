@@ -27,6 +27,8 @@ built-in assets' KUIDs match their folders.
 
 ---
 
+**Whole disc:** all 19,112 `config.chump` and 70 `config.txt` files parse; all 17,388 top-level asset KUIDs match their folders. See [`../DISC-SURVEY.md`](../DISC-SURVEY.md) for the check across the whole disc (all 8 `Builtin` archives).
+
 ## 1. `config.chump`
 
 ### 1.1 Header – traced
@@ -135,6 +137,7 @@ statement := key ( '"' text '"'        string; may run over several lines
                  | rest-of-line        bare value
                  | nothing )           key with no value
 key       := run of characters up to space, tab, line end, '{', '}' or '"'
+(a '"' string may also start on the line after its key: seen once on the disc)
 ```
 
 **Bare values** run to the end of the line, with trailing spaces removed:

@@ -1,6 +1,7 @@
 #include "JaTestBuilder.h"
 
 #include "content/ContentError.h"
+#include "content/JirfFile.h"
 #include "content/MeshFile.h"
 #include "view/MeshPreview.h"
 
@@ -200,6 +201,62 @@ TEST(Mesh, MaterialWithTextures) {
     EXPECT_EQ(m.textures[0].fileName, "wall.texture");
     EXPECT_EQ(m.textures[1].fileName, "wall-normal.texture");
     EXPECT_FLOAT_EQ(m.values[15], 10.0f);
+}
+
+TEST(Mesh, MaterialWithWideText) {
+    // Bit 30 of a MATL length marks UTF-16LE text (Builtin\1.ja coalman.im).
+    Bytes b;
+    putU32(b, 102);
+    const std::string name = "*coalman*F2B3112D*head/hands*m.onetex";
+    putU32(b, 0x40000000u | static_cast<std::uint32_t>((name.size() + 1) * 2));
+    for (char c : name) {
+        putU16(b, static_cast<std::uint8_t>(c));
+    }
+    putU16(b, 0);
+    for (int i = 0; i < 16; ++i) {
+        putF(b, 1.0f);
+    }
+    putU32(b, 1);
+    putU32(b, 1);
+    const std::string path = "C:\\Coalman\\m_head_2.texture";
+    putU32(b, 0x40000000u | static_cast<std::uint32_t>((path.size() + 1) * 2));
+    for (char c : path) {
+        putU16(b, static_cast<std::uint8_t>(c));
+    }
+    putU16(b, 0);
+    putF(b, 1.0f);
+    const auto m = parseMaterialChunk(b);
+    EXPECT_EQ(m.name, name);
+    EXPECT_EQ(m.kind, "m.onetex");
+    ASSERT_EQ(m.textures.size(), 1u);
+    EXPECT_EQ(m.textures[0].fileName, "m_head_2.texture");
+}
+
+TEST(Mesh, TextModeDamageIsRepairedOnlyWhenExact) {
+    Bytes good = mesh({{matl(102, "*a*1*one*m.onetex", {}), geom(200)}});
+    good[24] = 0x0A;  // inside INFO (not validated): guarantees bytes the damage will touch
+    good[25] = 0x0A;
+    Bytes damaged;
+    for (std::uint8_t c : good) {
+        if (c == 0x0A) {
+            damaged.push_back(0x0D);
+        }
+        damaged.push_back(c);
+    }
+    ASSERT_NE(damaged.size(), good.size()) << "test mesh needs some 0x0A bytes";
+    EXPECT_THROW(parseMesh(damaged), ContentError);
+    const auto fixed = repairTextModeDamage(damaged);
+    ASSERT_TRUE(fixed.has_value());
+    EXPECT_EQ(*fixed, good);
+    bool repaired = false;
+    const auto m = parseMeshOrRepair(damaged, &repaired);
+    EXPECT_TRUE(repaired);
+    EXPECT_EQ(m.parts.size(), 1u);
+    EXPECT_FALSE(repairTextModeDamage(good).has_value());  // nothing to repair
+    Bytes notExact = damaged;
+    notExact.push_back(0x0D);
+    notExact.push_back(0x0A);  // one CR LF too many: the size rule no longer fits
+    EXPECT_FALSE(repairTextModeDamage(notExact).has_value());
 }
 
 TEST(Mesh, MaterialKindFromStarredName) {

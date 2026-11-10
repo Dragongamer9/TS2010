@@ -64,6 +64,10 @@ struct MeshFile {
 // Throws ContentError on damage. Data must stay alive only during the call.
 MeshFile parseMesh(std::span<const std::uint8_t> data);
 
+// For tools: parseMesh, and if that fails, retry once on the bytes repaired
+// by repairTextModeDamage (see JirfFile.h). *repaired tells which happened.
+MeshFile parseMeshOrRepair(std::span<const std::uint8_t> data, bool* repaired = nullptr);
+
 // Parsers for the two chunk types, exposed for tests.
 Material parseMaterialChunk(std::span<const std::uint8_t> data);
 MeshGeometry parseGeometryChunk(std::span<const std::uint8_t> data);
