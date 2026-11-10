@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Check the mapfile.gnd section layout (docs/formats/route.md) on real files.
 
-Every section's bytes [start, end) are parsed with the layout traced in
+The world data between the index and the first section is parsed with the
+rules of the file loader 0x6d2aa0 (environment 0x463dd0, object container
+0x886be0) and must end exactly at the first section. Every section's bytes
+[start, end) are parsed with the layout traced in
 trainz.exe (Secs reader 0x82be00, Sec5 reader 0x821200, vertex reader
 0x6f0e50) and the parse must end exactly at `end`. Then the 8192-byte
 overview map must follow. Prints one line per file and a total.
@@ -12,6 +15,7 @@ entry inside is checked; CFIL/BPE entries are decoded in memory).
 Usage:
   python3 -I tools/dev/gnd_sections.py FILE.gnd|ARCHIVE.ja ...
   python3 -I tools/dev/gnd_sections.py --stats FILE...   (also print field statistics)
+  python3 -I tools/dev/gnd_sections.py --world FILE...   (check only the world data block; fast)
 """
 import collections
 import os
@@ -142,6 +146,66 @@ def read_header(b):
     return version, secs, p
 
 
+def read_world(b, version, pos, end, st):
+    """World data after the index (file loader 0x6d2aa0 from 0x6d2cc7 on).
+    Returns the position where it ends; the caller checks it equals `end`."""
+    r = Reader(b, pos, end)
+    if version >= 7:  # environment, 0x463dd0
+        count = r.take("<i")
+        sub = -1
+        if count == -1:
+            sub = r.take("<i")
+            if sub != -1:
+                count = r.take("<i")
+        count = max(0, min(count, 32))
+        st["env_sub"][sub] += 1
+        st["env_count"][count] += 1
+        r.take("<Ii")  # KUID -> env+0xee4
+        r.take("<2f")
+        for _ in range(count):
+            r.take("<f12ff12f")  # 104 bytes: f32, 3 x vec4, f32, 3 x vec4 (0x80b170 reads 4 floats)
+        if sub != -1:
+            r.take("<q")  # 64-bit time, given to _localtime64 by 0x463c10
+            if sub >= 1:
+                r.take("<2f")
+    else:
+        raise ValueError("version %d world data (0x463cb0) not traced" % version)
+    if version >= 11:
+        r.take("<4f")  # 0x6d2d73 -> world+0x858c
+    if version >= 9:
+        r.take("<Ii")  # KUID -> world+0x41a0 (0x6d2d82)
+    if version >= 8:  # object container, vtable+0x28 = 0x886be0
+        cver = r.take("<I")
+        st["container_ver"][cver] += 1
+        if 1 <= cver <= 5:
+            if cver >= 5:
+                r.take("<I")
+            if cver == 2:
+                raise ValueError("container version 2 items are not self-sized (not handled)")
+            if cver >= 3:
+                while True:  # 0x886800
+                    index = r.take("<i")
+                    if index == -1:
+                        break
+                    tag = r.take("<4s")[::-1].decode("latin1")
+                    r.take("<Ii")  # KUID
+                    size = r.take("<I")
+                    if size > 0xFFFFFF:
+                        raise ValueError("container item size %d" % size)
+                    r.take("<%ds" % size)
+                    st["container_items"][tag] += 1
+            if cver >= 4:  # 0x8858d0: u32 size, then size bytes (skipped by this loader)
+                size = r.take("<I")
+                r.take("<%ds" % size)
+                st["tail_sizes"][size] += 1
+    if version < 13:  # ground-texture table, 0x6d2db8..0x6d2ef8
+        n = r.take("<i")
+        for _ in range(max(0, min(n, 250))):
+            r.take("<f")
+            r.take("<Ii")
+    return r.p
+
+
 def read_vertex(r, version, st):
     """0x6f0e50."""
     first = r.take("<B")
@@ -213,9 +277,22 @@ def read_section(b, tag, start, end, version, st):
     return r.p
 
 
-def check(name, b, st):
+def check(name, b, st, world_only=False):
     version, secs, index_end = read_header(b)
     bad = []
+    first = min(s[3] for s in secs)
+    try:
+        wend = read_world(b, version, index_end, first, st)
+        if wend != first:
+            bad.append("world data: parse ends at %d, first section at %d (%+d)" % (wend, first, wend - first))
+        else:
+            st["world_ok"] += 1
+    except ValueError as e:
+        bad.append("world data: %s" % e)
+    if world_only:
+        print("%s: version %d, world data %d bytes: %s" % (name, version, first - index_end,
+                                                           "OK" if not bad else bad[0]))
+        return len(secs), len(bad)
     for i, (x, y, tag, start, end) in enumerate(secs):
         if tag not in VERTS:
             bad.append("section %d: tag %r" % (i, tag))
@@ -244,25 +321,30 @@ def check(name, b, st):
 
 def main(argv):
     stats = "--stats" in argv
-    paths = [a for a in argv if a != "--stats"]
+    world_only = "--world" in argv
+    paths = [a for a in argv if a not in ("--stats", "--world")]
     if not paths:
         print(__doc__)
         return 2
     st = collections.defaultdict(int)
-    for k in ("ntex", "n_cells", "layers", "kuid_users", "tags"):
+    for k in ("ntex", "n_cells", "layers", "kuid_users", "tags", "env_sub", "env_count",
+              "container_ver", "container_items", "tail_sizes"):
         st[k] = collections.Counter()
     st["h"] = []
     total = bad = files = 0
     for p in paths:
         for name, b in gnd_entries(p):
-            n, nb = check(name, b, st)
+            n, nb = check(name, b, st, world_only)
             files += 1
             total += n
             bad += nb
-    print("files %d, sections %d, sections that do not fit: %d; section data bytes %d" % (
-        files, total, bad, st["data_bytes"]))
+    print("files %d (world data fits in %d), sections %d, problems: %d; section data bytes %d" % (
+        files, st["world_ok"], total, bad, st["data_bytes"]))
     if stats:
         h = st["h"]
+        print("world: env sub-version", dict(st["env_sub"]), "env key count", dict(st["env_count"]))
+        print("world: container version", dict(st["container_ver"]), "items", dict(st["container_items"]),
+              "tail sizes", dict(st["tail_sizes"]))
         print("tags", dict(st["tags"]))
         print("texture slot counts", dict(st["ntex"]), "slots with a KUID", st["tex_used"])
         print("KUID users", st["kuid_users"].most_common(8))

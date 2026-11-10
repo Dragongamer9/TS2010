@@ -55,8 +55,18 @@ int main(int argc, char** argv) {
             std::cerr << "warning: " << w << "\n";
         }
         if (cmd == "info") {
-            std::printf("%s: version %u, %zu sections, %zu bytes of world data (not decoded)\n", e->name.c_str(),
+            std::printf("%s: version %u, %zu sections, %zu bytes of world data\n", e->name.c_str(),
                         static_cast<unsigned>(g.version), g.sections.size(), g.extraHeader.size());
+            if (g.worldDecoded) {
+                const auto& w = g.world;
+                std::printf("  world: %zu environment keys, environment %s, kuid %s, %zu objects", w.envKeys.size(),
+                            formatKuid(w.envKuid.normalized()).c_str(), formatKuid(w.kuid.normalized()).c_str(),
+                            w.items.size());
+                if (w.hasDate) {
+                    std::printf(", date %lld", static_cast<long long>(w.date));
+                }
+                std::printf("\n");
+            }
             for (const auto& s : g.sections) {
                 const auto d = parseGroundSection(s, g.version);
                 std::size_t used = 0;

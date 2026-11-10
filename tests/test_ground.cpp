@@ -27,14 +27,60 @@ void putF32(Bytes& b, float f) {
 constexpr std::size_t kHeader = 8;
 constexpr std::size_t kEntry = 20;
 
+void putTag(Bytes& b, const char* tag) {
+    for (int k = 3; k >= 0; --k) {
+        b.push_back(static_cast<std::uint8_t>(tag[k]));
+    }
+}
+
+// Version-13 world data shaped like the disc sample (Builtin\8.ja route):
+// environment with sub-version 0 and `keys` keys, a colour, a KUID, then a
+// version-5 object container with `rules` items and the 16-byte tail.
+Bytes worldData(int keys = 2, int rules = 0) {
+    Bytes b;
+    putU32(b, 0xFFFFFFFFu);  // sub-version follows
+    putU32(b, 0);            // sub-version 0: a date, no extra floats
+    putU32(b, static_cast<std::uint32_t>(keys));
+    putU32(b, 110013), putU32(b, 0xFFFFFFFFu);  // <kuid:-1:110013>
+    putF32(b, 0.0f), putF32(b, 0.91f);
+    for (int k = 0; k < keys; ++k) {
+        putF32(b, 0.25f + 0.01f * static_cast<float>(k));
+        for (int i = 0; i < 12; ++i) {
+            putF32(b, 1.0f);
+        }
+        putF32(b, 0.5f);
+        for (int i = 0; i < 12; ++i) {
+            putF32(b, 0.5f);
+        }
+    }
+    putU32(b, 1247698800u), putU32(b, 0);  // 64-bit date
+    for (float f : {0.149f, 0.29f, 0.36f, 0.8f}) {
+        putF32(b, f);
+    }
+    putU32(b, 6342), putU32(b, 0xFFFFFFFFu);  // <kuid:-1:6342>
+    putU32(b, 5);   // container version
+    putU32(b, 13);  // container word
+    for (int i = 0; i < rules; ++i) {
+        putU32(b, static_cast<std::uint32_t>(i));
+        putTag(b, "Rule");
+        putU32(b, 0xFFFFFFFFu), putU32(b, 0xFFFFFFFFu);
+        putU32(b, 8);
+        putU32(b, 0xAAAAAAAAu), putU32(b, 0xBBBBBBBBu);
+    }
+    putU32(b, 0xFFFFFFFFu);  // end of items
+    putU32(b, 16);           // tail
+    putU32(b, 0xFEEDCEEBu), putU32(b, 5), putU32(b, 13), putU32(b, 0xFFFFFFFFu);
+    return b;
+}
+
 // Builds a mapfile.gnd laid out like the disc ones (version 13):
 // "GND\r", count, then {x, y, reversed tag, start, end} per section.
-Bytes gnd(const std::vector<Sec>& secs, std::size_t extraHeader = 12) {
+Bytes gnd(const std::vector<Sec>& secs, const Bytes& world = worldData()) {
     Bytes b = bytesOf("GND\r");
     putU32(b, static_cast<std::uint32_t>(secs.size()));
     const std::size_t indexAt = b.size();
     b.resize(b.size() + kEntry * secs.size(), 0);
-    b.resize(b.size() + extraHeader, 0xEE);
+    b.insert(b.end(), world.begin(), world.end());
     for (std::size_t i = 0; i < secs.size(); ++i) {
         const std::uint32_t start = static_cast<std::uint32_t>(b.size());
         b.insert(b.end(), secs[i].data.begin(), secs[i].data.end());
@@ -109,7 +155,8 @@ TEST(Ground, ParsesIndexAndOverviews) {
     EXPECT_EQ(g.sections[1].data.at(0), 2);
     ASSERT_EQ(g.sections[1].overview.size(), 4096u);
     EXPECT_EQ(g.sections[1].overview[5], 6);
-    EXPECT_EQ(g.extraHeader.size(), 12u);
+    EXPECT_EQ(g.extraHeader.size(), worldData().size());
+    EXPECT_TRUE(g.worldDecoded);
     EXPECT_TRUE(g.warnings.empty());
 }
 
@@ -180,6 +227,87 @@ TEST(Ground, TooManyHeightCellsReadAsNone) {
     EXPECT_TRUE(d.cells.empty());
 }
 
+TEST(Ground, DecodesWorldData) {
+    const auto g = parseGround(gnd({{"Secs", 0, 0, filler(10, 1)}}, worldData(3, 2)));
+    ASSERT_TRUE(g.worldDecoded);
+    const auto& w = g.world;
+    EXPECT_EQ(w.envSubVersion, 0);
+    ASSERT_EQ(w.envKeys.size(), 3u);
+    EXPECT_FLOAT_EQ(w.envKeys[1].time, 0.26f);
+    EXPECT_FLOAT_EQ(w.envKeys[1].colourA[2][3], 1.0f);
+    EXPECT_FLOAT_EQ(w.envKeys[1].time2, 0.5f);
+    EXPECT_EQ(formatKuid(w.envKuid.normalized()), "<kuid:-1:110013>");
+    EXPECT_FLOAT_EQ(w.envFloats[1], 0.91f);
+    EXPECT_TRUE(w.hasDate);
+    EXPECT_EQ(w.date, 1247698800);
+    EXPECT_FALSE(w.hasEnvExtra);
+    EXPECT_FLOAT_EQ(w.colour[3], 0.8f);
+    EXPECT_EQ(formatKuid(w.kuid.normalized()), "<kuid:-1:6342>");
+    EXPECT_EQ(w.containerVersion, 5u);
+    EXPECT_EQ(w.containerWord, 13u);
+    ASSERT_EQ(w.items.size(), 2u);
+    EXPECT_EQ(w.items[1].index, 1);
+    EXPECT_EQ(w.items[1].tag, "Rule");
+    EXPECT_EQ(w.items[1].payload.size(), 8u);
+    EXPECT_EQ(w.containerTail.size(), 16u);
+    EXPECT_TRUE(w.textureTable.empty());
+}
+
+TEST(Ground, WorldDataVariants) {
+    // Old-style environment: the key count comes first (no sub-version, no date).
+    Bytes b;
+    putU32(b, 40);  // clamped to 32 keys (0x463e1c)
+    putU32(b, 1), putU32(b, 2);
+    putF32(b, 0), putF32(b, 0);
+    for (int i = 0; i < 32 * 26; ++i) {
+        putF32(b, 0.5f);
+    }
+    for (int i = 0; i < 4; ++i) {
+        putF32(b, 0);
+    }
+    putU32(b, 3), putU32(b, 4);
+    putU32(b, 9);  // container version outside 1..5: nothing more is read for it
+    // Version 12 adds the ground-texture table.
+    Bytes v12 = b;
+    putU32(v12, 1);
+    putF32(v12, 2.0f), putU32(v12, 77), putU32(v12, 523);
+    auto w = parseGroundWorld(b, 13);
+    EXPECT_EQ(w.envSubVersion, -1);
+    EXPECT_EQ(w.envKeys.size(), 32u);
+    EXPECT_FALSE(w.hasDate);
+    EXPECT_EQ(w.containerVersion, 9u);
+    w = parseGroundWorld(v12, 12);
+    ASSERT_EQ(w.textureTable.size(), 1u);
+    EXPECT_EQ(formatKuid(w.textureTable[0].second.normalized()), "<kuid:523:77>");
+    // Sub-version 1 adds two floats after the date.
+    Bytes s1 = worldData(1, 0);
+    s1[4] = 1;
+    s1.insert(s1.begin() + 4 * 7 + 104 + 8, 8, 0);
+    w = parseGroundWorld(s1, 13);
+    EXPECT_TRUE(w.hasEnvExtra);
+    EXPECT_EQ(w.containerTail.size(), 16u);
+}
+
+TEST(Ground, WorldDataMustEndExactly) {
+    Bytes w = worldData();
+    w.push_back(0);
+    EXPECT_THROW(parseGroundWorld(w, 13), ContentError);
+    w.resize(w.size() - 2);
+    EXPECT_THROW(parseGroundWorld(w, 13), ContentError);
+    EXPECT_THROW(parseGroundWorld(worldData(), 6), ContentError);  // older environment block: not handled
+    w = worldData();
+    // The container version sits 32 bytes before the end (version, word, end marker, tail size, 16 tail bytes).
+    setU32(w, w.size() - 32, 2);  // container version 2: items not self-sized
+    EXPECT_THROW(parseGroundWorld(w, 13), ContentError);
+    // parseGround keeps going and warns.
+    Bytes bad = worldData();
+    bad.push_back(0);
+    const auto g = parseGround(gnd({{"Secs", 0, 0, filler(10, 1)}}, bad));
+    EXPECT_FALSE(g.worldDecoded);
+    ASSERT_EQ(g.warnings.size(), 1u);
+    EXPECT_NE(g.warnings[0].find("world data"), std::string::npos);
+}
+
 TEST(Ground, DuplicatePositionsAreWarnedAbout) {
     const auto g = parseGround(
         gnd({{"Sec5", -1, 0, filler(10, 1)}, {"Secs", -1, 0, filler(10, 2)}, {"Secs", 0, 0, filler(10, 3)}}));
@@ -205,12 +333,13 @@ TEST(Ground, Errors) {
     b[kHeader + 8] = 'Z';  // unknown tag
     EXPECT_THROW(parseGround(b), ContentError);
     b = gnd({{"Secs", 0, 0, filler(10, 1)}, {"Secs", 1, 0, filler(10, 2)}});
-    setU32(b, kHeader + kEntry + 12, kHeader + 2 * kEntry + 12 + 5);  // second section starts inside the first
+    setU32(b, kHeader + kEntry + 12,
+           static_cast<std::uint32_t>(kHeader + 2 * kEntry + worldData().size() + 5));  // second starts inside the first
     EXPECT_THROW(parseGround(b), ContentError);
 }
 
 TEST(Ground, EveryTruncationAndByteChangeIsSafe) {
-    const Bytes good = gnd({{"Secs", 0, 0, sectionData("Secs")}}, 4);
+    const Bytes good = gnd({{"Secs", 0, 0, sectionData("Secs")}}, worldData(1, 1));
     for (std::size_t len = 0; len < good.size(); len += 97) {
         try {
             const auto g = parseGround(Bytes(good.begin(), good.begin() + static_cast<std::ptrdiff_t>(len)));

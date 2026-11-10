@@ -42,13 +42,31 @@ public:
         std::memcpy(&f, &u, 4);
         return f;
     }
+    std::int32_t i32() { return static_cast<std::int32_t>(u32()); }
+    std::int64_t i64() {
+        const std::uint64_t lo = u32();
+        const std::uint64_t hi = u32();
+        return static_cast<std::int64_t>(lo | (hi << 32));
+    }
+    // KUID as stored by 0x80c120 / read by 0x80c8d0: u32 content, u32 packed user/version.
+    Kuid kuid() {
+        const auto content = static_cast<std::int32_t>(u32());
+        return unpackChumpKuid(u32(), content);
+    }
+    std::vector<std::uint8_t> bytes(std::size_t n) {
+        need(n);
+        std::vector<std::uint8_t> v(d_.begin() + static_cast<std::ptrdiff_t>(pos_),
+                                    d_.begin() + static_cast<std::ptrdiff_t>(pos_ + n));
+        pos_ += n;
+        return v;
+    }
     std::size_t pos() const { return pos_; }
     std::size_t size() const { return d_.size(); }
 
 private:
     void need(std::size_t n) const {
         if (d_.size() - pos_ < n) {
-            throw ContentError("section data ends early at byte " + std::to_string(pos_) + " of " +
+            throw ContentError("data ends early at byte " + std::to_string(pos_) + " of " +
                                std::to_string(d_.size()));
         }
     }
@@ -195,6 +213,12 @@ GroundFile parseGround(std::span<const std::uint8_t> data) {
     }
     g.extraHeader.assign(data.begin() + static_cast<std::ptrdiff_t>(indexEnd),
                          data.begin() + static_cast<std::ptrdiff_t>(byStart.front()->start));
+    try {
+        g.world = parseGroundWorld(g.extraHeader, g.version);
+        g.worldDecoded = true;
+    } catch (const ContentError& err) {
+        g.warnings.push_back(std::string("world data not decoded: ") + err.what());
+    }
     for (auto& s : g.sections) {
         s.data.assign(data.begin() + s.start, data.begin() + s.end);
         s.overview.resize(kGroundOverviewSide * kGroundOverviewSide);
@@ -203,6 +227,111 @@ GroundFile parseGround(std::span<const std::uint8_t> data) {
         }
     }
     return g;
+}
+
+GroundWorld parseGroundWorld(std::span<const std::uint8_t> worldData, std::uint8_t version) {
+    SectionReader r(worldData);
+    GroundWorld w;
+    if (version < 7) {
+        // 0x463cb0 reads the older environment block; not traced.
+        throw ContentError("world data of version " + std::to_string(version) + " is not handled");
+    }
+    // Environment, 0x463dd0. A first word of -1 announces a sub-version,
+    // after which the key count follows (unless the sub-version is -1 too).
+    std::int32_t count = r.i32();
+    if (count == -1) {
+        w.envSubVersion = r.i32();
+        if (w.envSubVersion != -1) {
+            count = r.i32();
+        }
+    }
+    count = std::clamp(count, 0, 32);  // 0x463e1c..0x463e42
+    w.envKuid = r.kuid();
+    w.envFloats[0] = r.f32();
+    w.envFloats[1] = r.f32();
+    w.envKeys.resize(static_cast<std::size_t>(count));
+    for (auto& k : w.envKeys) {  // 0x463f1a..0x463fce
+        k.time = r.f32();
+        for (auto& c : k.colourA) {
+            for (float& f : c) {
+                f = r.f32();
+            }
+        }
+        k.time2 = r.f32();
+        for (auto& c : k.colourB) {
+            for (float& f : c) {
+                f = r.f32();
+            }
+        }
+    }
+    if (w.envSubVersion != -1) {
+        w.hasDate = true;
+        w.date = r.i64();  // 0x463ff5
+        if (w.envSubVersion >= 1) {
+            w.hasEnvExtra = true;
+            w.envExtra[0] = r.f32();
+            w.envExtra[1] = r.f32();
+        }
+    }
+    // Jump table on version at 0x6d2d6c: 11..13 -> 0x6d2d73, 9..10 -> 0x6d2d7c, 8 -> 0x6d2da5.
+    if (version >= 11) {
+        for (float& f : w.colour) {
+            f = r.f32();
+        }
+    }
+    if (version >= 9) {
+        w.kuid = r.kuid();
+    }
+    if (version >= 8) {
+        // Object container, 0x886be0 (called from 0x6da060 with flags 1, 0).
+        w.containerVersion = r.u32();
+        if (w.containerVersion >= 1 && w.containerVersion <= 5) {
+            if (w.containerVersion >= 5) {
+                w.containerWord = r.u32();
+            }
+            if (w.containerVersion == 2) {
+                throw ContentError("world object container version 2 is not handled (items are not self-sized)");
+            }
+            if (w.containerVersion >= 3) {
+                for (;;) {  // 0x886800: items until an index of -1
+                    GroundContainerItem it;
+                    it.index = r.i32();
+                    if (it.index == -1) {
+                        break;
+                    }
+                    const std::uint32_t tag = r.u32();
+                    for (int k = 3; k >= 0; --k) {
+                        it.tag.push_back(static_cast<char>((tag >> (8 * k)) & 0xFF));
+                    }
+                    it.kuid = r.kuid();
+                    const std::uint32_t size = r.u32();
+                    if (size > 0xFFFFFF) {  // 0x8869b8
+                        throw ContentError("world object of " + std::to_string(size) + " bytes");
+                    }
+                    it.payload = r.bytes(size);
+                    w.items.push_back(std::move(it));
+                }
+            }
+            if (w.containerVersion >= 4) {
+                // 0x8858d0: u32 size, then size bytes. With these flags the game seeks past them.
+                const std::uint32_t size = r.u32();
+                w.containerTail = r.bytes(size);
+            }
+        }
+    }
+    if (version < 13) {
+        // Ground-texture table, 0x6d2db8..0x6d2ef8: at most 250 entries (0x1f40 / 0x20).
+        const std::int32_t n = std::clamp(r.i32(), 0, 250);
+        for (std::int32_t i = 0; i < n; ++i) {
+            const float weight = r.f32();
+            w.textureTable.emplace_back(weight, r.kuid());
+        }
+    }
+    if (r.pos() != r.size()) {
+        throw ContentError("world data has " + std::to_string(r.size() - r.pos()) +
+                           " bytes left over before the first section");
+    }
+    return w;
 }
 
 GroundSectionData parseGroundSection(const GroundSection& section, std::uint8_t version) {
