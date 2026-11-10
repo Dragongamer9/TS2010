@@ -81,8 +81,8 @@ The format numbers follow the engine's own list of format names in
 
 ## 4. Not done yet
 
-- `.texture.txt` descriptors and loose `.tga` / `.bmp` / `.jpg` sources.
-  JPEG needs a decoder: `libjpeg62-turbo-dev` in Debian would be the choice.
+- `.texture.txt` descriptors. (Loose `.tga` / `.bmp` / `.jpg` images are now
+  decoded; see [`image.md`](image.md).)
 - The meaning of the INFO words marked unknown.
 - Uploading to the GPU. That belongs to the renderer in steps 5–6; the DXT
   data can go to OpenGL as-is through S3TC.

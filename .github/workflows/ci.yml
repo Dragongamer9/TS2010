@@ -30,7 +30,8 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev \
-            pkg-config libmpg123-dev
+            pkg-config libmpg123-dev \
+            libjpeg62-turbo-dev
 
       - uses: actions/checkout@v4
 
@@ -57,6 +58,7 @@ jobs:
         env:
           TRAINZ_DATA_DIR: ${{ github.workspace }}/testdata/ts2010
           TRAINZ_FULL_VERIFY: "1"
+          TRAINZ_REQUIRE_JPEG: "1"
         run: ctest --test-dir build --output-on-failure
 
       - name: Real game data report

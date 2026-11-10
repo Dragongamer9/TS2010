@@ -9,6 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(TRAINZ_BUILD_TESTS "Build the tests (needs libgtest-dev)" ON)
 option(TRAINZ_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(TRAINZ_WERROR "Treat compiler warnings as errors" OFF)
+option(TRAINZ_WITH_JPEG "Decode .jpg images if libjpeg is installed (libjpeg62-turbo-dev)" ON)
 option(TRAINZ_BUILD_VIEWER "Build model-viewer if SDL2 and OpenGL are installed (libsdl2-dev, libgl-dev)" ON)
 option(TRAINZ_WITH_MPG123 "Decode MP3 sounds if libmpg123 is installed (libmpg123-dev)" ON)
 
@@ -38,6 +39,7 @@ add_library(trainz_content
   src/content/CfilCodec.cpp
   src/content/JaArchive.cpp
   src/content/GroundFile.cpp
+  src/content/ImageFile.cpp
   src/content/JirfFile.cpp
   src/content/Kuid.cpp
   src/content/MeshFile.cpp
@@ -65,6 +67,19 @@ if(MPG123_FOUND)
   target_link_libraries(trainz_content PRIVATE PkgConfig::MPG123)
 else()
   message(STATUS "MP3 decoding not built: install libmpg123-dev (and pkg-config)")
+endif()
+
+# JPEG decoding (src/content/ImageFile.cpp) is optional: without libjpeg,
+# decodeJpeg() throws ContentError and the JPEG tests skip.
+if(TRAINZ_WITH_JPEG)
+  find_package(JPEG QUIET)
+endif()
+if(JPEG_FOUND)
+  target_link_libraries(trainz_content PUBLIC JPEG::JPEG)
+  target_compile_definitions(trainz_content PUBLIC TRAINZ_HAVE_JPEG=1)
+  message(STATUS "JPEG support: yes (${JPEG_LIBRARIES})")
+else()
+  message(STATUS "JPEG support: no (install libjpeg62-turbo-dev)")
 endif()
 
 add_executable(ja-tool tools/ja_tool.cpp)
@@ -141,6 +156,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_asset_index.cpp
     tests/test_cfil.cpp
     tests/test_ground.cpp
+    tests/test_image.cpp
     tests/test_keybindings.cpp
     tests/test_mesh.cpp
     tests/test_mp3.cpp
