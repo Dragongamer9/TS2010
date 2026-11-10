@@ -218,7 +218,7 @@ packs and asset versions (kuid2 VERSION). It needs a trace through
 ### Public documentation and code leads for route files
 
 - **TransDEM note (community):** Most Trainz route files have **internal version numbers**, distinct from both the Trainz product version and the executable build number. TransDEM reads these and acts accordingly. TS12 SP1 introduced a changed `.gnd` format, moving ruler objects into a separate file. TransDEM 2.3 had issues with TS12 SP1 exports; TransDEM 2.4 was being tested to restore compatibility. **Keep these three identifiers separate: Trainz product version, executable build number, and internal route-file version.** URL: https://forum.transdem.de/viewtopic.php?t=243
-- **TrainzMapFiles (community):** Experimental `.gnd` reading code repository claiming support for Trainz 1.1–2019 (includes TS2010). Source not yet inspected; byte-layout verification and TS2010 internal file-version numbers remain **unconfirmed**. Repository: https://github.com/rileyzzz/TrainzMapFiles. Does not establish readers for `.trk`, `.obs` or `.bmk`. **Status: lead found, not verified.**
+- **TrainzMapFiles (community):** claims support for Trainz 1.1–2019 (TS2010 falls in that range; not checked), `.gnd` reading only, described as experimental. Repository: https://github.com/rileyzzz/TrainzMapFiles. Does not establish readers for `.trk`, `.obs` or `.bmk`. **Status: lead found, not verified.**
 
 ---
 
