@@ -12,6 +12,7 @@
 #include "content/AssetIndex.h"
 #include "content/Kuid.h"
 #include "content/MeshFile.h"
+#include "content/SoundFile.h"
 #include "content/TextureFile.h"
 
 #include <gtest/gtest.h>
@@ -377,5 +378,35 @@ TEST_F(RealInstall, RouteGroundFilesParse) {
         }
     }
     std::cout << "  mapfile.gnd parsed: " << parsed << "\n";
+    EXPECT_EQ(failures, 0u);
+}
+
+TEST_F(RealInstall, SoundsDecode) {
+    // Every .wav must decode, except the formats known not to be handled yet
+    // (MP3 inside WAV) and the one MPEG stream named .wav on the disc.
+    std::size_t decoded = 0;
+    std::size_t knownUnsupported = 0;
+    std::size_t failures = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        for (const auto& e : a.entries()) {
+            if (e.name.size() <= 4 || e.name.compare(e.name.size() - 4, 4, ".wav") != 0 || !a.isLookupWinner(e)) {
+                continue;
+            }
+            try {
+                (void)trainz::content::decodeWav(a.readLimited(e, std::size_t{256} << 20));
+                ++decoded;
+            } catch (const ContentError& err) {
+                const std::string why = err.what();
+                if (why.find("MP3 inside") != std::string::npos || why.find("MPEG stream") != std::string::npos) {
+                    ++knownUnsupported;
+                } else {
+                    ++failures;
+                    std::cout << "  sound problem: " << e.name << ": " << why << "\n";
+                }
+            }
+        }
+    }
+    std::cout << "  sounds decoded: " << decoded << ", known unsupported: " << knownUnsupported << "\n";
     EXPECT_EQ(failures, 0u);
 }

@@ -197,7 +197,7 @@ packs and asset versions (kuid2 VERSION). It needs a trace through
 | Route bookmarks | `mapfile.bmk` | Seen | 330-byte sample: `u32 7`, then float positions |
 | Route extra | `mapfile.trc` | Seen | 32-byte sample. Purpose **unknown** |
 | Session | `profile.dat`, `profile.obs`, `profile.trk`, `profile.lyr` | Headers seen | `.obs`/`.trk` start with small `u32` counts, then reversed-tag chunks (bytes `2Ost`, `tSkt`). `.lyr` contains `session-layer`. `.dat` (1.4 MB) contains the bytes `RVHB` |
-| Sound | `.wav`, `.mp3` | Confirmed (standard) | RIFF/WAVE and ID3 MP3 in the archives. String `mp3` in `SoundCore_7c.dll`. The MP3 decoder isn't identified (**unknown**) |
+| Sound | `.wav`, `.mp3` | WAV checked on all 5,874 disc files; C++ reader + tools | RIFF/WAVE: PCM 8/16-bit (5,844), MS ADPCM (26), MP3-in-WAV (3, not decoded yet), one MPEG stream misnamed `.wav`; many extra chunks. Three real `.mp3` files in `Base.ja`. See [`formats/sound.md`](formats/sound.md) |
 | Script source | `.gs` | Confirmed | TrainzScript (GameScript) text |
 | Compiled script | `.gsl` | Seen | Binary (contains names such as `asset.gs`). Format **unknown** |
 | Protected script | `.gse` | Seen | Protected script: encrypted, obfuscated or compressed, **not determined** (8 KB sample: `u32 1`, `u32 0`, `u32 size`, then high-entropy bytes). `"CRC Mismatch on '%s' after recompile. Do you have both .gs and .gse present?"`. `trainz.exe` references `.gse` at `0x8adc64` |

@@ -41,6 +41,7 @@ add_library(trainz_content
   src/content/Kuid.cpp
   src/content/MeshFile.cpp
   src/content/ReadOnlyFile.cpp
+  src/content/SoundFile.cpp
   src/content/TextureFile.cpp
   src/view/MeshPreview.cpp
 )
@@ -71,6 +72,10 @@ add_executable(anim-tool tools/anim_tool.cpp)
 target_link_libraries(anim-tool PRIVATE trainz_content)
 target_compile_options(anim-tool PRIVATE ${TRAINZ_WARNINGS})
 
+add_executable(sound-tool tools/sound_tool.cpp)
+target_link_libraries(sound-tool PRIVATE trainz_content)
+target_compile_options(sound-tool PRIVATE ${TRAINZ_WARNINGS})
+
 add_executable(route-tool tools/route_tool.cpp)
 target_link_libraries(route-tool PRIVATE trainz_content)
 target_compile_options(route-tool PRIVATE ${TRAINZ_WARNINGS})
@@ -83,8 +88,12 @@ if(TRAINZ_BUILD_VIEWER)
     target_link_libraries(model-viewer PRIVATE trainz_content SDL2::SDL2 OpenGL::GL)
     # SDL and GL headers use C idioms, so the viewer gets the basic warnings only.
     target_compile_options(model-viewer PRIVATE -Wall -Wextra)
+    add_executable(sound-player tools/viewer/sound_player.cpp)
+    target_link_libraries(sound-player PRIVATE trainz_content SDL2::SDL2)
+    target_compile_options(sound-player PRIVATE -Wall -Wextra)
     if(TRAINZ_WERROR)
       target_compile_options(model-viewer PRIVATE -Werror)
+      target_compile_options(sound-player PRIVATE -Werror)
     endif()
   else()
     message(STATUS "model-viewer not built: install libsdl2-dev and libgl-dev")
@@ -106,6 +115,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_path_kuid.cpp
     tests/test_real_install.cpp
     tests/test_safe_output.cpp
+    tests/test_sound.cpp
     tests/test_texture.cpp
   )
   target_link_libraries(content_tests PRIVATE trainz_content GTest::gtest_main)

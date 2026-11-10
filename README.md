@@ -45,6 +45,9 @@ shows a mesh in that pose.
 `route-tool info / overview` lists a route's terrain sections and stitches their overview maps
 into one PNG ([`docs/formats/route.md`](docs/formats/route.md)); the section contents are not decoded yet.
 
+`sound-tool info / export` reads `.wav` sounds (PCM and MS ADPCM) and exports plain WAVs;
+`sound-player ARCHIVE NAME` plays one through SDL2 ([`docs/formats/sound.md`](docs/formats/sound.md)).
+
 ## How it protects your game data
 
 - **Read-only.** Game files are opened read-only (`O_RDONLY`, and `O_NOATIME`

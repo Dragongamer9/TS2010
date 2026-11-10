@@ -47,7 +47,7 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Check the model viewer was built
-        run: test -x build/model-viewer
+        run: test -x build/model-viewer && test -x build/sound-player
 
       - name: Test (includes the real game data in testdata/ts2010, read-only)
         env:
