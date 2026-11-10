@@ -6,6 +6,7 @@
 //   TRAINZ_FULL_VERIFY=1 ...   decode every entry (slow on a hard drive: about 7 GB)
 #include "content/ContentError.h"
 #include "content/JaArchive.h"
+#include "content/AssetConfig.h"
 #include "content/Kuid.h"
 
 #include <gtest/gtest.h>
@@ -193,4 +194,49 @@ TEST_F(RealInstall, StreamAndWholeReadAgree) {
             }
         }
     }
+}
+
+TEST_F(RealInstall, AssetConfigsParseAndMatchTheirFolder) {
+    // Every config.txt / config.chump must parse, and an asset's own config
+    // (directly in its hash-XX/kuid... folder) must name that folder's KUID.
+    const std::regex folder(R"(^hash-[0-9a-f]{2}/(kuid2? -?\d+ -?\d+(?: -?\d+)?)/config\.(txt|chump)$)");
+    std::size_t parsed = 0;
+    std::size_t matched = 0;
+    std::size_t failures = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        std::vector<const JaEntry*> configs;
+        for (const auto& e : a.entries()) {
+            const auto slash = e.name.rfind('/');
+            const std::string base = slash == std::string::npos ? e.name : e.name.substr(slash + 1);
+            if (base == "config.txt" || base == "config.chump") {
+                configs.push_back(&e);
+            }
+        }
+        std::sort(configs.begin(), configs.end(),
+                  [](const JaEntry* x, const JaEntry* y) { return x->dataOffset < y->dataOffset; });
+        for (const JaEntry* e : configs) {
+            try {
+                const auto cfg = trainz::content::parseAssetConfig(a.read(*e));
+                ++parsed;
+                std::smatch m;
+                if (std::regex_match(e->name, m, folder)) {
+                    const auto want = parseKuid(m[1].str());
+                    const auto got = cfg.assetKuid();
+                    if (want && got && got->normalized() == want->normalized()) {
+                        ++matched;
+                    } else {
+                        ++failures;
+                        std::cout << "  kuid mismatch: " << e->name << " says "
+                                  << (got ? formatKuid(*got) : std::string("nothing")) << "\n";
+                    }
+                }
+            } catch (const ContentError& err) {
+                ++failures;
+                std::cout << "  cannot parse " << e->name << ": " << err.what() << "\n";
+            }
+        }
+    }
+    std::cout << "  configs parsed: " << parsed << ", asset KUIDs matching their folder: " << matched << "\n";
+    EXPECT_EQ(failures, 0u);
 }

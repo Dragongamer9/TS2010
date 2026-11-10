@@ -5,8 +5,10 @@ natively. It targets Hearth OS (Debian 13, x86_64). Planning notes are in
 [`docs/ENGINE-MAP.md`](docs/ENGINE-MAP.md).
 
 What exists so far: a **read-only reader for the game's `.ja` content archives**
-(`Base.ja`, `Data.ja`, `Builtin/*.ja`). It comes with the `ja-tool` command and
-tests. The format is described in [`docs/formats/ja.md`](docs/formats/ja.md).
+and for asset configs (`config.txt` / `config.chump`, with `config-tool`; see
+[`docs/formats/config.md`](docs/formats/config.md)). The archive reader is
+for `Base.ja`, `Data.ja` and `Builtin/*.ja`, and comes with the `ja-tool` command.
+Both have tests. The format is described in [`docs/formats/ja.md`](docs/formats/ja.md).
 
 ## How it protects your game data
 

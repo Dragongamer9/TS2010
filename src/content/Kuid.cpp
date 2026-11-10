@@ -96,6 +96,42 @@ std::optional<Kuid> parseKuid(std::string_view text) {
     return k;
 }
 
+std::optional<Kuid> parseKuidLoose(std::string_view text) {
+    while (!text.empty() && (text.back() == '\0' || text.back() == ' ' || text.back() == '\t' ||
+                             text.back() == '\r' || text.back() == '\n')) {
+        text.remove_suffix(1);
+    }
+    if (auto k = parseKuid(text)) {
+        return k;
+    }
+    const std::string_view s = trim(text);
+    const auto parts = split(s, ':');
+    if (parts.size() != 2) {
+        return std::nullopt;
+    }
+    Kuid k;
+    if (!parseInt32(parts[0], k.user) || !parseInt32(parts[1], k.content)) {
+        return std::nullopt;
+    }
+    return k;
+}
+
+Kuid unpackChumpKuid(std::uint32_t packedUser, std::int32_t content) {
+    const std::uint32_t low25 = packedUser & 0x1FFFFFFu;
+    const std::uint32_t top7 = packedUser >> 25;
+    Kuid k;
+    k.content = content;
+    if (low25 & 0x1000000u) {
+        k.user = static_cast<std::int32_t>(low25) - 0x2000000;  // sign-extend 25 bits
+    } else {
+        k.user = static_cast<std::int32_t>(low25);
+    }
+    if (!(k.user < 0 && top7 == 0x7F) && top7 != 0) {
+        k.version = static_cast<std::int32_t>(top7);
+    }
+    return k;
+}
+
 std::string formatKuid(const Kuid& k) {
     if (k.version) {
         return "<kuid2:" + std::to_string(k.user) + ":" + std::to_string(k.content) + ":" +
@@ -104,7 +140,8 @@ std::string formatKuid(const Kuid& k) {
     return "<kuid:" + std::to_string(k.user) + ":" + std::to_string(k.content) + ">";
 }
 
-std::uint8_t kuidFolderHash(const Kuid& k) {
+std::uint8_t kuidFolderHash(const Kuid& kuid) {
+    const Kuid k = kuid.normalized();
     const auto u = static_cast<std::uint32_t>(k.user);
     const auto c = static_cast<std::uint32_t>(k.content);
     std::uint8_t h = 0;
@@ -115,7 +152,8 @@ std::uint8_t kuidFolderHash(const Kuid& k) {
     return h;
 }
 
-std::string kuidFolderKey(const Kuid& k) {
+std::string kuidFolderKey(const Kuid& kuid) {
+    const Kuid k = kuid.normalized();
     char hash[8];
     std::snprintf(hash, sizeof hash, "%02x", static_cast<unsigned>(kuidFolderHash(k)));
     std::string key = "hash-";

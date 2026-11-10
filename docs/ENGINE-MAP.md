@@ -338,7 +338,8 @@ Each step can be tested against the real data before the next one starts.
    The next step is a full pass over `Builtin\1.ja`–`8.ja`
    (`TRAINZ_FULL_VERIFY=1`).*
 2. **`config.txt` parser and the `.chump` (`ACS$`) binary reader**, plus a KUID
-   type (`kuid` / `kuid2`).
+   type (`kuid` / `kuid2`). *Written in C++ (`src/content/AssetConfig`,
+   `config-tool`); see [`formats/config.md`](formats/config.md).*
 3. **Own asset index**: scan `local`, the `.ja` files and `.cdp` packages into a
    KUID → location table. This avoids depending on `assets.tdx`/TADDaemon early.
 4. **Images and textures**: `.tga`/`.bmp`/`.jpg`, then `.texture` (`MMTF`

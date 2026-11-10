@@ -224,10 +224,10 @@ std::vector<const JaEntry*> JaArchive::findKuid(const Kuid& kuid, bool anyVersio
     }
     // "hash-xx/kuid u c/..." plus "hash-xx/kuid2 u c <version>/..."
     const std::string plain = kuidFolderKey(kuid) + "/";
-    Kuid any = kuid;
-    any.version = 0;
-    std::string versioned = kuidFolderKey(any);
-    versioned.resize(versioned.size() - 1);  // drop the "0", keep "... kuid2 u c "
+    char hash[8];
+    std::snprintf(hash, sizeof hash, "%02x", static_cast<unsigned>(kuidFolderHash(kuid)));
+    const std::string versioned = std::string("hash-") + hash + "/kuid2 " + std::to_string(kuid.user) + " " +
+                                  std::to_string(kuid.content) + " ";
     std::vector<const JaEntry*> out;
     for (const auto& e : entries_) {
         if (e.name.compare(0, plain.size(), plain) == 0) {
