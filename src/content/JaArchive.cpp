@@ -195,6 +195,11 @@ const JaEntry* JaArchive::find(std::string_view name) const {
     return it == byName_.end() ? nullptr : &entries_[it->second];
 }
 
+bool JaArchive::isLookupWinner(const JaEntry& entry) const {
+    const auto it = byName_.find(entry.name);
+    return it != byName_.end() && &entries_[it->second] == &entry;
+}
+
 std::vector<const JaEntry*> JaArchive::listFolder(std::string_view folder) const {
     std::vector<const JaEntry*> out;
     const auto key = makeLookupKey(folder);

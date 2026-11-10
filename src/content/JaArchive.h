@@ -108,8 +108,13 @@ public:
     // exact match; with duplicate names the first row in the index wins.
     const JaEntry* find(std::string_view name) const;
 
-    // All entries whose name starts with folder + "/" (folder is lowercased and canonicalized).
+    // All entries whose name starts with folder + "/" (folder is lowercased and
+    // canonicalized). Includes rows hidden by an earlier duplicate name.
     std::vector<const JaEntry*> listFolder(std::string_view folder) const;
+
+    // False for a row whose name is already used by an earlier row: the game
+    // never reads such a row (the first row with a name wins).
+    bool isLookupWinner(const JaEntry& entry) const;
 
     // All files of one asset, from its "hash-XX/kuid ..." folder. With
     // anyVersion, a KUID without a version also matches every kuid2 folder with
