@@ -58,8 +58,12 @@ into one PNG ([`docs/formats/route.md`](docs/formats/route.md)); the section con
     following symlinks, so a symlink can't redirect a write into the game.
   - Existing files are never overwritten, and archive names that could escape
     the output folder are skipped.
-  - These rules are covered by the tests in `tests/test_safe_output.cpp`. They
-    haven't yet been run against a real install.
+  - These rules are covered by the tests in `tests/test_safe_output.cpp`, which
+    use a fake install; extraction hasn't been tried on Dad's real install yet.
+
+The readers themselves run in CI on real game data (`testdata/ts2010`: `Base.ja`,
+`Data.ja` and a real subset of `Builtin\8.ja`; private repo only, see
+[`testdata/README.md`](testdata/README.md)).
 
 ## Build
 

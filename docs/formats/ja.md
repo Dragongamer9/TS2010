@@ -190,8 +190,12 @@ sub-blocks back to back. Each sub-block works like this:
 - Every compressed file sampled from `Base.ja` and `8.ja` (about 30) decodes
   to a valid file header.
 - Two files decode to exactly their recorded sizes.
-- A full pass over every entry has **not** been run yet. Run
-  `ja-tool verify` or `TRAINZ_FULL_VERIFY=1` (see the README).
+- **Full pass in C++ (2026-11-10):** CI decodes every entry of `Base.ja`
+  (1,722) and `Data.ja` (973) to its recorded size, under AddressSanitizer, with
+  no problems. These are the two archives that use `CFIL`/BPE in the repo's
+  test data; the `8.ja` sample is stored uncompressed.
+- **Not yet run:** a full pass over `Builtin\1.ja`–`8.ja`. Run `ja-tool verify`,
+  or the tests with `TRAINZ_FULL_VERIFY=1`, on Dad's install.
 
 **Hardening that the game does not have** (all errors, never crashes):
 - truncated input;

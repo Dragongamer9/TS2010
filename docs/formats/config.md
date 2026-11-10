@@ -20,8 +20,10 @@ settings. It comes in two forms that hold the same kind of tree:
 - **Unknown:** not worked out.
 
 Data checks used `Base.ja`, `Data.ja` and `Builtin\8.ja` from the disc. They
-were done with a Python prototype of the same rules; the C++ reader has not yet
-run on real files.
+were done with a Python prototype of the same rules. Since 2026-11-10 the C++
+reader also runs in CI on real game data (`Base.ja`, `Data.ja` and a real
+subset of `8.ja`; see `testdata/README.md`): 1,639 configs parse, and all 1,468
+built-in assets' KUIDs match their folders.
 
 ---
 

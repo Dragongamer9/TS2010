@@ -14,7 +14,7 @@ checked with a Python prototype on **all 135** `.kin` files in `Base.ja`,
 - every frame holds 7 floats per bone;
 - every bone's child count matches its nested bones.
 
-The C++ reader has been tested on made-up files in CI only.
+Since 2026-11-10 the C++ reader also runs in CI on real game data (`Base.ja`, `Data.ja` and a real subset of `8.ja`; see `testdata/README.md`).
 
 ## 1. File
 

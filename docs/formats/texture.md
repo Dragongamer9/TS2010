@@ -5,8 +5,7 @@
   `~/.local/share/trainz-native/textures/`.
 - **Confidence words:** as in [`ja.md`](ja.md).
 - **Checked:** every `.texture` in `Base.ja`, `Data.ja` and `Builtin\8.ja`
-  (6,666 files), using a Python prototype of the same rules. The C++ reader has
-  not yet run on real files.
+  (6,666 files), using a Python prototype of the same rules. Since 2026-11-10 the C++ reader also runs in CI on real game data (`Base.ja`, `Data.ja` and a real subset of `8.ja`; see `testdata/README.md`).
 
 ## 1. Container – checked
 

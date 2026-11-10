@@ -1,10 +1,10 @@
 # Roadmap – Trainz Simulator 2010 on Linux (Hearth OS)
 
-**Overall progress: 16%**
+**Overall progress: 19%**
 
-`[███░░░░░░░░░░░░░░░░░]`
+`[████░░░░░░░░░░░░░░░░]`
 
-*Last updated: 2026-11-10, after starting step 8 (route terrain, outer structure).*
+*Last updated: 2026-11-10, after the first CI run on real game data.*
 
 This file is updated with every change that moves the project forward. The
 percentage is a **weighted estimate**, not a measurement: see
@@ -34,14 +34,14 @@ percentage is a **weighted estimate**, not a measurement: see
 | # | Milestone | Weight | Done | Who | Status |
 |---:|---|---:|---:|---|---|
 | 0 | Analysis: engine map, disc contents, tooling | 2 | 65% | Claude | Engine map written ([`docs/ENGINE-MAP.md`](docs/ENGINE-MAP.md)). Function-level names inside `trainz.exe` still need a working decompiler (REA needs Ghidra 12.1.x; this PC has 12.2). |
-| 1 | `.ja` archive reader + `ja-tool` | 3 | 80% | Claude | Done in C++, CI green, format in [`docs/formats/ja.md`](docs/formats/ja.md). **Missing:** a run on real game files and a full decode of every entry. |
-| 2 | Asset configs: `config.txt` + `config.chump` + KUIDs | 3 | 75% | Claude | Done in C++, CI green, format in [`docs/formats/config.md`](docs/formats/config.md). The plain/kuid2 folder rule is traced. **Missing:** a C++ run on real files; tracing the text grammar in `trainz.exe`. |
-| 3 | Asset index (KUID → where the asset lives) + `asset-tool` | 4 | 55% | Claude | Written in C++ ([`docs/formats/asset-index.md`](docs/formats/asset-index.md)): Base/Data/Builtin `.ja` + `UserData/local`, sub-parts skipped, all copies and versions reported. **Missing:** `.cdp` packages, which copy/version the game picks (not traced), an on-disk cache, a real-install run. |
-| 4 | Textures: `.texture` (`MMTF`), `.tga`, `.bmp`, `.jpg` + `texture-tool` | 4 | 50% | Claude | `.texture` done in C++ ([`docs/formats/texture.md`](docs/formats/texture.md)): all 5 formats in use (ARGB8888, RGB0888, DXT1/3/5), mip chain, PNG export; checked on all 6,666 disc textures. **Missing:** `.texture.txt`, `.tga`/`.bmp`/`.jpg`, a real-install C++ run. |
-| 5 | 3D models: `.im` / `.pm` (`JIRF`/`IDXM`) + a model viewer | 8 | 45% | Claude | `GEOM` (v102/200/201) and `MATL` (v102/103) layouts worked out from data and checked on all 7,982 parts; C++ reader, `mesh-tool` (info, software preview PNG, OBJ+MTL+PNG export) ([`docs/formats/mesh.md`](docs/formats/mesh.md)). **Missing:** a GPU viewer, `INFO`/`INFL`/`ATCH`/`SKEL`/`PMIN`/`NINF`, tracing the reader code, a real-install C++ run. |
+| 1 | `.ja` archive reader + `ja-tool` | 3 | 85% | Claude | Done in C++, CI green, format in [`docs/formats/ja.md`](docs/formats/ja.md). **Real data:** every entry of `Base.ja` and `Data.ja` decoded in CI. **Missing:** a full pass over `Builtin\1.ja`–`8.ja` on Dad's PC. |
+| 2 | Asset configs: `config.txt` + `config.chump` + KUIDs | 3 | 80% | Claude | Done in C++, CI green, format in [`docs/formats/config.md`](docs/formats/config.md). **Real data:** 1,639 configs parse in CI, all 1,468 asset KUIDs match their folders. **Missing:** tracing the text grammar in `trainz.exe`; `Builtin\1.ja`–`7.ja`. |
+| 3 | Asset index (KUID → where the asset lives) + `asset-tool` | 4 | 60% | Claude | Written in C++ ([`docs/formats/asset-index.md`](docs/formats/asset-index.md)). **Real data:** 1,626 assets indexed in CI, no KUID warnings. **Missing:** `.cdp` packages, which copy/version the game picks (not traced), an on-disk cache, a run on Dad's full install. |
+| 4 | Textures: `.texture` (`MMTF`), `.tga`, `.bmp`, `.jpg` + `texture-tool` | 4 | 55% | Claude | `.texture` done in C++ ([`docs/formats/texture.md`](docs/formats/texture.md)): ARGB8888, RGB0888, DXT1/3/5, mip chain, PNG export. **Real data:** every texture in the test data parses in CI. **Missing:** `.texture.txt`, `.tga`/`.bmp`/`.jpg`. |
+| 5 | 3D models: `.im` / `.pm` (`JIRF`/`IDXM`) + a model viewer | 8 | 50% | Claude | `GEOM` (v101/102/200/201) and `MATL` (v102/103) worked out from data; C++ reader, `mesh-tool` ([`docs/formats/mesh.md`](docs/formats/mesh.md)). **Real data:** 291 meshes / 1,438 parts parse in CI (it found GEOM v101). **Missing:** a GPU viewer, `INFO`/`INFL`/`ATCH`/`SKEL`/`PMIN`/`NINF`, tracing the reader code. |
 | 6 | Materials and shaders (`m.onetex` …, `vtx.txt`/`pxl.txt`) | 6 | 0% | Claude | Map to modern shaders; Cg is discontinued. |
-| 7 | Animation: `.kin` (`ANIM`) + `anim-tool` | 4 | 50% | Claude | `INFO`/`EVNT`/`SKEL`/`FRAM` worked out from data, all 135 disc files fit; C++ reader, posing in `mesh-tool preview --kin` ([`docs/formats/animation.md`](docs/formats/animation.md)). **Missing:** whether bone positions are absolute or parent-relative (absolute looks right, not confirmed), playback, what events do, a real-install C++ run. |
-| 8 | Routes: `mapfile.gnd` / `.trk` / `.obs` / `.bmk` + a route viewer | 10 | 10% | Claude (viewer) | `mapfile.gnd` outer structure (section index, byte ranges, 64×64 overview maps) worked out on the one disc route; C++ reader and `route-tool` ([`docs/formats/route.md`](docs/formats/route.md)). **Missing:** section contents (heights, textures; needs `trainz.exe` 0x81ec70/0x8298c0 traced), `.trk`, `.obs`, `.bmk`, more routes from `Builtin\1.ja`–`7.ja`. |
+| 7 | Animation: `.kin` (`ANIM`) + `anim-tool` | 4 | 55% | Claude | `INFO`/`EVNT`/`SKEL`/`FRAM` worked out from data; C++ reader, posing in `mesh-tool preview --kin` ([`docs/formats/animation.md`](docs/formats/animation.md)). **Real data:** parses in CI. **Missing:** whether bone positions are absolute or parent-relative, playback, what events do. |
+| 8 | Routes: `mapfile.gnd` / `.trk` / `.obs` / `.bmk` + a route viewer | 10 | 12% | Claude (viewer) | `mapfile.gnd` outer structure worked out; C++ reader and `route-tool` ([`docs/formats/route.md`](docs/formats/route.md)); **real data:** the disc route parses in CI. **Missing:** section contents (needs `trainz.exe` 0x81ec70/0x8298c0 traced), `.trk`, `.obs`, `.bmk`, more routes from `Builtin\1.ja`–`7.ja`. |
 | 9 | Sound: WAV/MP3 playback, 3D positioning | 4 | 0% | Claude (decoding/playback layer) | |
 | 10 | Input: keyboard, mouse, joystick (SDL) + `keyboard.txt` bindings | 2 | 0% | Claude (device layer) | |
 | 11 | Sessions: `profile.dat` / `.obs` / `.trk` / `.lyr` | 4 | 0% | Claude (reader) | |
@@ -50,11 +50,11 @@ percentage is a **weighted estimate**, not a measurement: see
 | 14 | Game UI (menus, Surveyor, driver HUD) and the in-game HTML pages | 8 | 0% | owner / other | The game uses an embedded Gecko browser for its pages. |
 | 15 | Networking / Download Station / iTrainz chat | 3 | 0% | owner / other | Optional; 2010 servers probably gone (not checked). |
 | 16 | Packaging and launcher for Hearth OS (menu entry, data folder, settings) | 3 | 0% | Claude | Must keep any previous version startable. |
-| 17 | Validation on Dad's PC (real-install tests, full archive verify, speed on the hard drive) | 4 | 0% | Claude + owner | Needs the tests run with `TRAINZ_DATA_DIR` on his PC. |
+| 17 | Validation on Dad's PC (real-install tests, full archive verify, speed on the hard drive) | 4 | 25% | Claude + owner | **Started:** real game data in the private repo (`testdata/ts2010`), all `RealInstall.*` tests run in CI with a full decode. **Missing:** the same tests on Dad's full install, speed on his hard drive. |
 | | **Total** | **102** | | | |
 
-**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.80 + 3×0.75 + 4×0.55 + 4×0.50 + 8×0.45 + 4×0.50 + 10×0.10) ÷ 102 =
-16.75 ÷ 102 = 16.42% → **16%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
+**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.85 + 3×0.80 + 4×0.60 + 4×0.55 + 8×0.50 + 4×0.55 + 10×0.12 + 4×0.25) ÷ 102 =
+19.25 ÷ 102 = 18.87% → **19%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
 102 weight points.
 
 ---
@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-10 | 19% | First C++ run on **real game data** (repo now private): `Base.ja`, `Data.ja` and a real subset of `8.ja` in `testdata/ts2010`; all 10 `RealInstall.*` tests pass in CI with a full decode. It found GEOM v101 (fixed). Steps 1→85%, 2→80%, 3→60%, 4→55%, 5→50%, 7→55%, 8→12%, 17→25%. |
 | 2026-11-10 | 16% | Step 8 (0% → 10%): `mapfile.gnd` outer structure (20 sections, offsets, overview maps) checked on the disc route; `route-tool info/overview`. Section contents need the `trainz.exe` loaders traced. Step 7 review fix: `poseMesh` validates pose counts before changing anything and documents in-place behaviour. |
 | 2026-11-10 | 15% | Step 7 (0% → 50%): `.kin` reader (`anim-tool`, mesh posing); all 135 disc animations fit; bone-position space rendered both ways (absolute looks right, not confirmed). Preview hardened against overflowing intermediate maths (ChatGPT review). |
 | 2026-11-10 | 13% | Step 5 (0% → 45%): mesh reader (`GEOM`/`MATL` worked out from data, all 7,982 parts fit), software preview and OBJ export (`mesh-tool`); ore-car mesh rendered correctly. Step 4 review fix: texture sizes bounded before any arithmetic (no overflow). |
@@ -102,8 +103,8 @@ roadmap existed were filled in afterwards from the chat history.
 
 ## Open blockers
 
-- **No real-data C++ run yet.** Either run the real-install tests on Dad's PC,
-  or make the repo private so `Base.ja` and `Data.ja` can go in for CI.
+- **Dad's full install still untested.** CI covers `Base.ja`, `Data.ja` and a
+  subset of `8.ja`; `Builtin\1.ja`–`8.ja` in full only exist on his PC.
 - **No decompiler for REA on this PC.** It needs Ghidra 12.1.x. Without it,
   code inside `trainz.exe` can only be read as disassembly.
-- **The repo is public.** No game files go in until it's private.
+- **Keep the repo private.** It now holds N3V's game files (`testdata/`).
