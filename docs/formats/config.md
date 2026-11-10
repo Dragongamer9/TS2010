@@ -102,7 +102,11 @@ i32 CONTENT
 - **Checked:** the top-level `kuid` of **all 1,468** `config.chump` files in
   `Builtin\8.ja` matches the folder it sits in. That includes
   `kuid2 113998 9002 127`, where version 127 sets the top bit.
-- **Not traced:** the decoding code in the game.
+- **Traced: when a KUID counts as plain.** `TADDaemon.exe` builds folder
+  names at `0x51919a`–`0x5191de`. It writes `kuid U C` when *version = 0
+  and user ≥ 0*, or *version = 127 and user < 0*, and `kuid2 U C V`
+  otherwise. So for negative users, "no version" is stored as 127.
+- **Not traced:** the 25/7-bit unpacking itself.
 
 **KUIDs stored as strings.** A KUID can also appear as a string (type 3), in
 looser forms:

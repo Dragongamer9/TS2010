@@ -126,7 +126,7 @@ Kuid unpackChumpKuid(std::uint32_t packedUser, std::int32_t content) {
     } else {
         k.user = static_cast<std::int32_t>(low25);
     }
-    if (!(k.user < 0 && top7 == 0x7F) && top7 != 0) {
+    if (!Kuid::isPlainVersion(k.user, static_cast<std::int32_t>(top7))) {
         k.version = static_cast<std::int32_t>(top7);
     }
     return k;

@@ -214,9 +214,11 @@ hash-XX/kuid2 USER CONTENT VERSION/...
 `XX` is the **XOR of the 8 little-endian bytes of `(int32 USER, int32 CONTENT)`**
 (the version is not included).
 - In the index it appears lowercased (`hash-c0`).
-- **Observed only:** the rule matched all 499 asset folders tested in `8.ja`,
-  but the code that builds these names (probably in `TADDaemon.exe`) **has not
-  been traced**.
+- **Observed only:** the hash rule matched all 499 asset folders tested in
+  `8.ja`, but the code that computes `XX` **has not been traced**.
+  `TADDaemon.exe` formats `"hash-%02X"` at `0x44984a`; that spot loops over
+  all 256 folders and is not the hash itself. The `kuid` / `kuid2` part of
+  the name **is** traced: see `docs/formats/config.md` §1.4.
 - The `RealInstall.KuidFolderHashRule` test checks it on every folder of
   every archive in an install.
 

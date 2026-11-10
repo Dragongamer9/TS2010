@@ -81,6 +81,14 @@ TEST(KuidPacking, NegativeUsers) {
     EXPECT_EQ(unpackChumpKuid(0xFFFFFFFFu, 5), (Kuid{-1, 5, std::nullopt}));
 }
 
+TEST(KuidPacking, FolderRuleFromTadDaemon) {
+    // TADDaemon.exe 0x51919a: plain iff (v == 0 && u >= 0) || (v == 127 && u < 0).
+    EXPECT_EQ(unpackChumpKuid(0x01FFFFF6u, 137), (Kuid{-10, 137, 0}));  // negative user, version bits 0
+    EXPECT_EQ(kuidFolderKey({-10, 137, 0}).substr(8), "kuid2 -10 137 0");
+    EXPECT_EQ(kuidFolderKey({-10, 137, 127}).substr(8), "kuid -10 137");
+    EXPECT_EQ(kuidFolderKey({5, 6, 127}).substr(8), "kuid2 5 6 127");
+}
+
 TEST(KuidPacking, LooseTextForms) {
     EXPECT_EQ(parseKuidLoose("<KUID2:33404:22112:02>"), (Kuid{33404, 22112, 2}));
     EXPECT_EQ(parseKuidLoose(std::string("<kuid:1:2>\0\0", 12)), (Kuid{1, 2, std::nullopt}));

@@ -29,11 +29,18 @@ struct Kuid {
 
     bool operator==(const Kuid&) const = default;
 
-    // kuid2 with version 0 is the same asset as the plain kuid (seen in
-    // Builtin\8.ja: "<KUID2:2512:3:0>" lives in folder "kuid 2512 3").
+    // True when the game treats a (user, version) pair as a plain kuid.
+    // TADDaemon.exe 0x51919a..0x5191de names the folder "kuid U C" when
+    // version == 0 and user >= 0, or version == 127 and user < 0; otherwise
+    // "kuid2 U C V". (Seen in data too: "<KUID2:2512:3:0>" lives in "kuid 2512 3".)
+    static bool isPlainVersion(std::int32_t user, std::int32_t version) {
+        return (version == 0 && user >= 0) || (version == 127 && user < 0);
+    }
+
+    // Drops a version that the game treats as "no version".
     Kuid normalized() const {
         Kuid k = *this;
-        if (k.version && *k.version == 0) {
+        if (k.version && isPlainVersion(k.user, *k.version)) {
             k.version.reset();
         }
         return k;
@@ -52,8 +59,9 @@ std::optional<Kuid> parseKuidLoose(std::string_view text);
 // Decodes the 8-byte KUID value of a .chump file (type 13): two little-endian
 // 32-bit words, the first holding USER in its low 25 bits (signed) and VERSION
 // in its top 7 bits. A negative USER has all-ones top bits, which mean "no
-// version". OBSERVED ONLY: matched all 1468 config.chump files in Builtin\8.ja
-// against their folder names; the decoding code has not been traced.
+// version". The plain/kuid2 rule is traced (see Kuid::isPlainVersion); the
+// 25/7-bit split is OBSERVED: it matched all 1468 config.chump files in
+// Builtin\8.ja against their folder names.
 Kuid unpackChumpKuid(std::uint32_t packedUser, std::int32_t content);
 
 // "<kuid:U:C>" or "<kuid2:U:C:V>".

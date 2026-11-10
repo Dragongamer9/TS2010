@@ -1,7 +1,8 @@
 # TS2010
 
 A private project to bring a **Trainz Simulator 2010** install to Linux
-natively. It targets Hearth OS (Debian 13, x86_64). Planning notes are in
+natively. It targets Hearth OS (Debian 13, x86_64). **Progress and plan:**
+[`ROADMAP.md`](ROADMAP.md). Planning notes are in
 [`docs/ENGINE-MAP.md`](docs/ENGINE-MAP.md).
 
 What exists so far: a **read-only reader for the game's `.ja` content archives**
