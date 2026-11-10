@@ -30,6 +30,7 @@ add_library(trainz_content
   src/common/SafeOutput.cpp
   src/content/ArchivePath.cpp
   src/content/AssetConfig.cpp
+  src/content/AssetIndex.cpp
   src/content/CfilCodec.cpp
   src/content/JaArchive.cpp
   src/content/Kuid.cpp
@@ -46,12 +47,17 @@ add_executable(config-tool tools/config_tool.cpp)
 target_link_libraries(config-tool PRIVATE trainz_content)
 target_compile_options(config-tool PRIVATE ${TRAINZ_WARNINGS})
 
+add_executable(asset-tool tools/asset_tool.cpp)
+target_link_libraries(asset-tool PRIVATE trainz_content)
+target_compile_options(asset-tool PRIVATE ${TRAINZ_WARNINGS})
+
 if(TRAINZ_BUILD_TESTS)
   enable_testing()
   find_package(GTest REQUIRED)
   add_executable(content_tests
     tests/test_archive.cpp
     tests/test_asset_config.cpp
+    tests/test_asset_index.cpp
     tests/test_cfil.cpp
     tests/test_corruption.cpp
     tests/test_path_kuid.cpp

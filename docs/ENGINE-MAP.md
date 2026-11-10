@@ -342,6 +342,8 @@ Each step can be tested against the real data before the next one starts.
    `config-tool`); see [`formats/config.md`](formats/config.md).*
 3. **Own asset index**: scan `local`, the `.ja` files and `.cdp` packages into a
    KUID → location table. This avoids depending on `assets.tdx`/TADDaemon early.
+   *Written in C++ (`src/content/AssetIndex`, `asset-tool`) for `.ja` and
+   loose folders; `.cdp` not yet. See [`formats/asset-index.md`](formats/asset-index.md).*
 4. **Images and textures**: `.tga`/`.bmp`/`.jpg`, then `.texture` (`MMTF`
    mips). Work out the `INFO` pixel-format field.
 5. **Meshes**: `JIRF` reader → `.im`/`.pm` `CHNK`/`MATL`/`GEOM` → draw one

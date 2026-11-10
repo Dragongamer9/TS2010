@@ -10,6 +10,14 @@ and for asset configs (`config.txt` / `config.chump`, with `config-tool`; see
 [`docs/formats/config.md`](docs/formats/config.md)). The archive reader is
 for `Base.ja`, `Data.ja` and `Builtin/*.ja`, and comes with the `ja-tool` command.
 Both have tests. The format is described in [`docs/formats/ja.md`](docs/formats/ja.md).
+On top of both, `asset-tool` lists every asset in an install and where it lives
+([`docs/formats/asset-index.md`](docs/formats/asset-index.md)):
+
+```sh
+asset-tool scan     /path/to/TS2010
+asset-tool find     /path/to/TS2010 "<kuid:447264:1073>"
+asset-tool versions /path/to/TS2010 5:6
+```
 
 ## How it protects your game data
 

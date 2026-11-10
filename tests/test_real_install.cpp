@@ -7,6 +7,7 @@
 #include "content/ContentError.h"
 #include "content/JaArchive.h"
 #include "content/AssetConfig.h"
+#include "content/AssetIndex.h"
 #include "content/Kuid.h"
 
 #include <gtest/gtest.h>
@@ -239,4 +240,19 @@ TEST_F(RealInstall, AssetConfigsParseAndMatchTheirFolder) {
     }
     std::cout << "  configs parsed: " << parsed << ", asset KUIDs matching their folder: " << matched << "\n";
     EXPECT_EQ(failures, 0u);
+}
+
+TEST_F(RealInstall, AssetIndexOfTheWholeInstall) {
+    // TRAINZ_DATA_DIR should be the install folder (holding Base.ja and Builtin/).
+    const auto idx = trainz::content::AssetIndex::scanInstall(root);
+    std::size_t kuidWarnings = 0;
+    for (const auto& w : idx.warnings()) {
+        if (w.find("folder says") != std::string::npos) {
+            ++kuidWarnings;
+        }
+        std::cout << "  index warning: " << w << "\n";
+    }
+    std::cout << "  assets indexed: " << idx.records().size() << "\n";
+    EXPECT_GT(idx.records().size(), 0u);
+    EXPECT_EQ(kuidWarnings, 0u);
 }
