@@ -1,10 +1,10 @@
 # Roadmap – Trainz Simulator 2010 on Linux (Hearth OS)
 
-**Overall progress: 10%**
+**Overall progress: 13%**
 
-`[██░░░░░░░░░░░░░░░░░░]`
+`[███░░░░░░░░░░░░░░░░░]`
 
-*Last updated: 2026-11-10, after step 4 (textures).*
+*Last updated: 2026-11-10, after step 5 (mesh format, preview, OBJ export).*
 
 This file is updated with every change that moves the project forward. The
 percentage is a **weighted estimate**, not a measurement: see
@@ -38,7 +38,7 @@ percentage is a **weighted estimate**, not a measurement: see
 | 2 | Asset configs: `config.txt` + `config.chump` + KUIDs | 3 | 75% | Claude | Done in C++, CI green, format in [`docs/formats/config.md`](docs/formats/config.md). The plain/kuid2 folder rule is traced. **Missing:** a C++ run on real files; tracing the text grammar in `trainz.exe`. |
 | 3 | Asset index (KUID → where the asset lives) + `asset-tool` | 4 | 55% | Claude | Written in C++ ([`docs/formats/asset-index.md`](docs/formats/asset-index.md)): Base/Data/Builtin `.ja` + `UserData/local`, sub-parts skipped, all copies and versions reported. **Missing:** `.cdp` packages, which copy/version the game picks (not traced), an on-disk cache, a real-install run. |
 | 4 | Textures: `.texture` (`MMTF`), `.tga`, `.bmp`, `.jpg` + `texture-tool` | 4 | 50% | Claude | `.texture` done in C++ ([`docs/formats/texture.md`](docs/formats/texture.md)): all 5 formats in use (ARGB8888, RGB0888, DXT1/3/5), mip chain, PNG export; checked on all 6,666 disc textures. **Missing:** `.texture.txt`, `.tga`/`.bmp`/`.jpg`, a real-install C++ run. |
-| 5 | 3D models: `.im` / `.pm` (`JIRF`/`IDXM`) + a model viewer | 8 | 0% | Claude | Container known; `GEOM` vertex layout unknown. |
+| 5 | 3D models: `.im` / `.pm` (`JIRF`/`IDXM`) + a model viewer | 8 | 45% | Claude | `GEOM` (v102/200/201) and `MATL` (v102/103) layouts worked out from data and checked on all 7,982 parts; C++ reader, `mesh-tool` (info, software preview PNG, OBJ+MTL+PNG export) ([`docs/formats/mesh.md`](docs/formats/mesh.md)). **Missing:** a GPU viewer, `INFO`/`INFL`/`ATCH`/`SKEL`/`PMIN`/`NINF`, tracing the reader code, a real-install C++ run. |
 | 6 | Materials and shaders (`m.onetex` …, `vtx.txt`/`pxl.txt`) | 6 | 0% | Claude | Map to modern shaders; Cg is discontinued. |
 | 7 | Animation: `.kin` (`ANIM`) | 4 | 0% | Claude | Container known. |
 | 8 | Routes: `mapfile.gnd` / `.trk` / `.obs` / `.bmk` + a route viewer | 10 | 0% | Claude (viewer) | Headers known; inner layouts unknown. |
@@ -53,8 +53,8 @@ percentage is a **weighted estimate**, not a measurement: see
 | 17 | Validation on Dad's PC (real-install tests, full archive verify, speed on the hard drive) | 4 | 0% | Claude + owner | Needs the tests run with `TRAINZ_DATA_DIR` on his PC. |
 | | **Total** | **102** | | | |
 
-**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.80 + 3×0.75 + 4×0.55 + 4×0.50) ÷ 102 =
-10.15 ÷ 102 = 9.95% → **10%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
+**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.80 + 3×0.75 + 4×0.55 + 4×0.50 + 8×0.45) ÷ 102 =
+13.75 ÷ 102 = 13.5% → **13%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
 102 weight points.
 
 ---
@@ -67,7 +67,7 @@ A milestone reaches **100%** only when **all** of these are true:
 3. The format doc says what is traced, checked, observed and unknown.
 4. It has been run read-only against Dad's real install.
 
-Until then it stays below 100%, so steps 1–4 are at 80%, 75%, 55% and 50% and not 100%.
+Until then it stays below 100%, so steps 1–5 are at 80%, 75%, 55%, 50% and 45% and not 100%.
 
 ## How the percentage works
 
@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-10 | 13% | Step 5 (0% → 45%): mesh reader (`GEOM`/`MATL` worked out from data, all 7,982 parts fit), software preview and OBJ export (`mesh-tool`); ore-car mesh rendered correctly. Step 4 review fix: texture sizes bounded before any arithmetic (no overflow). |
 | 2026-11-10 | 10% | Step 4 (0% → 50%): `.texture` reader, DXT1/3/5 + 32-bit decoding, PNG export, `texture-tool`; format ids traced to the engine's name list; sizes checked on 6,666 textures, colours checked by eye. Step 3 review fixes: only valid parent assets hide sub-parts; config reads bounded to 16 MiB. |
 | 2026-11-10 | 8% | Step 3 (0% → 55%): asset index + `asset-tool`; selection rule checked on the disc (8.ja: 1,468 assets, 1 sub-part skipped). |
 | 2026-11-10 | 6% | Step 0 (60% → 65%): traced the plain/kuid2 folder rule in `TADDaemon.exe` (`0x51919a`). This fixed one edge case: a negative user with version 0. Engine-map citation for the `.chump` reader corrected (ChatGPT review). Roadmap created. |

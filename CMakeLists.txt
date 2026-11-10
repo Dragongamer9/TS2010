@@ -36,8 +36,10 @@ add_library(trainz_content
   src/content/JaArchive.cpp
   src/content/JirfFile.cpp
   src/content/Kuid.cpp
+  src/content/MeshFile.cpp
   src/content/ReadOnlyFile.cpp
   src/content/TextureFile.cpp
+  src/view/MeshPreview.cpp
 )
 target_include_directories(trainz_content PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(trainz_content PRIVATE ${TRAINZ_WARNINGS})
@@ -58,6 +60,10 @@ add_executable(texture-tool tools/texture_tool.cpp)
 target_link_libraries(texture-tool PRIVATE trainz_content)
 target_compile_options(texture-tool PRIVATE ${TRAINZ_WARNINGS})
 
+add_executable(mesh-tool tools/mesh_tool.cpp)
+target_link_libraries(mesh-tool PRIVATE trainz_content)
+target_compile_options(mesh-tool PRIVATE ${TRAINZ_WARNINGS})
+
 if(TRAINZ_BUILD_TESTS)
   enable_testing()
   find_package(GTest REQUIRED)
@@ -66,6 +72,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_asset_config.cpp
     tests/test_asset_index.cpp
     tests/test_cfil.cpp
+    tests/test_mesh.cpp
     tests/test_corruption.cpp
     tests/test_path_kuid.cpp
     tests/test_real_install.cpp

@@ -137,6 +137,10 @@ const char* pixelFormatName(PixelFormat f) {
 }
 
 std::optional<std::size_t> imageByteSize(PixelFormat f, std::uint32_t w, std::uint32_t h) {
+    // Bounded first: at most 8192 x 8192 x 4 = 256 MiB, far from any overflow.
+    if (w == 0 || h == 0 || w > kMaxTextureSize || h > kMaxTextureSize) {
+        return std::nullopt;
+    }
     const auto pixels = static_cast<std::size_t>(w) * h;
     const std::size_t blocks = static_cast<std::size_t>(std::max(1u, (w + 3) / 4)) * std::max(1u, (h + 3) / 4);
     switch (f) {
@@ -194,7 +198,7 @@ TextureFile parseTexture(std::span<const std::uint8_t> data) {
         throw ContentError("texture size " + std::to_string(t.width) + "x" + std::to_string(t.height) +
                            " is not allowed");
     }
-    if (!imageByteSize(t.format, 1, 1)) {
+    if (!imageByteSize(t.format, t.width, t.height)) {
         throw ContentError("texture pixel format " + std::to_string(static_cast<std::uint32_t>(t.format)) +
                            " is unknown");
     }
@@ -231,6 +235,10 @@ TextureFile parseTexture(std::span<const std::uint8_t> data) {
 }
 
 std::vector<std::uint8_t> decodeToRgba8(const MipLevel& mip, PixelFormat f) {
+    if (mip.width == 0 || mip.height == 0 || mip.width > kMaxTextureSize || mip.height > kMaxTextureSize) {
+        throw ContentError("mip size " + std::to_string(mip.width) + "x" + std::to_string(mip.height) +
+                           " is not allowed (1.." + std::to_string(kMaxTextureSize) + ")");
+    }
     const auto want = imageByteSize(f, mip.width, mip.height);
     if (!want || mip.data.size() != *want) {
         throw ContentError("mip data does not match its size and format");

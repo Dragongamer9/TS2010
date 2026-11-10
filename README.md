@@ -27,6 +27,15 @@ texture-tool info /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 149987 21565/grass_
 texture-tool png  /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 149987 21565/grass_15.texture"
 ```
 
+`mesh-tool` reads `.im`/`.pm` meshes ([`docs/formats/mesh.md`](docs/formats/mesh.md)): `info`, a quick
+`preview` PNG, or `obj` to export OBJ + MTL + PNG textures for Blender, all under
+`~/.local/share/trainz-native/meshes/`:
+
+```sh
+mesh-tool preview /path/to/TS2010/Builtin/8.ja "hash-c0/kuid2 90361 120204 2/70ton_orecar_body/70ton_orecar_body.im"
+mesh-tool obj     /path/to/TS2010/Builtin/8.ja "hash-c0/kuid2 90361 120204 2/70ton_orecar_body/70ton_orecar_body.im"
+```
+
 ## How it protects your game data
 
 - **Read-only.** Game files are opened read-only (`O_RDONLY`, and `O_NOATIME`

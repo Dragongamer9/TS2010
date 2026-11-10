@@ -34,10 +34,13 @@ enum class PixelFormat : std::uint32_t {
     DXT5 = 12,
 };
 
+inline constexpr std::uint32_t kMaxTextureSize = 8192;
+
 const char* pixelFormatName(PixelFormat f);
 
 // Bytes for one w x h image in this format (DXT formats round up to 4x4
-// blocks). nullopt for Null or unknown ids.
+// blocks). nullopt for Null or unknown ids, and for sizes of 0 or above
+// kMaxTextureSize (so the arithmetic can never overflow).
 std::optional<std::size_t> imageByteSize(PixelFormat f, std::uint32_t w, std::uint32_t h);
 
 struct TextureInfo {
@@ -61,14 +64,13 @@ struct TextureFile {
     std::vector<std::string> warnings;
 };
 
-inline constexpr std::uint32_t kMaxTextureSize = 8192;
-
 // Throws ContentError on damage: wrong form, missing INFO, mip count or sizes
 // that do not match the format, sizes over 8192.
 TextureFile parseTexture(std::span<const std::uint8_t> data);
 
 // Converts one mip level to 8-bit R,G,B,A bytes (row by row, top row first as stored).
-// Throws ContentError for formats it cannot decode.
+// Throws ContentError for formats it cannot decode, for sizes of 0 or above
+// kMaxTextureSize, and when the data does not match the size.
 std::vector<std::uint8_t> decodeToRgba8(const MipLevel& mip, PixelFormat format);
 
 }  // namespace trainz::content

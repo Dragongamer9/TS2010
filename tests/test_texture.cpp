@@ -204,6 +204,22 @@ TEST(Decode, Dxt5SixStepModeHasZeroAndFull) {
     EXPECT_EQ(a5[7], 255);
 }
 
+TEST(Decode, OversizedDimensionsAreRefused) {
+    // 0x80000000 x 0x80000000 x 4 would wrap to 0 on 64-bit without the size limit.
+    EXPECT_FALSE(imageByteSize(PixelFormat::ARGB8888, 0x80000000u, 0x80000000u));
+    EXPECT_FALSE(imageByteSize(PixelFormat::DXT1, 0xFFFFFFFFu, 4));  // width + 3 would wrap
+    EXPECT_FALSE(imageByteSize(PixelFormat::DXT5, 8193, 1));
+    EXPECT_FALSE(imageByteSize(PixelFormat::RGB565, 0, 1));
+    EXPECT_TRUE(imageByteSize(PixelFormat::ARGB8888, 8192, 8192));
+    for (PixelFormat f : {PixelFormat::ARGB8888, PixelFormat::RGB0888, PixelFormat::DXT1, PixelFormat::DXT5,
+                          PixelFormat::RGB565}) {
+        EXPECT_THROW(decodeToRgba8(mip(0x80000000u, 0x80000000u, {}), f), ContentError);
+        EXPECT_THROW(decodeToRgba8(mip(0xFFFFFFFFu, 1, {}), f), ContentError);
+        EXPECT_THROW(decodeToRgba8(mip(0, 4, {}), f), ContentError);
+        EXPECT_THROW(decodeToRgba8(mip(4, 4, {}), f), ContentError);  // data missing
+    }
+}
+
 TEST(Decode, NonMultipleOfFourSizes) {
     const auto out = decodeToRgba8(mip(2, 1, Bytes(8, 0)), PixelFormat::DXT1);
     EXPECT_EQ(out.size(), 2u * 1 * 4);

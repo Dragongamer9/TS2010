@@ -9,6 +9,7 @@
 #include "content/AssetConfig.h"
 #include "content/AssetIndex.h"
 #include "content/Kuid.h"
+#include "content/MeshFile.h"
 #include "content/TextureFile.h"
 
 #include <gtest/gtest.h>
@@ -294,5 +295,38 @@ TEST_F(RealInstall, TexturesParseAndDecode) {
         std::cout << k << " " << v << " ";
     }
     std::cout << ")\n";
+    EXPECT_EQ(failures, 0u);
+}
+
+TEST_F(RealInstall, MeshesParse) {
+    // Every .im / .pm must parse: GEOM and MATL accounted for byte by byte, indices in range.
+    std::size_t parsed = 0;
+    std::size_t parts = 0;
+    std::size_t failures = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        std::vector<const JaEntry*> meshes;
+        for (const auto& e : a.entries()) {
+            const bool isMesh = e.name.size() > 3 && (e.name.compare(e.name.size() - 3, 3, ".im") == 0 ||
+                                                      e.name.compare(e.name.size() - 3, 3, ".pm") == 0);
+            if (isMesh && a.isLookupWinner(e)) {
+                meshes.push_back(&e);
+            }
+        }
+        std::sort(meshes.begin(), meshes.end(),
+                  [](const JaEntry* x, const JaEntry* y) { return x->dataOffset < y->dataOffset; });
+        const std::size_t step = fullVerify ? 1 : std::max<std::size_t>(1, meshes.size() / 300);
+        for (std::size_t i = 0; i < meshes.size(); i += step) {
+            try {
+                const auto m = trainz::content::parseMesh(a.readLimited(*meshes[i], std::size_t{256} << 20));
+                ++parsed;
+                parts += m.parts.size();
+            } catch (const ContentError& err) {
+                ++failures;
+                std::cout << "  mesh problem: " << meshes[i]->name << ": " << err.what() << "\n";
+            }
+        }
+    }
+    std::cout << "  meshes parsed: " << parsed << " (" << parts << " parts)\n";
     EXPECT_EQ(failures, 0u);
 }
