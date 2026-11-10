@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -22,8 +23,13 @@ TEST(KeyBindings, CanonicalNamesAndAliases) {
     EXPECT_EQ(canonicalKey("7"), "7");
     EXPECT_EQ(canonicalKey("f2"), "F2");
     EXPECT_EQ(canonicalKey("F12"), "F12");
-    EXPECT_EQ(canonicalKey("F15"), "F15");
-    EXPECT_EQ(canonicalKey("F16"), std::nullopt);
+    EXPECT_EQ(canonicalKey("F13"), std::nullopt);  // the game names F1-F12 only
+    EXPECT_EQ(canonicalKey("-"), "Minus");
+    EXPECT_EQ(canonicalKey("\\"), "Backslash");
+    // Names that are in the game's display table but not in its parser:
+    for (const char* n : {"page up", "kp/", "kpdel", "back", "~", ".", ",", "caps lock", "left alt"}) {
+        EXPECT_EQ(canonicalKey(n), std::nullopt) << n;
+    }
     EXPECT_EQ(canonicalKey("pgup"), "PageUp");
     EXPECT_EQ(canonicalKey("PageUp"), "PageUp");
     EXPECT_EQ(canonicalKey("KPPgUp"), "KP9");
@@ -34,6 +40,44 @@ TEST(KeyBindings, CanonicalNamesAndAliases) {
     EXPECT_EQ(canonicalKey("escape"), "Esc");
     EXPECT_EQ(canonicalKey(""), std::nullopt);
     EXPECT_EQ(canonicalKey("warpdrive"), std::nullopt);
+}
+
+TEST(KeyBindings, TracedTableShape) {
+    EXPECT_EQ(gameKeyNames().size(), 141U);
+    EXPECT_EQ(allCanonicalKeys().size(), 98U);
+    EXPECT_EQ(engineKeyCode("Esc"), 0x01);
+    EXPECT_EQ(engineKeyCode("1"), 0x03);
+    EXPECT_EQ(engineKeyCode("Q"), 0x11);
+    EXPECT_EQ(engineKeyCode("LeftShift"), 0x2b);
+    EXPECT_EQ(engineKeyCode("KPSlash"), 0x5b);
+    EXPECT_EQ(engineKeyCode("PageUp"), 0x60);
+    EXPECT_EQ(engineKeyCode("Delete"), 0x67);
+    EXPECT_EQ(engineKeyCode("nope"), std::nullopt);
+    // Every canonical key has a game name and exactly one engine code.
+    std::vector<int> codes;
+    for (const auto& k : allCanonicalKeys()) {
+        codes.push_back(*engineKeyCode(k));
+    }
+    std::sort(codes.begin(), codes.end());
+    EXPECT_EQ(std::adjacent_find(codes.begin(), codes.end()), codes.end());
+}
+
+TEST(KeyBindings, WordsApplyInOrderLikeTheGame) {
+    std::vector<std::string> w;
+    auto one = [&](std::string_view text) {
+        const auto c = parseComboList(text, "t", w);
+        return c.size() == 1 ? describe(c[0]) : std::string("<") + std::to_string(c.size()) + ">";
+    };
+    EXPECT_EQ(one("b ctrl"), "ctrl+B");            // modifier after the key still counts
+    EXPECT_EQ(one("ctrl null b"), "B");            // null clears key and modifiers
+    EXPECT_EQ(one("ctrl warpdrive b"), "B");       // so does an unknown word
+    EXPECT_EQ(one("ctrl b warpdrive"), "<0>");     // ... even after the key
+    EXPECT_EQ(one("CTRL  B"), "ctrl+B");           // case and double spaces
+    EXPECT_EQ(one("ctrl\tb"), "<0>");              // a tab is part of the word
+    EXPECT_EQ(one("ctrl"), "<0>");                 // modifiers alone bind nothing
+    EXPECT_EQ(one("a, a"), "A");                   // repeats kept once
+    EXPECT_EQ(parseComboList("", "t", w).size(), 0U);
+    EXPECT_EQ(parseComboList(",,", "t", w).size(), 0U);
 }
 
 TEST(KeyBindings, ParsesGroupsCombosAndNull) {
@@ -82,7 +126,8 @@ TEST(KeyBindings, LoneDigitValue) {
 }
 
 TEST(KeyBindings, OddLinesWarnInsteadOfFailing) {
-    // Line 116 of the shipped file: plain keys where modifiers would go.
+    // Line 116 of the shipped file. The game applies every word in turn, so each
+    // letter replaces the one before: the result is ctrl+alt+shift+Z (traced).
     const auto kb = parse(
         "driver\n{\n"
         "  camera_car  alt ctrl shift c a r z\n"

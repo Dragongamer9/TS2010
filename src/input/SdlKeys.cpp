@@ -22,7 +22,6 @@ constexpr std::array kTable = {
     Pair{"PrintScreen", SDL_SCANCODE_PRINTSCREEN},
     Pair{"ScrollLock", SDL_SCANCODE_SCROLLLOCK},
     Pair{"NumLock", SDL_SCANCODE_NUMLOCKCLEAR},
-    Pair{"CapsLock", SDL_SCANCODE_CAPSLOCK},
     Pair{"Home", SDL_SCANCODE_HOME},
     Pair{"End", SDL_SCANCODE_END},
     Pair{"PageUp", SDL_SCANCODE_PAGEUP},
@@ -37,11 +36,6 @@ constexpr std::array kTable = {
     Pair{"RightShift", SDL_SCANCODE_RSHIFT},
     Pair{"LeftCtrl", SDL_SCANCODE_LCTRL},
     Pair{"RightCtrl", SDL_SCANCODE_RCTRL},
-    Pair{"LeftAlt", SDL_SCANCODE_LALT},
-    Pair{"RightAlt", SDL_SCANCODE_RALT},
-    Pair{"LeftWin", SDL_SCANCODE_LGUI},
-    Pair{"RightWin", SDL_SCANCODE_RGUI},
-    Pair{"Menu", SDL_SCANCODE_APPLICATION},
     Pair{"Grave", SDL_SCANCODE_GRAVE},
     Pair{"Minus", SDL_SCANCODE_MINUS},
     Pair{"Equals", SDL_SCANCODE_EQUALS},
@@ -69,9 +63,6 @@ constexpr std::array kTable = {
     Pair{"KP7", SDL_SCANCODE_KP_7},
     Pair{"KP8", SDL_SCANCODE_KP_8},
     Pair{"KP9", SDL_SCANCODE_KP_9},
-    Pair{"F13", SDL_SCANCODE_F13},
-    Pair{"F14", SDL_SCANCODE_F14},
-    Pair{"F15", SDL_SCANCODE_F15},
 };
 
 }  // namespace
@@ -95,7 +86,7 @@ std::optional<SDL_Scancode> scancodeFor(std::string_view k) {
             }
             f = f * 10 + (k[i] - '0');
         }
-        if (f >= 1 && f <= 12) {
+        if (f >= 1 && f <= 12) {  // the game names F1-F12 only
             return static_cast<SDL_Scancode>(SDL_SCANCODE_F1 + (f - 1));
         }
     }
@@ -141,8 +132,6 @@ std::optional<KeyCombo> comboFromKey(SDL_Scancode code, Uint16 mods) {
         c.shift = false;
     } else if (*name == "LeftCtrl" || *name == "RightCtrl") {
         c.ctrl = false;
-    } else if (*name == "LeftAlt" || *name == "RightAlt") {
-        c.alt = false;
     }
     c.key = std::move(*name);
     return c;

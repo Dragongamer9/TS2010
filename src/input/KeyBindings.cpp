@@ -4,11 +4,159 @@
 #include "content/ContentError.h"
 
 #include <algorithm>
-#include <cctype>
+#include <array>
 
 namespace trainz::input {
 
 namespace {
+
+// Generated from the compare chain in trainz.exe (VA 0x4d4b60-0x4d5a5e): each entry
+// is the string passed to Jet::AnsiString::operator== and the byte then stored at
+// key+2. 80 of the codes are DirectInput DIK_ codes + 1; 17 extended keys are packed
+// into 0x55-0x6b in DIK_ order, and Pause is 0x02.
+constexpr std::array<KeyName, 141> kGameKeyNames = {{
+    {"tilde", "Grave", 0x2a},
+    {"`", "Grave", 0x2a},
+    {"minus", "Minus", 0x0d},
+    {"underscore", "Minus", 0x0d},
+    {"plus", "Equals", 0x0e},
+    {"equals", "Equals", 0x0e},
+    {"=", "Equals", 0x0e},
+    {"backspace", "Backspace", 0x0f},
+    {"space", "Space", 0x3a},
+    {"esc", "Esc", 0x01},
+    {"escape", "Esc", 0x01},
+    {"f1", "F1", 0x3c},
+    {"f2", "F2", 0x3d},
+    {"f3", "F3", 0x3e},
+    {"f4", "F4", 0x3f},
+    {"f5", "F5", 0x40},
+    {"f6", "F6", 0x41},
+    {"f7", "F7", 0x42},
+    {"f8", "F8", 0x43},
+    {"f9", "F9", 0x44},
+    {"f10", "F10", 0x45},
+    {"f11", "F11", 0x55},
+    {"f12", "F12", 0x56},
+    {"printscreen", "PrintScreen", 0x6b},
+    {"prtscn", "PrintScreen", 0x6b},
+    {"sysrq", "PrintScreen", 0x6b},
+    {"scrlk", "ScrollLock", 0x47},
+    {"scrolllock", "ScrollLock", 0x47},
+    {"pause", "Pause", 0x02},
+    {"break", "Pause", 0x02},
+    {"home", "Home", 0x5e},
+    {"end", "End", 0x63},
+    {"del", "Delete", 0x67},
+    {"delete", "Delete", 0x67},
+    {"pgup", "PageUp", 0x60},
+    {"pageup", "PageUp", 0x60},
+    {"pgdn", "PageDown", 0x65},
+    {"pagedown", "PageDown", 0x65},
+    {"ins", "Insert", 0x66},
+    {"insert", "Insert", 0x66},
+    {"up", "Up", 0x5f},
+    {"down", "Down", 0x64},
+    {"left", "Left", 0x61},
+    {"right", "Right", 0x62},
+    {"numlock", "NumLock", 0x46},
+    {"kpslash", "KPSlash", 0x5b},
+    {"kpstar", "KPStar", 0x38},
+    {"kpminus", "KPMinus", 0x4b},
+    {"kpplus", "KPPlus", 0x4f},
+    {"kpenter", "KPEnter", 0x5a},
+    {"kpperiod", "KPPeriod", 0x54},
+    {"kpdot", "KPPeriod", 0x54},
+    {"kp0", "KP0", 0x53},
+    {"kp1", "KP1", 0x50},
+    {"kp2", "KP2", 0x51},
+    {"kp3", "KP3", 0x52},
+    {"kp4", "KP4", 0x4c},
+    {"kp5", "KP5", 0x4d},
+    {"kp6", "KP6", 0x4e},
+    {"kp7", "KP7", 0x48},
+    {"kp8", "KP8", 0x49},
+    {"kp9", "KP9", 0x4a},
+    {"kpend", "KP1", 0x50},
+    {"kppgdn", "KP3", 0x52},
+    {"kppagedown", "KP3", 0x52},
+    {"kphome", "KP7", 0x48},
+    {"kppgup", "KP9", 0x4a},
+    {"kppageup", "KP9", 0x4a},
+    {"kpup", "KP8", 0x49},
+    {"kpdown", "KP2", 0x51},
+    {"kpdn", "KP2", 0x51},
+    {"kpleft", "KP4", 0x4c},
+    {"kpclear", "KP5", 0x4d},
+    {"kpclr", "KP5", 0x4d},
+    {"kpright", "KP6", 0x4e},
+    {"kpins", "KP0", 0x53},
+    {"kpinsert", "KP0", 0x53},
+    {"tab", "Tab", 0x10},
+    {"enter", "Enter", 0x1d},
+    {"comma", "Comma", 0x34},
+    {"period", "Period", 0x35},
+    {"fullstop", "Period", 0x35},
+    {"slash", "Slash", 0x36},
+    {"backslash", "Backslash", 0x2c},
+    {"semi", "Semicolon", 0x28},
+    {"semicolon", "Semicolon", 0x28},
+    {"quote", "Apostrophe", 0x29},
+    {"apostrophe", "Apostrophe", 0x29},
+    {"'", "Apostrophe", 0x29},
+    {"openbrace", "LeftBracket", 0x1b},
+    {"openbracket", "LeftBracket", 0x1b},
+    {"leftbracket", "LeftBracket", 0x1b},
+    {"[", "LeftBracket", 0x1b},
+    {"closedbrace", "RightBracket", 0x1c},
+    {"closedbracket", "RightBracket", 0x1c},
+    {"rightbracket", "RightBracket", 0x1c},
+    {"]", "RightBracket", 0x1c},
+    {"a", "A", 0x1f},
+    {"b", "B", 0x31},
+    {"c", "C", 0x2f},
+    {"d", "D", 0x21},
+    {"e", "E", 0x13},
+    {"f", "F", 0x22},
+    {"g", "G", 0x23},
+    {"h", "H", 0x24},
+    {"i", "I", 0x18},
+    {"j", "J", 0x25},
+    {"k", "K", 0x26},
+    {"l", "L", 0x27},
+    {"m", "M", 0x33},
+    {"n", "N", 0x32},
+    {"o", "O", 0x19},
+    {"p", "P", 0x1a},
+    {"q", "Q", 0x11},
+    {"r", "R", 0x14},
+    {"s", "S", 0x20},
+    {"t", "T", 0x15},
+    {"u", "U", 0x17},
+    {"v", "V", 0x30},
+    {"w", "W", 0x12},
+    {"x", "X", 0x2e},
+    {"y", "Y", 0x16},
+    {"z", "Z", 0x2d},
+    {"leftshiftkey", "LeftShift", 0x2b},
+    {"rightshiftkey", "RightShift", 0x37},
+    {"leftcontrolkey", "LeftCtrl", 0x1e},
+    {"rightcontrolkey", "RightCtrl", 0x5c},
+    {"-", "Minus", 0x0d},
+    {"/", "Slash", 0x36},
+    {"\\", "Backslash", 0x2c},
+    {";", "Semicolon", 0x28},
+    {"0", "0", 0x0c},
+    {"1", "1", 0x03},
+    {"2", "2", 0x04},
+    {"3", "3", 0x05},
+    {"4", "4", 0x06},
+    {"5", "5", 0x07},
+    {"6", "6", 0x08},
+    {"7", "7", 0x09},
+    {"8", "8", 0x0a},
+    {"9", "9", 0x0b},
+}};
 
 std::string lower(std::string_view s) {
     std::string out(s);
@@ -20,106 +168,26 @@ std::string lower(std::string_view s) {
     return out;
 }
 
-struct KeyName {
-    const char* canonical;
-    std::vector<const char*> names;  // lowercase display names and aliases from trainz.exe
-};
-
-const std::vector<KeyName>& keyTable() {
-    static const std::vector<KeyName> table = {
-        {"Esc", {"esc", "escape"}},
-        {"Tab", {"tab"}},
-        {"Enter", {"enter"}},
-        {"Space", {"space"}},
-        {"Backspace", {"back", "backspace"}},
-        {"Pause", {"pause", "break"}},
-        {"PrintScreen", {"printscreen", "prtscn", "sysrq"}},
-        {"ScrollLock", {"scroll lock", "scrlk", "scrolllock"}},
-        {"NumLock", {"num lock", "numlock"}},
-        {"CapsLock", {"caps lock"}},
-        {"Home", {"home"}},
-        {"End", {"end"}},
-        {"PageUp", {"page up", "pgup", "pageup"}},
-        {"PageDown", {"page down", "pgdn", "pagedown"}},
-        {"Insert", {"ins", "insert"}},
-        {"Delete", {"del", "delete"}},
-        {"Up", {"up"}},
-        {"Down", {"down"}},
-        {"Left", {"left"}},
-        {"Right", {"right"}},
-        {"LeftShift", {"left shift", "leftshiftkey"}},
-        {"RightShift", {"right shift", "rightshiftkey"}},
-        {"LeftCtrl", {"left ctrl", "leftcontrolkey"}},
-        {"RightCtrl", {"right ctrl", "rightcontrolkey"}},
-        {"LeftAlt", {"left alt"}},
-        {"RightAlt", {"right alt"}},
-        {"LeftWin", {"left win"}},
-        {"RightWin", {"right win"}},
-        {"Menu", {"app menu"}},
-        {"Grave", {"`", "~", "tilde"}},
-        {"Minus", {"-", "minus", "underscore"}},
-        {"Equals", {"=", "equals", "plus"}},
-        {"LeftBracket", {"[", "openbrace", "openbracket", "leftbracket"}},
-        {"RightBracket", {"]", "closedbrace", "closedbracket", "rightbracket"}},
-        {"Backslash", {"\\", "backslash"}},
-        {"Semicolon", {";", "semi", "semicolon"}},
-        {"Apostrophe", {"'", "quote", "apostrophe"}},
-        {"Comma", {",", "comma"}},
-        {"Period", {".", "period", "fullstop"}},
-        {"Slash", {"/", "slash"}},
-        {"KPSlash", {"kp/", "kpslash"}},
-        {"KPStar", {"kp*", "kpstar"}},
-        {"KPMinus", {"kp-", "kpminus"}},
-        {"KPPlus", {"kp+", "kpplus"}},
-        {"KPEnter", {"kpenter"}},
-        {"KPPeriod", {"kp.", "kpperiod", "kpdot", "kpdel"}},
-        {"KP0", {"kp0", "kpins", "kpinsert"}},
-        {"KP1", {"kp1", "kpend"}},
-        {"KP2", {"kp2", "kpdown", "kpdn"}},
-        {"KP3", {"kp3", "kppgdn", "kppagedown"}},
-        {"KP4", {"kp4", "kpleft"}},
-        {"KP5", {"kp5", "kpclear", "kpclr"}},
-        {"KP6", {"kp6", "kpright"}},
-        {"KP7", {"kp7", "kphome"}},
-        {"KP8", {"kp8", "kpup"}},
-        {"KP9", {"kp9", "kppgup", "kppageup"}},
-    };
-    return table;
-}
-
 }  // namespace
+
+std::span<const KeyName> gameKeyNames() {
+    return kGameKeyNames;
+}
 
 std::optional<std::string> canonicalKey(std::string_view name) {
     const std::string n = lower(name);
-    if (n.empty()) {
-        return std::nullopt;
-    }
-    // Letters and digits: "a".."z", "0".."9".
-    if (n.size() == 1 && ((n[0] >= 'a' && n[0] <= 'z') || (n[0] >= '0' && n[0] <= '9'))) {
-        return std::string(1, static_cast<char>(std::toupper(static_cast<unsigned char>(n[0]))));
-    }
-    // Function keys F1..F15.
-    if (n.size() >= 2 && n.size() <= 3 && n[0] == 'f') {
-        int v = 0;
-        bool digits = true;
-        for (std::size_t i = 1; i < n.size(); ++i) {
-            digits = digits && n[i] >= '0' && n[i] <= '9';
-            v = v * 10 + (n[i] - '0');
-        }
-        if (digits && v >= 1 && v <= 15) {
-            return "F" + std::to_string(v);
-        }
-    }
-    for (const auto& k : keyTable()) {
-        // The port's own canonical names are accepted too (so describe() output reads
-        // back); the game's files only use the names from its table.
-        if (n == lower(k.canonical)) {
+    for (const auto& k : kGameKeyNames) {
+        if (n == k.name) {
             return std::string(k.canonical);
         }
-        for (const char* alias : k.names) {
-            if (n == alias) {
-                return std::string(k.canonical);
-            }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::uint8_t> engineKeyCode(std::string_view canonical) {
+    for (const auto& k : kGameKeyNames) {
+        if (canonical == k.canonical) {
+            return k.engineCode;
         }
     }
     return std::nullopt;
@@ -127,24 +195,16 @@ std::optional<std::string> canonicalKey(std::string_view name) {
 
 std::vector<std::string> allCanonicalKeys() {
     std::vector<std::string> out;
-    for (char c = 'A'; c <= 'Z'; ++c) {
-        out.emplace_back(1, c);
-    }
-    for (char c = '0'; c <= '9'; ++c) {
-        out.emplace_back(1, c);
-    }
-    for (int f = 1; f <= 15; ++f) {
-        out.push_back("F" + std::to_string(f));
-    }
-    for (const auto& k : keyTable()) {
-        out.emplace_back(k.canonical);
+    for (const auto& k : kGameKeyNames) {
+        if (std::find(out.begin(), out.end(), k.canonical) == out.end()) {
+            out.emplace_back(k.canonical);
+        }
     }
     return out;
 }
 
 bool isModifierKey(std::string_view k) {
-    return k == "LeftShift" || k == "RightShift" || k == "LeftCtrl" || k == "RightCtrl" || k == "LeftAlt" ||
-           k == "RightAlt";
+    return k == "LeftShift" || k == "RightShift" || k == "LeftCtrl" || k == "RightCtrl";
 }
 
 std::string describe(const KeyCombo& c) {
@@ -174,12 +234,64 @@ const KeyAction* KeyBindings::find(std::string_view group, std::string_view acti
     return nullptr;
 }
 
+std::vector<KeyCombo> parseComboList(std::string_view text, const std::string& context,
+                                     std::vector<std::string>& warnings) {
+    std::vector<KeyCombo> combos;
+    KeyCombo cur;
+    std::string word;
+    auto applyWord = [&] {
+        if (word.empty()) {
+            return;  // trainz.exe returns early on an empty word
+        }
+        if (word == "null") {
+            cur = KeyCombo{};
+        } else if (word == "ctrl" || word == "control") {
+            cur.ctrl = true;
+        } else if (word == "alt") {
+            cur.alt = true;
+        } else if (word == "shift") {
+            cur.shift = true;
+        } else if (auto key = canonicalKey(word)) {
+            if (!cur.key.empty() && cur.key != *key) {
+                warnings.push_back(context + ": key '" + cur.key + "' replaced by '" + *key +
+                                   "' (the game does the same: the last key word wins)");
+            }
+            cur.key = std::move(*key);
+        } else {
+            warnings.push_back(context + ": unknown key name '" + word +
+                               "'; the game clears this combo, and so does the reader");
+            cur = KeyCombo{};
+        }
+        word.clear();
+    };
+    auto endCombo = [&] {
+        applyWord();
+        // The game keeps key-less combos too; they can never match a key, so they are dropped.
+        if (!cur.key.empty() && std::find(combos.begin(), combos.end(), cur) == combos.end()) {
+            combos.push_back(cur);
+        }
+        cur = KeyCombo{};
+    };
+    for (const char ch : text) {
+        if (ch == ',') {
+            endCombo();
+        } else if (ch == ' ') {
+            applyWord();
+        } else {
+            word += (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch;
+        }
+    }
+    endCombo();
+    return combos;
+}
+
 KeyBindings parseKeyBindings(std::span<const std::uint8_t> data) {
+    using trainz::content::ConfigType;
     const auto cfg = trainz::content::parseConfigText(data);
     KeyBindings kb;
     kb.warnings = cfg.warnings;
     for (const auto& group : cfg.root.children) {
-        if (group.type != trainz::content::ConfigType::Group) {
+        if (group.type != ConfigType::Group) {
             kb.warnings.push_back("'" + group.key + "' at the top level is not a group; ignored");
             continue;
         }
@@ -187,72 +299,19 @@ KeyBindings parseKeyBindings(std::span<const std::uint8_t> data) {
         for (const auto& item : group.children) {
             KeyAction action;
             action.name = item.key;
-            const std::string value = item.type == trainz::content::ConfigType::String ? item.text : std::string();
-            if (item.type != trainz::content::ConfigType::String && item.type != trainz::content::ConfigType::Null) {
-                // A lone digit key ("1") parses as a number: use its text form.
-                if (item.type == trainz::content::ConfigType::Integers && item.ints.size() == 1) {
-                    action.combos.push_back({false, false, false, std::to_string(item.ints[0])});
-                } else {
-                    kb.warnings.push_back(group.key + "/" + item.key + ": value is not a key list; ignored");
+            const std::string context = group.key + "/" + item.key;
+            std::string text;
+            if (item.type == ConfigType::String) {
+                text = item.text;
+            } else if (item.type == ConfigType::Integers) {
+                // A digit key ("1") reads as a number in config syntax; put the text back.
+                for (std::size_t i = 0; i < item.ints.size(); ++i) {
+                    text += (i == 0 ? "" : ",") + std::to_string(item.ints[i]);
                 }
-                actions.push_back(std::move(action));
-                continue;
+            } else if (item.type != ConfigType::Null) {
+                kb.warnings.push_back(context + ": value is not a key list; ignored");
             }
-            std::size_t start = 0;
-            while (start <= value.size()) {
-                std::size_t comma = value.find(',', start);
-                if (comma == std::string::npos) {
-                    comma = value.size();
-                }
-                const std::string combo = value.substr(start, comma - start);
-                start = comma + 1;
-                std::vector<std::string> words;
-                std::size_t p = 0;
-                while (p < combo.size()) {
-                    while (p < combo.size() && (combo[p] == ' ' || combo[p] == '\t')) {
-                        ++p;
-                    }
-                    std::size_t q = p;
-                    while (q < combo.size() && combo[q] != ' ' && combo[q] != '\t') {
-                        ++q;
-                    }
-                    if (q > p) {
-                        words.push_back(combo.substr(p, q - p));
-                    }
-                    p = q;
-                }
-                if (words.empty() || (words.size() == 1 && lower(words[0]) == "null")) {
-                    continue;
-                }
-                KeyCombo kc;
-                bool bad = false;
-                for (std::size_t i = 0; i + 1 < words.size(); ++i) {
-                    const std::string m = lower(words[i]);
-                    if (m == "shift") {
-                        kc.shift = true;
-                    } else if (m == "ctrl" || m == "control") {
-                        kc.ctrl = true;
-                    } else if (m == "alt") {
-                        kc.alt = true;
-                    } else {
-                        kb.warnings.push_back(group.key + "/" + item.key + ": '" + words[i] +
-                                              "' is not a modifier; ignored, and the last word taken as the key "
-                                              "(an unconfirmed guess; the game's reading is not traced)");
-                    }
-                }
-                const auto key = canonicalKey(words.back());
-                if (!key) {
-                    kb.warnings.push_back(group.key + "/" + item.key + ": unknown key '" + words.back() + "'");
-                    bad = true;
-                }
-                if (!bad) {
-                    kc.key = *key;
-                    // "KP9, KPPgUp" name the same key twice; keep one.
-                    if (std::find(action.combos.begin(), action.combos.end(), kc) == action.combos.end()) {
-                        action.combos.push_back(kc);
-                    }
-                }
-            }
+            action.combos = parseComboList(text, context, kb.warnings);
             actions.push_back(std::move(action));
         }
     }

@@ -429,10 +429,14 @@ TEST_F(RealInstall, KeyboardBindingsRead) {
     }
     std::cout << "  keyboard.txt: " << kb.groups.size() << " groups, " << actions << " actions, "
               << kb.warnings.size() << " warnings\n";
-    // Every key name must be known; only "not a modifier" warnings (camera_car) are expected.
+    // Every key name must be known; only the camera_car line's replaced keys are expected.
     for (const auto& w : kb.warnings) {
         std::cout << "  " << w << "\n";
-        EXPECT_NE(w.find("is not a modifier"), std::string::npos) << w;
+        EXPECT_NE(w.find("replaced by"), std::string::npos) << w;
     }
+    const auto* car = kb.find("driver", "camera_car");
+    ASSERT_NE(car, nullptr);
+    ASSERT_EQ(car->combos.size(), 1u);
+    EXPECT_EQ(trainz::input::describe(car->combos[0]), "ctrl+alt+shift+Z");
     EXPECT_GT(actions, 0u);
 }

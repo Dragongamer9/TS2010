@@ -16,16 +16,29 @@ TEST(SdlKeys, EveryCanonicalKeyRoundTrips) {
     }
 }
 
+TEST(SdlKeys, EngineCodeOrderMatchesScancodeOrder) {
+    // The engine codes follow keyboard position; so do SDL's scancodes within a row.
+    for (const char* row : {"QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM", "123456789"}) {
+        for (const char* p = row; p[1] != '\0'; ++p) {
+            const std::string a(1, p[0]);
+            const std::string b(1, p[1]);
+            EXPECT_EQ(*engineKeyCode(b), *engineKeyCode(a) + 1) << a << b;
+        }
+    }
+}
+
 TEST(SdlKeys, KnownPositions) {
     EXPECT_EQ(scancodeFor("A"), SDL_SCANCODE_A);
     EXPECT_EQ(scancodeFor("0"), SDL_SCANCODE_0);
     EXPECT_EQ(scancodeFor("9"), SDL_SCANCODE_9);
     EXPECT_EQ(scancodeFor("F12"), SDL_SCANCODE_F12);
-    EXPECT_EQ(scancodeFor("F15"), SDL_SCANCODE_F15);
+    EXPECT_EQ(scancodeFor("F13"), std::nullopt);  // the game has no name for it
     EXPECT_EQ(scancodeFor("KP9"), SDL_SCANCODE_KP_9);
     EXPECT_EQ(scancodeFor("Equals"), SDL_SCANCODE_EQUALS);
     EXPECT_EQ(scancodeFor("nope"), std::nullopt);
     EXPECT_EQ(canonicalFor(SDL_SCANCODE_VOLUMEUP), std::nullopt);
+    EXPECT_EQ(canonicalFor(SDL_SCANCODE_LALT), std::nullopt);
+    EXPECT_EQ(canonicalFor(SDL_SCANCODE_CAPSLOCK), std::nullopt);
 }
 
 TEST(SdlKeys, ComboFromKey) {

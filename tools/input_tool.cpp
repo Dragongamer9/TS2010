@@ -83,15 +83,17 @@ int main(int argc, char** argv) {
             for (std::string g; std::getline(gs, g, ',');) {
                 groups.push_back(g);
             }
-            // Reuse the file parser so the combo text means exactly what it would in keyboard.txt.
-            const std::string probe = std::string("p\n{\n  probe  ") + argv[4] + "\n}\n";
-            const auto parsed = parseKeyBindings(std::vector<std::uint8_t>(probe.begin(), probe.end()));
-            const auto* a = parsed.find("p", "probe");
-            if (a == nullptr || a->combos.size() != 1) {
+            // Read the key the same way as a keyboard.txt value.
+            std::vector<std::string> notes;
+            const auto combos = parseComboList(argv[4], "key", notes);
+            for (const auto& n : notes) {
+                std::cerr << "warning: " << n << "\n";
+            }
+            if (combos.size() != 1) {
                 std::cerr << "could not read the key \"" << argv[4] << "\"\n";
                 return 2;
             }
-            const auto hits = ActionMap(kb).actionsFor(groups, a->combos[0]);
+            const auto hits = ActionMap(kb).actionsFor(groups, combos[0]);
             for (const auto& h : hits) {
                 std::cout << h.group << "/" << h.action << "\n";
             }

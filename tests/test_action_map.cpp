@@ -80,19 +80,13 @@ TEST(ActionMap, ReportsSharedCombos) {
 
 TEST(ActionMap, CanonicalListIsConsistent) {
     for (const auto& k : allCanonicalKeys()) {
-        EXPECT_EQ(canonicalKey(k), k) << k;
+        bool named = false;
+        for (const auto& n : gameKeyNames()) {
+            named = named || (k == n.canonical && canonicalKey(n.name) == k);
+        }
+        EXPECT_TRUE(named) << k;
     }
     EXPECT_TRUE(isModifierKey("LeftShift"));
     EXPECT_FALSE(isModifierKey("A"));
 }
 
-TEST(ActionMap, DescribeReadsBack) {
-    // input-tool press and the port's own settings rely on describe() text parsing again.
-    for (const std::string& text : std::vector<std::string>{"ctrl alt shift F5", "LeftShift", "alt Grave", "KP9"}) {
-        const std::string file = "g\n{\n  a  " + text + "\n}\n";
-        const auto parsed = parseKeyBindings(std::vector<std::uint8_t>(file.begin(), file.end()));
-        const auto* a = parsed.find("g", "a");
-        ASSERT_NE(a, nullptr);
-        ASSERT_EQ(a->combos.size(), 1U) << text;
-    }
-}

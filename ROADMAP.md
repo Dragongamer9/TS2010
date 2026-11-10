@@ -4,7 +4,7 @@
 
 `[████░░░░░░░░░░░░░░░░]`
 
-*Last updated: 2026-11-10, after key-press → action lookup and SDL mapping (step 10).*
+*Last updated: 2026-11-10, after tracing the game's key-binding parser (step 10).*
 
 This file is updated with every change that moves the project forward. The
 percentage is a **weighted estimate**, not a measurement: see
@@ -43,7 +43,7 @@ percentage is a **weighted estimate**, not a measurement: see
 | 7 | Animation: `.kin` (`ANIM`) + `anim-tool` | 4 | 60% | Claude | `INFO`/`EVNT`/`SKEL`/`FRAM` worked out from data; C++ reader, posing in `mesh-tool preview --kin` ([`docs/formats/animation.md`](docs/formats/animation.md)). **Real data:** parses in CI. Playback is **implemented in `model-viewer`, awaiting a run on screen**. **Missing:** whether bone positions are absolute or parent-relative, what events do. **Whole disc:** all 2,629 animations fit. |
 | 8 | Routes: `mapfile.gnd` / `.trk` / `.obs` / `.bmk` + a route viewer | 10 | 15% | Claude (viewer) | `mapfile.gnd` outer structure worked out; C++ reader and `route-tool` ([`docs/formats/route.md`](docs/formats/route.md)); **real data:** the disc route parses in CI. **Missing:** section contents (needs `trainz.exe` 0x81ec70/0x8298c0 traced), `.trk`, `.obs`, `.bmk`, more routes from `Builtin\1.ja`–`7.ja`. **Whole disc:** 50 routes / 15,243 sections follow the outer structure. |
 | 9 | Sound: WAV/MP3 playback, 3D positioning | 4 | 40% | Claude (decoding/playback layer) | WAV reader (PCM 8/16-bit, MS ADPCM): 5,870 of the 5,874 disc WAVs decode, 4 are refused as unsupported; `sound-tool` export and an SDL2 `sound-player` ([`docs/formats/sound.md`](docs/formats/sound.md)). **Missing:** MP3 (6 files), playback heard on a real machine, `soundscript`/3D positioning/looping. |
-| 10 | Input: keyboard, mouse, joystick (SDL) + `keyboard.txt` bindings | 2 | 50% | Claude (device layer) | `keyboard.txt` reader in C++, key-press → action lookup, SDL scancode mapping, `input-tool` and an SDL `key-tester` ([`docs/formats/keyboard.md`](docs/formats/keyboard.md)); key names and aliases taken from the game's own table in `trainz.exe` (about file offset 0x543b10). **Real data:** the shipped file reads in full (6 groups, 383 actions, every key name known). **Missing:** `key-tester` run on a screen, picking between actions that share a key (by mode), mouse, joystick, what `camera_car  alt ctrl shift c a r z` means to the game (the reader's `ctrl+alt+shift+Z` is a guess). |
+| 10 | Input: keyboard, mouse, joystick (SDL) + `keyboard.txt` bindings | 2 | 60% | Claude (device layer) | `keyboard.txt` reader in C++ **matching the traced parser** (`trainz.exe` 0x4d5bb0/0x4d4b60: 141 key names, word-by-word rules), key-press → action lookup, SDL scancode mapping, `input-tool` and an SDL `key-tester` ([`docs/formats/keyboard.md`](docs/formats/keyboard.md)); **Real data:** the shipped file reads in full (6 groups, 383 actions, every key name known). **Missing:** `key-tester` run on a screen, picking between actions that share a key (by mode), mouse, joystick, the live DIK → engine-code conversion (codes are traced and position-ordered; the conversion is not found). |
 | 11 | Sessions: `profile.dat` / `.obs` / `.trk` / `.lyr` | 4 | 0% | Claude (reader) | |
 | 12 | TrainzScript: compiler, VM, native bindings (`.gs`/`.gsl`/`.gse`) | 15 | 0% | owner / other | The biggest, riskiest piece. `.gse` may be encrypted. |
 | 13 | Train simulation: physics, brakes, coupling, signals, AI drivers | 15 | 0% | owner / other | **Not mapped at all yet**; it's in `trainz.exe` with no symbols. |
@@ -53,8 +53,8 @@ percentage is a **weighted estimate**, not a measurement: see
 | 17 | Validation on Dad's PC (real-install tests, full archive verify, speed on the hard drive) | 4 | 40% | Claude + owner | **Started:** real game data in the private repo (`testdata/ts2010`), all `RealInstall.*` tests run in CI with a full decode. **Missing:** the same tests on Dad's full install, speed on his hard drive. **Whole disc surveyed** (170,167 Builtin entries plus Base/Data scans; [`docs/DISC-SURVEY.md`](docs/DISC-SURVEY.md)). |
 | | **Total** | **102** | | | |
 
-**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.60 + 4×0.60 + 8×0.60 + 4×0.60 + 10×0.15 + 4×0.40 + 2×0.50 + 4×0.40) ÷ 102 =
-24.25 ÷ 102 = 23.77% → **24%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
+**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.60 + 4×0.60 + 8×0.60 + 4×0.60 + 10×0.15 + 4×0.40 + 2×0.60 + 4×0.40) ÷ 102 =
+24.45 ÷ 102 = 23.97% → **24%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
 102 weight points.
 
 ---
@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-10 | 24% | Step 10 (50% → 60%): traced the game's key-binding parser (`trainz.exe` VA 0x4d5bb0 splitter, 0x4d4b60 word parser): 141 key names with their engine codes, `tolower`, `,`/space splitting, words applied in order, unknown words clear the combo. The reader now matches it exactly (dropped 27 names it never accepted: 24 display-table names such as `page up`, `kp/`, `.`, `~`, plus `f13`–`f15`). `camera_car` = ctrl+alt+shift+Z is now **traced**, no longer a guess. Engine codes are `DIK_`+1 for 80 of 98 keys, the rest in `DIK_` order: position-based numbering (the live conversion is not found). Shared-key mode choice and physical-key mapping labelled as inferences (ChatGPT review). Overall 24.25 → 24.45 ÷ 102 = 23.97% → 24%. |
 | 2026-11-10 | 24% | Step 10 (30% → 50%): key-press → action lookup (`ActionMap`, exact modifiers; the port's rule, not traced), SDL scancode mapping (every name round-trips), `input-tool list/shared/press`, SDL `key-tester` (built, not yet run on a screen). Found 52 shared combos in the shipped file (e.g. `W` = throttle, DCC and regulator up); the names suggest the game picks by mode, which is an inference, not traced. Scancode (physical-key) binding is the port's choice; the game's own name-to-key mapping is not traced (correction from ChatGPT review). Overall 23.85 → 24.25 ÷ 102 = 23.77% → 24%. |
 | 2026-11-10 | 23% | Step 10 (0% → 30%): `keyboard.txt` reader (`src/input/KeyBindings`), key names from the game's table in `trainz.exe`; the shipped file reads in full (383 actions); for the odd `camera_car  alt ctrl shift c a r z` line it binds `ctrl+alt+shift+Z` and ignores `c a r` with a warning; that reading is the port's **unconfirmed guess**, not the game's traced behaviour. `sound-player` now builds whenever SDL2 is present (ChatGPT review). Overall 23.25 → 23.85 ÷ 102 = 23.38%, still 23%. |
 | 2026-11-10 | 23% | Step 9 (0% → 40%): WAV reader (PCM + MS ADPCM), `sound-tool`, SDL2 `sound-player`; under the same rules in Python, 5,870 of the 5,874 disc WAVs decode and 4 are refused as unsupported (3 MP3-in-WAV, 1 MPEG stream). Survey docs corrected (15,243 sections, 170,167 Builtin entries; repair described as likely, not proven; direct apt on Hearth OS). |
