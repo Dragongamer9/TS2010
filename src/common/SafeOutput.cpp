@@ -74,8 +74,13 @@ bool isPlainPart(const fs::path& part) {
     return !s.empty() && s != "." && s != ".." && s.find('/') == std::string::npos;
 }
 
-// Opens (creating if needed) the folder `name` inside dirFd without following symlinks.
-Fd openSubdir(int dirFd, const fs::path& name, const std::string& shownPath) {
+// Opens (creating if needed) the folder `name` inside dirFd without following
+// symlinks. The protected folders are checked BEFORE anything is created: the
+// parent is a real folder (opened with O_NOFOLLOW), so its real path plus
+// `name` is exactly where a new folder would appear.
+Fd openSubdir(int dirFd, const fs::path& name, const std::string& shownPath,
+              const std::vector<fs::path>& protectedDirs) {
+    checkNotProtected(realPathOf(dirFd) / name, protectedDirs);
     if (::mkdirat(dirFd, name.c_str(), 0755) != 0 && errno != EEXIST) {
         fail("cannot create folder '" + shownPath + "': " + errnoText());
     }
@@ -94,6 +99,23 @@ Fd openSubdir(int dirFd, const fs::path& name, const std::string& shownPath) {
 SafeOutputDir SafeOutputDir::open(const fs::path& requested, const std::vector<fs::path>& protectedDirs) {
     const fs::path port = portDataDir();
     std::error_code ec;
+    // Check before creating anything: where the port folder and the requested
+    // folder would really be (existing symlinks resolved) must not be protected.
+    const fs::path portResolved = fs::weakly_canonical(fs::absolute(port, ec), ec);
+    if (ec) {
+        fail("cannot resolve '" + port.string() + "': " + ec.message());
+    }
+    checkNotProtected(portResolved, protectedDirs);
+    const fs::path requestedResolved = fs::weakly_canonical(fs::absolute(requested, ec), ec);
+    if (ec) {
+        fail("cannot resolve output folder '" + requested.string() + "': " + ec.message());
+    }
+    checkNotProtected(requestedResolved, protectedDirs);
+    if (!isInsideOrSame(requestedResolved, portResolved)) {
+        fail("refusing to write to '" + requested.string() + "': output must be inside '" + portResolved.string() +
+             "'");
+    }
+
     fs::create_directories(port, ec);  // folders above the port folder are the user's own setup
     if (ec) {
         fail("cannot create '" + port.string() + "': " + ec.message());
@@ -124,18 +146,18 @@ SafeOutputDir SafeOutputDir::open(const fs::path& requested, const std::vector<f
             fail("refusing output folder '" + requested.string() + "'");
         }
         shown /= part;
-        cur = openSubdir(cur.get(), part, shown.string());
+        cur = openSubdir(cur.get(), part, shown.string(), protectedDirs);
     }
     const fs::path real = realPathOf(cur.get());
     checkNotProtected(real, protectedDirs);
     if (!isInsideOrSame(real, portReal)) {
         fail("refusing '" + real.string() + "': not inside '" + portReal.string() + "'");
     }
-    return SafeOutputDir(cur.release(), real);
+    return SafeOutputDir(cur.release(), real, protectedDirs);
 }
 
 SafeOutputDir::SafeOutputDir(SafeOutputDir&& other) noexcept
-    : fd_(std::exchange(other.fd_, -1)), path_(std::move(other.path_)) {}
+    : fd_(std::exchange(other.fd_, -1)), path_(std::move(other.path_)), protected_(std::move(other.protected_)) {}
 
 SafeOutputDir::~SafeOutputDir() {
     if (fd_ >= 0) {
@@ -162,12 +184,13 @@ void SafeOutputDir::createFile(const fs::path& relPath, const std::function<void
     fs::path shown = path_;
     for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
         shown /= parts[i];
-        held = openSubdir(dirFd, parts[i], shown.string());
+        held = openSubdir(dirFd, parts[i], shown.string(), protected_);
         dirFd = held.get();
     }
 
     const fs::path& name = parts.back();
     shown /= name;
+    checkNotProtected(realPathOf(dirFd) / name, protected_);
     const int fd = ::openat(dirFd, name.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
     if (fd < 0) {
         if (errno == EEXIST) {

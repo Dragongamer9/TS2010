@@ -4,6 +4,7 @@
 //   - accepts an output folder only if it lies inside portDataDir()
 //     (~/.local/share/trainz-native),
 //   - refuses it if it lies inside a protected folder (the Trainz install, $TRAINZ_DATA_DIR),
+//     checking BEFORE every folder or file it creates, including the port folder itself,
 //   - creates and opens every folder from portDataDir() downwards with
 //     openat()/mkdirat() and O_NOFOLLOW, so a symlink planted anywhere below
 //     the port folder cannot redirect a write into the game install,
@@ -41,10 +42,12 @@ public:
     void createFile(const std::filesystem::path& relPath, const std::function<void(int fd)>& fill) const;
 
 private:
-    SafeOutputDir(int fd, std::filesystem::path path) : fd_(fd), path_(std::move(path)) {}
+    SafeOutputDir(int fd, std::filesystem::path path, std::vector<std::filesystem::path> protectedDirs)
+        : fd_(fd), path_(std::move(path)), protected_(std::move(protectedDirs)) {}
 
     int fd_ = -1;
     std::filesystem::path path_;
+    std::vector<std::filesystem::path> protected_;
 };
 
 }  // namespace trainz::common

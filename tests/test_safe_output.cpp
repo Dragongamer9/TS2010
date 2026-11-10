@@ -7,7 +7,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdlib>
+#include <vector>
 #include <fstream>
 #include <stdexcept>
 #include <string>
@@ -141,6 +143,61 @@ TEST_F(SafeOutputTest, FailedWriteLeavesNoPartialFile) {
     const auto out = SafeOutputDir::open(port / "v", guards());
     EXPECT_THROW(out.createFile("p.bin", [](int) { throw std::runtime_error("boom"); }), std::runtime_error);
     EXPECT_FALSE(fs::exists(port / "v" / "p.bin"));
+}
+
+namespace {
+
+std::vector<std::string> snapshot(const fs::path& root) {
+    std::vector<std::string> all;
+    for (const auto& e : fs::recursive_directory_iterator(root)) {
+        all.push_back(e.path().lexically_relative(root).string());
+    }
+    std::sort(all.begin(), all.end());
+    return all;
+}
+
+}  // namespace
+
+TEST_F(SafeOutputTest, DataHomeInsideTheGameCreatesNothing) {
+    const auto before = snapshot(game);
+    ::setenv("XDG_DATA_HOME", (game / "UserData").c_str(), 1);
+    EXPECT_THROW(SafeOutputDir::open(game / "UserData" / "trainz-native" / "x", guards()), std::runtime_error);
+    EXPECT_EQ(snapshot(game), before);
+    EXPECT_FALSE(fs::exists(game / "UserData"));
+}
+
+TEST_F(SafeOutputTest, DataHomeSymlinkedIntoTheGameCreatesNothing) {
+    const auto before = snapshot(game);
+    fs::create_symlink(game, tmp.path() / "sneaky");
+    ::setenv("XDG_DATA_HOME", (tmp.path() / "sneaky").c_str(), 1);
+    EXPECT_THROW(SafeOutputDir::open(tmp.path() / "sneaky" / "trainz-native", guards()), std::runtime_error);
+    EXPECT_EQ(snapshot(game), before);
+    EXPECT_FALSE(fs::exists(game / "trainz-native"));
+}
+
+TEST_F(SafeOutputTest, ProtectedFolderInsideThePortFolderGetsNoNewFolders) {
+    // A protected folder that happens to sit below the port folder: nothing may
+    // be created in it, neither by open() nor by createFile().
+    const fs::path shielded = port / "extracted" / "shielded";
+    fs::create_directories(shielded);
+    const std::vector<fs::path> g = {game, shielded};
+    const auto before = snapshot(shielded);
+    EXPECT_THROW(SafeOutputDir::open(shielded / "a" / "b", g), std::runtime_error);
+    const auto out = SafeOutputDir::open(port / "extracted", g);
+    EXPECT_THROW(out.createFile("shielded/new/file.txt", [](int fd) { writeText(fd, "x"); }), std::runtime_error);
+    EXPECT_THROW(out.createFile("shielded", [](int fd) { writeText(fd, "x"); }), std::runtime_error);
+    EXPECT_EQ(snapshot(shielded), before);
+    EXPECT_TRUE(snapshot(shielded).empty());
+}
+
+TEST_F(SafeOutputTest, RefusedRequestsLeaveTheGameUnchanged) {
+    const auto before = snapshot(game);
+    EXPECT_THROW(SafeOutputDir::open(game / "new" / "deep", guards()), std::runtime_error);
+    EXPECT_THROW(SafeOutputDir::open(game / "Builtin" / "x", guards()), std::runtime_error);
+    fs::create_directories(port);
+    fs::create_symlink(game / "Builtin", port / "into-builtin");
+    EXPECT_THROW(SafeOutputDir::open(port / "into-builtin" / "x" / "y", guards()), std::runtime_error);
+    EXPECT_EQ(snapshot(game), before);
 }
 
 TEST(Duplicates, OnlyTheFirstRowWins) {
