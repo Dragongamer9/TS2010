@@ -35,6 +35,7 @@ add_library(trainz_content
   src/content/AssetIndex.cpp
   src/content/CfilCodec.cpp
   src/content/JaArchive.cpp
+  src/content/GroundFile.cpp
   src/content/JirfFile.cpp
   src/content/Kuid.cpp
   src/content/MeshFile.cpp
@@ -69,6 +70,10 @@ add_executable(anim-tool tools/anim_tool.cpp)
 target_link_libraries(anim-tool PRIVATE trainz_content)
 target_compile_options(anim-tool PRIVATE ${TRAINZ_WARNINGS})
 
+add_executable(route-tool tools/route_tool.cpp)
+target_link_libraries(route-tool PRIVATE trainz_content)
+target_compile_options(route-tool PRIVATE ${TRAINZ_WARNINGS})
+
 if(TRAINZ_BUILD_TESTS)
   enable_testing()
   find_package(GTest REQUIRED)
@@ -78,6 +83,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_asset_config.cpp
     tests/test_asset_index.cpp
     tests/test_cfil.cpp
+    tests/test_ground.cpp
     tests/test_mesh.cpp
     tests/test_corruption.cpp
     tests/test_path_kuid.cpp

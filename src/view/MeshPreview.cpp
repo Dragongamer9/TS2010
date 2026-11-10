@@ -152,6 +152,12 @@ std::size_t poseMesh(trainz::content::MeshFile& mesh, const trainz::content::Ani
     if (frame >= anim.frames.size()) {
         throw std::out_of_range("animation frame " + std::to_string(frame) + " does not exist");
     }
+    // Check everything before touching the mesh (AnimationFile can be built by hand).
+    const auto& poses = anim.frames[frame];
+    if (poses.size() < anim.bones.size()) {
+        throw std::out_of_range("animation frame " + std::to_string(frame) + " has " + std::to_string(poses.size()) +
+                                " poses for " + std::to_string(anim.bones.size()) + " bones");
+    }
     std::size_t moved = 0;
     for (auto& part : mesh.parts) {
         auto& g = part.geometry;
@@ -162,7 +168,7 @@ std::size_t poseMesh(trainz::content::MeshFile& mesh, const trainz::content::Ani
         if (b < 0) {
             continue;
         }
-        const auto& pose = anim.frames[frame][static_cast<std::size_t>(b)];
+        const auto& pose = poses[static_cast<std::size_t>(b)];
         for (auto& v : g.vertices) {
             const auto p = trainz::content::rotate(pose.rotation, {v.x, v.y, v.z});
             v.x = p[0] + pose.position[0];

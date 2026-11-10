@@ -40,6 +40,9 @@ mesh-tool obj     /path/to/TS2010/Builtin/8.ja "hash-c0/kuid2 90361 120204 2/70t
 ([`docs/formats/animation.md`](docs/formats/animation.md)); `mesh-tool preview --kin ANIM.kin --frame N`
 shows a mesh in that pose.
 
+`route-tool info / overview` lists a route's terrain sections and stitches their overview maps
+into one PNG ([`docs/formats/route.md`](docs/formats/route.md)); the section contents are not decoded yet.
+
 ## How it protects your game data
 
 - **Read-only.** Game files are opened read-only (`O_RDONLY`, and `O_NOATIME`

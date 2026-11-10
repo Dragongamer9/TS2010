@@ -190,7 +190,7 @@ packs and asset versions (kuid2 VERSION). It needs a trace through
 | Image sources | `.tga`, `.bmp`, `.jpg` | Confirmed (standard) | Standard headers. `KernelResources:tga/bmp/jpg` plugins; JPEG through `ijl10.dll` (Intel JPEG Library), imported by `KernelStandard_7c.dll` |
 | Shader / material text | `vtx.txt`, `pxl.txt`, `material.txt` | Seen | `plugins.ini` entries. ARB assembly programs embedded in the DLLs (`PARAM texMat[4] = { state.matrix.texture[0] }`) |
 | Trees | `.srt` | Header confirmed | Magic `SRT 05.0.1` (SpeedTree). Read by `bin\plugins\TNISpeedTree.dll` |
-| Route terrain | `mapfile.gnd` | Header confirmed | Magic `GND\r`, then tagged chunks whose 4-byte tags are stored reversed (e.g. bytes `5ceS` = `Sec5`). Inner layout **unknown**. `trainz.exe` references `mapfile.gnd` at `0x87ca9c` |
+| Route terrain | `mapfile.gnd` | Outer structure checked on one route; section contents not decoded | `GND\r`, section count, 20-byte index (reversed tag `Sec5`/`Secs`, start, end, x, y), unknown extra header, then per section: data + 8192-byte 64×64 overview map, back to back. Section class chosen at `trainz.exe` `0x6d293e` (`Sec5` → `0x81ec70`, else `0x8298c0`). See [`formats/route.md`](formats/route.md) |
 | Route objects | `mapfile.obs` | Seen | Strings `mapfile.obs`, `.obs` |
 | Route track | `mapfile.trk` | Seen | Strings `mapfile.trk`, `.trk` |
 | Route bookmarks | `mapfile.bmk` | Seen | 330-byte sample: `u32 7`, then float positions |

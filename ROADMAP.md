@@ -1,10 +1,10 @@
 # Roadmap – Trainz Simulator 2010 on Linux (Hearth OS)
 
-**Overall progress: 15%**
+**Overall progress: 16%**
 
 `[███░░░░░░░░░░░░░░░░░]`
 
-*Last updated: 2026-11-10, after step 7 (animation format).*
+*Last updated: 2026-11-10, after starting step 8 (route terrain, outer structure).*
 
 This file is updated with every change that moves the project forward. The
 percentage is a **weighted estimate**, not a measurement: see
@@ -41,7 +41,7 @@ percentage is a **weighted estimate**, not a measurement: see
 | 5 | 3D models: `.im` / `.pm` (`JIRF`/`IDXM`) + a model viewer | 8 | 45% | Claude | `GEOM` (v102/200/201) and `MATL` (v102/103) layouts worked out from data and checked on all 7,982 parts; C++ reader, `mesh-tool` (info, software preview PNG, OBJ+MTL+PNG export) ([`docs/formats/mesh.md`](docs/formats/mesh.md)). **Missing:** a GPU viewer, `INFO`/`INFL`/`ATCH`/`SKEL`/`PMIN`/`NINF`, tracing the reader code, a real-install C++ run. |
 | 6 | Materials and shaders (`m.onetex` …, `vtx.txt`/`pxl.txt`) | 6 | 0% | Claude | Map to modern shaders; Cg is discontinued. |
 | 7 | Animation: `.kin` (`ANIM`) + `anim-tool` | 4 | 50% | Claude | `INFO`/`EVNT`/`SKEL`/`FRAM` worked out from data, all 135 disc files fit; C++ reader, posing in `mesh-tool preview --kin` ([`docs/formats/animation.md`](docs/formats/animation.md)). **Missing:** whether bone positions are absolute or parent-relative (absolute looks right, not confirmed), playback, what events do, a real-install C++ run. |
-| 8 | Routes: `mapfile.gnd` / `.trk` / `.obs` / `.bmk` + a route viewer | 10 | 0% | Claude (viewer) | Headers known; inner layouts unknown. |
+| 8 | Routes: `mapfile.gnd` / `.trk` / `.obs` / `.bmk` + a route viewer | 10 | 10% | Claude (viewer) | `mapfile.gnd` outer structure (section index, byte ranges, 64×64 overview maps) worked out on the one disc route; C++ reader and `route-tool` ([`docs/formats/route.md`](docs/formats/route.md)). **Missing:** section contents (heights, textures; needs `trainz.exe` 0x81ec70/0x8298c0 traced), `.trk`, `.obs`, `.bmk`, more routes from `Builtin\1.ja`–`7.ja`. |
 | 9 | Sound: WAV/MP3 playback, 3D positioning | 4 | 0% | Claude (decoding/playback layer) | |
 | 10 | Input: keyboard, mouse, joystick (SDL) + `keyboard.txt` bindings | 2 | 0% | Claude (device layer) | |
 | 11 | Sessions: `profile.dat` / `.obs` / `.trk` / `.lyr` | 4 | 0% | Claude (reader) | |
@@ -53,8 +53,8 @@ percentage is a **weighted estimate**, not a measurement: see
 | 17 | Validation on Dad's PC (real-install tests, full archive verify, speed on the hard drive) | 4 | 0% | Claude + owner | Needs the tests run with `TRAINZ_DATA_DIR` on his PC. |
 | | **Total** | **102** | | | |
 
-**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.80 + 3×0.75 + 4×0.55 + 4×0.50 + 8×0.45 + 4×0.50) ÷ 102 =
-15.75 ÷ 102 = 15.44% → **15%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
+**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.80 + 3×0.75 + 4×0.55 + 4×0.50 + 8×0.45 + 4×0.50 + 10×0.10) ÷ 102 =
+16.75 ÷ 102 = 16.42% → **16%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
 102 weight points.
 
 ---
@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-10 | 16% | Step 8 (0% → 10%): `mapfile.gnd` outer structure (20 sections, offsets, overview maps) checked on the disc route; `route-tool info/overview`. Section contents need the `trainz.exe` loaders traced. Step 7 review fix: `poseMesh` validates pose counts before changing anything and documents in-place behaviour. |
 | 2026-11-10 | 15% | Step 7 (0% → 50%): `.kin` reader (`anim-tool`, mesh posing); all 135 disc animations fit; bone-position space rendered both ways (absolute looks right, not confirmed). Preview hardened against overflowing intermediate maths (ChatGPT review). |
 | 2026-11-10 | 13% | Step 5 (0% → 45%): mesh reader (`GEOM`/`MATL` worked out from data, all 7,982 parts fit), software preview and OBJ export (`mesh-tool`); ore-car mesh rendered correctly. Step 4 review fix: texture sizes bounded before any arithmetic (no overflow). |
 | 2026-11-10 | 10% | Step 4 (0% → 50%): `.texture` reader, DXT1/3/5 + 32-bit decoding, PNG export, `texture-tool`; format ids traced to the engine's name list; sizes checked on 6,666 textures, colours checked by eye. Step 3 review fixes: only valid parent assets hide sub-parts; config reads bounded to 16 MiB. |

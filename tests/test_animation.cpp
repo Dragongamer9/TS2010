@@ -166,3 +166,30 @@ TEST(Animation, PoseMeshMovesBonedParts) {
     EXPECT_FLOAT_EQ(m.parts[1].geometry.vertices[0].x, 1.0f);  // no bone: unchanged
     EXPECT_THROW(trainz::view::poseMesh(m, a, 5), std::out_of_range);
 }
+
+TEST(Animation, PoseMeshRefusesFramesWithMissingPoses) {
+    auto a = parseAnimation(anim());
+    a.frames[1].clear();  // hand-damaged: 3 bones but no poses
+    MeshFile m;
+    MeshPart wheel;
+    wheel.geometry.boneName = "b.r.wheel02";
+    wheel.geometry.vertices = {MeshVertex{1, 2, 3, 0, 0}};
+    m.parts = {wheel};
+    EXPECT_THROW(trainz::view::poseMesh(m, a, 1), std::out_of_range);
+    EXPECT_FLOAT_EQ(m.parts[0].geometry.vertices[0].x, 1.0f);  // unchanged
+    a.frames[0].resize(1);  // fewer poses than bones
+    EXPECT_THROW(trainz::view::poseMesh(m, a, 0), std::out_of_range);
+    EXPECT_FLOAT_EQ(m.parts[0].geometry.vertices[0].z, 3.0f);
+}
+
+TEST(Animation, PoseMeshIsInPlace) {
+    const auto a = parseAnimation(anim());
+    MeshFile m;
+    MeshPart wheel;
+    wheel.geometry.boneName = "b.r.wheel01";
+    wheel.geometry.vertices = {MeshVertex{0, 0, 0, 0, 0}};
+    m.parts = {wheel};
+    trainz::view::poseMesh(m, a, 0);
+    trainz::view::poseMesh(m, a, 0);  // documented: applies again
+    EXPECT_NEAR(m.parts[0].geometry.vertices[0].y, -1.72f, 1e-5);
+}

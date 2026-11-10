@@ -5,6 +5,7 @@
 //   TRAINZ_DATA_DIR=/path/to/TS2010 ctest --test-dir build -R RealInstall --output-on-failure
 //   TRAINZ_FULL_VERIFY=1 ...   decode every entry (slow on a hard drive: about 7 GB)
 #include "content/ContentError.h"
+#include "content/GroundFile.h"
 #include "content/JaArchive.h"
 #include "content/AnimationFile.h"
 #include "content/AssetConfig.h"
@@ -351,5 +352,30 @@ TEST_F(RealInstall, AnimationsParse) {
         }
     }
     std::cout << "  animations parsed: " << parsed << "\n";
+    EXPECT_EQ(failures, 0u);
+}
+
+TEST_F(RealInstall, RouteGroundFilesParse) {
+    std::size_t parsed = 0;
+    std::size_t failures = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        for (const auto& e : a.entries()) {
+            const std::string want = "/mapfile.gnd";
+            if (e.name.size() <= want.size() || e.name.compare(e.name.size() - want.size(), want.size(), want) != 0 ||
+                !a.isLookupWinner(e)) {
+                continue;
+            }
+            try {
+                const auto g = trainz::content::parseGround(a.readLimited(e, std::size_t{1} << 30));
+                ++parsed;
+                std::cout << "  " << e.name << ": " << g.sections.size() << " sections\n";
+            } catch (const ContentError& err) {
+                ++failures;
+                std::cout << "  ground problem: " << e.name << ": " << err.what() << "\n";
+            }
+        }
+    }
+    std::cout << "  mapfile.gnd parsed: " << parsed << "\n";
     EXPECT_EQ(failures, 0u);
 }
