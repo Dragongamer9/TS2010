@@ -284,7 +284,7 @@ MeshFile parseMeshOrRepair(std::span<const std::uint8_t> data, bool* repaired) {
             throw;
         }
         MeshFile m = parseMesh(*fixed);
-        m.warnings.push_back("file was damaged by a text-mode transfer (CR LF for LF) and has been repaired in memory");
+        m.warnings.push_back("file looks damaged by a text-mode transfer (CR LF for LF); repaired in memory to a consistent file");
         if (repaired) {
             *repaired = true;
         }

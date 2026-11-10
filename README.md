@@ -86,9 +86,9 @@ Options:
 - `-DTRAINZ_WERROR=ON`: treat warnings as errors.
 - `-DCMAKE_CXX_COMPILER=clang++`: build with clang.
 
-Hearth OS is an image-based system, so `apt install` may not apply directly on
-the host. Build inside a Debian 13 toolbox or container if needed. CI does
-exactly that (`.github/workflows/ci.yml`).
+On Hearth OS the packages can be installed directly with `apt` (the system is
+writable), so no toolbox is needed. CI builds the same way in a plain Debian 13
+container (`.github/workflows/ci.yml`).
 
 ## Use `ja-tool`
 

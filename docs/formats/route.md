@@ -20,7 +20,7 @@
   `Builtin\8.ja`. The other built-in routes are in `Builtin\1.ja`–`7.ja`,
   which haven't been extracted. Since 2026-11-10 the C++ reader also runs in CI on real game data (`Base.ja`, `Data.ja` and a real subset of `8.ja`; see `testdata/README.md`).
 
-**Whole disc:** 50 routes (15,193 sections) all follow the outer structure below. See [`../DISC-SURVEY.md`](../DISC-SURVEY.md) for the check across the whole disc (all 8 `Builtin` archives).
+**Whole disc:** 50 routes (15,243 sections) all follow the outer structure below. See [`../DISC-SURVEY.md`](../DISC-SURVEY.md) for the check across the whole disc (all 8 `Builtin` archives).
 
 ## `mapfile.gnd` – terrain sections
 

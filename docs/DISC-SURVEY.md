@@ -1,11 +1,15 @@
 # Whole-disc survey (2026-11-10)
 
 Every content file type the port reads was checked across the **whole TS2010
-disc**: `Base.ja`, `Data.ja` and `Builtin\1.ja`–`8.ja`.
+disc**: `Builtin\1.ja`–`8.ja`, and `Base.ja` / `Data.ja` in separate scans.
 
-- **Files covered:** 170,159 archive entries in total. Every `.texture`,
-  `.im`/`.pm`, `.kin`, `config.chump`, `config.txt` and `mapfile.gnd` was
-  decoded and checked.
+- **Files covered:**
+  - **The main survey** went through `Builtin\1.ja`–`8.ja`: 170,167 archive
+    entries, in which every `.texture`, `.im`/`.pm`, `.kin`, `config.chump`,
+    `config.txt` and `mapfile.gnd` was decoded and checked.
+  - **`Base.ja` and `Data.ja`** were covered by the separate mesh / damage
+    scans. Their configs were checked earlier with the prototype, and they run
+    in full in CI.
 - **How it was run:** the archives were unpacked read-only from the ISO into a
   temp folder on this PC (not into the repo). The checks used Python
   prototypes of the same rules the C++ readers use.
@@ -22,11 +26,11 @@ disc**: `Base.ja`, `Data.ja` and `Builtin\1.ja`–`8.ja`.
 | Mesh geometry (`GEOM`) | 105,178 parts | fit the layout, except the parts of the 65 damaged files below. Versions 200 (80,535), 201 (21,753), 102 (2,837), 101 (53) |
 | Mesh materials (`MATL`) | 105,182 | **all fit** once **UTF-16 text** is understood (56 materials: bit 30 of a text length) |
 | Meshes with extra bytes after the data | 476 files | the content is fine; many end with the same 120-byte `TZL…` trailer (probably a tool's stamp), some with `0d 0a`. Readers ignore the extra bytes |
-| **Damaged meshes** | **65 files** in `1.ja`–`4.ja` | a text-mode transfer turned every `0x0A` into `0x0D 0x0A` **before** the disc was made. Every one is exactly repairable (see below) |
+| **Damaged meshes** | **65 files** in `1.ja`–`4.ja` | **most likely** a text-mode transfer turned every `0x0A` into `0x0D 0x0A` before the disc was made. Every one can be repaired into a consistent file (see below) |
 | Animations (`.kin`) | 2,629 | **all fit** |
 | `config.chump` | 19,112 | **all parse**; all 17,388 top-level asset KUIDs match their `hash-XX/kuid…` folder |
 | `config.txt` | 70 | **all parse** after one grammar fix: a string value may start on the next line (`3.ja` `kuid -13:151000/train`) |
-| Route terrain (`mapfile.gnd`) | 50 routes, 15,193 sections | **all** laid out back to back to the end of the file; `Secs` 15,237 tags, `Sec5` only 6; 5 routes have two sections at one position |
+| Route terrain (`mapfile.gnd`) | 50 routes, 15,243 sections | **all** laid out back to back to the end of the file; `Secs` 15,237 tags, `Sec5` only 6; 5 routes have two sections at one position |
 
 ## The damaged meshes
 
@@ -38,15 +42,21 @@ All 65 damaged files are in `Builtin\1.ja`–`4.ja`, and none are in `5.ja`–`8
 - `kuid2 316 10010 4/cpr_budd_chateau_sleeper_shadow.pm`;
 - `kuid 46162 1040210/sd40_2_bn_shadow.pm`.
 
-**Proof it's text-mode damage:** each file is exactly *declared size + number of
-`0d 0a` pairs* bytes long. After turning every `0d 0a` back into `0a`, all of
-them parse perfectly: sizes, `GEOM`, `MATL` and indices.
+**Why text-mode damage is the likely explanation** (strong evidence, not
+proof):
+- Each file is exactly *declared size + number of `0d 0a` pairs* bytes long.
+- After turning every `0d 0a` back into `0a`, all of them parse cleanly:
+  sizes, `GEOM`, `MATL` and indices.
+- That doesn't prove the result is byte-for-byte the original file, or how
+  the damage happened.
 
 **What the code does:**
 - **The strict readers reject these files**, which is probably what the game
   does too (likely showing nothing for that part).
-- **`repairTextModeDamage()`** (`src/content/JirfFile.h`) undoes the damage
-  only when the size rule proves the repair is exact.
+- **`repairTextModeDamage()`** (`src/content/JirfFile.h`) applies the
+  reversal only when the result is a consistent file: its declared size
+  matches its length. A consistent file is not guaranteed to be the original
+  bytes.
 - **`parseMeshOrRepair()`** uses it. `mesh-tool` and `model-viewer` call that,
   and print a warning when they repair.
 
