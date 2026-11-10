@@ -6,6 +6,7 @@
 //   TRAINZ_FULL_VERIFY=1 ...   decode every entry (slow on a hard drive: about 7 GB)
 #include "content/ContentError.h"
 #include "content/GroundFile.h"
+#include "content/ImageFile.h"
 #include "content/JaArchive.h"
 #include "content/AnimationFile.h"
 #include "content/AssetConfig.h"
@@ -24,6 +25,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <regex>
 #include <string>
@@ -439,4 +441,64 @@ TEST_F(RealInstall, KeyboardBindingsRead) {
     ASSERT_EQ(car->combos.size(), 1u);
     EXPECT_EQ(trainz::input::describe(car->combos[0]), "ctrl+alt+shift+Z");
     EXPECT_GT(actions, 0u);
+}
+
+TEST_F(RealInstall, LooseImagesDecode) {
+    // Every .tga / .bmp / .jpg / .jpeg decodes (all of them: the 1,276 in testdata take
+    // well under a second). Four disc files are damaged and known to be refused (see
+    // docs/formats/image.md); they are reported but not counted as failures.
+    static const char* const kKnownDamaged[] = {
+        "hash-da/kuid 2000 28000/nightwindows.tga",            // Builtin 4.ja: 32 bpp header, 24 bpp of data
+        "hash-92/kuid2 86661 9210691 1/log_equip_tn.jpg",      // Builtin 3.ja: cut off inside the scan
+        "hash-c8/kuid2 243555 10040 2/screenshot.jpg",         // Builtin 4.ja: as above
+        "hash-ea/kuid2 243555 10010 2/screenshot.jpg",         // Builtin 4.ja: as above
+    };
+    std::map<std::string, std::size_t> kinds;
+    std::map<std::string, std::size_t> descriptions;
+    std::size_t decoded = 0;
+    std::size_t failures = 0;
+    std::size_t knownDamaged = 0;
+    std::size_t jpegSkipped = 0;
+    std::size_t withWarnings = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        for (const auto& e : a.entries()) {
+            const ImageKind kind = imageKindFromName(e.name);
+            if (kind == ImageKind::Unknown || !a.isLookupWinner(e)) {
+                continue;
+            }
+            ++kinds[imageKindName(kind)];
+            if (kind == ImageKind::Jpeg && !jpegSupported()) {
+                ++jpegSkipped;
+                continue;
+            }
+            try {
+                const auto img = decodeImage(kind, a.readLimited(e, std::size_t{128} << 20));
+                EXPECT_EQ(img.rgba.size(), std::size_t{img.width} * img.height * 4) << e.name;
+                ++decoded;
+                ++descriptions[img.description];
+                if (!img.warnings.empty()) {
+                    ++withWarnings;
+                    std::cout << "  image warning: " << e.name << ": " << img.warnings.front() << "\n";
+                }
+            } catch (const ContentError& err) {
+                const bool known = std::find_if(std::begin(kKnownDamaged), std::end(kKnownDamaged), [&](const char* n) {
+                                       return e.name == n;
+                                   }) != std::end(kKnownDamaged);
+                (known ? knownDamaged : failures) += 1;
+                std::cout << "  image " << (known ? "refused (known damaged)" : "problem") << ": " << e.name << ": "
+                          << err.what() << "\n";
+            }
+        }
+    }
+    std::cout << "  images found:";
+    for (const auto& [k, v] : kinds) {
+        std::cout << " " << k << " " << v;
+    }
+    std::cout << "\n  images decoded: " << decoded << ", with warnings: " << withWarnings
+              << ", known damaged refused: " << knownDamaged << ", JPEG skipped (no libjpeg): " << jpegSkipped << "\n";
+    for (const auto& [d, n] : descriptions) {
+        std::cout << "    " << n << "  " << d << "\n";
+    }
+    EXPECT_EQ(failures, 0u);
 }

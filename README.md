@@ -27,6 +27,8 @@ texture-tool info /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 149987 21565/grass_
 texture-tool png  /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 149987 21565/grass_15.texture"
 ```
 
+It does the same for loose `.tga`, `.bmp` and `.jpg` images ([`docs/formats/image.md`](docs/formats/image.md)), e.g. `texture-tool png /path/to/TS2010/Data.ja blockingscreen.jpg`.
+
 `mesh-tool` reads `.im`/`.pm` meshes ([`docs/formats/mesh.md`](docs/formats/mesh.md)): `info`, a quick
 `preview` PNG, or `obj` to export OBJ + MTL + PNG textures for Blender, all under
 `~/.local/share/trainz-native/meshes/`. `model-viewer` shows a mesh with its textures in a window
@@ -80,6 +82,7 @@ Debian packages:
 
 ```sh
 sudo apt install cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev
+sudo apt install libjpeg62-turbo-dev   # .jpg images; optional (without it JPEG decoding is left out)
 ```
 
 ```sh

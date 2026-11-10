@@ -1,6 +1,7 @@
-// texture-tool: inspect .texture files and convert them to PNG for viewing.
+// texture-tool: inspect .texture files (and loose .tga / .bmp / .jpg images)
+// and convert them to PNG for viewing.
 //
-//   texture-tool info FILE                        a loose .texture
+//   texture-tool info FILE                        a loose .texture, .tga, .bmp, .jpg/.jpeg
 //   texture-tool info ARCHIVE.ja NAME             one inside a .ja archive
 //   texture-tool png  ARCHIVE.ja NAME [--mip N] [--out DIR]
 //   texture-tool png  FILE [--mip N] [--out DIR]
@@ -11,6 +12,7 @@
 #include "common/PngWriter.h"
 #include "common/SafeOutput.h"
 #include "content/ContentError.h"
+#include "content/ImageFile.h"
 #include "content/JaArchive.h"
 #include "content/ReadOnlyFile.h"
 #include "content/TextureFile.h"
@@ -37,7 +39,8 @@ constexpr std::size_t kMaxTextureFile = std::size_t{128} << 20;
 int usage() {
     std::cerr << "usage:\n"
                  "  texture-tool info FILE | ARCHIVE.ja NAME\n"
-                 "  texture-tool png  FILE | ARCHIVE.ja NAME  [--mip N] [--out DIR]\n";
+                 "  texture-tool png  FILE | ARCHIVE.ja NAME  [--mip N] [--out DIR]\n"
+                 "  (FILE / NAME: .texture, .tga, .bmp, .jpg or .jpeg; --mip is for .texture only)\n";
     return 2;
 }
 
@@ -101,11 +104,34 @@ int main(int argc, char** argv) {
             f.readExact(0, bytes);
             shownName = fs::path(pos[0]).filename().string();
         }
-        const TextureFile tex = parseTexture(bytes);
+        std::uint32_t outW = 0;
+        std::uint32_t outH = 0;
+        std::vector<std::uint8_t> rgba;
+        const ImageKind kind = imageKindFromName(shownName);
+        if (kind != ImageKind::Unknown) {
+            // .tga / .bmp / .jpg: one image, no mip levels.
+            RgbaImage img = decodeImage(kind, bytes);
+            for (const auto& w : img.warnings) {
+                std::cerr << "warning: " << w << "\n";
+            }
+            if (cmd == "info") {
+                std::printf("%s\n  %ux%u %s%s\n", shownName.c_str(), img.width, img.height, img.description.c_str(),
+                            img.alphaFromFile ? ", alpha from the file" : "");
+                return 0;
+            }
+            if (mipLevel != 0) {
+                std::cerr << "--mip applies to .texture files only\n";
+                return 2;
+            }
+            outW = img.width;
+            outH = img.height;
+            rgba = std::move(img.rgba);
+        }
+        const TextureFile tex = kind != ImageKind::Unknown ? TextureFile{} : parseTexture(bytes);
         for (const auto& w : tex.warnings) {
             std::cerr << "warning: " << w << "\n";
         }
-        if (cmd == "info") {
+        if (kind == ImageKind::Unknown && cmd == "info") {
             std::printf("%s\n  %ux%u %s, %zu mip levels, INFO version %u\n  INFO words:", shownName.c_str(),
                         tex.info.width, tex.info.height, pixelFormatName(tex.info.format), tex.mips.size(),
                         tex.info.version);
@@ -115,13 +141,17 @@ int main(int argc, char** argv) {
             std::printf("\n");
             return 0;
         }
-        if (mipLevel < 0 || static_cast<std::size_t>(mipLevel) >= tex.mips.size()) {
-            std::cerr << "--mip must be 0.." << tex.mips.size() - 1 << "\n";
-            return 2;
+        if (kind == ImageKind::Unknown) {
+            if (mipLevel < 0 || static_cast<std::size_t>(mipLevel) >= tex.mips.size()) {
+                std::cerr << "--mip must be 0.." << tex.mips.size() - 1 << "\n";
+                return 2;
+            }
+            const MipLevel& mip = tex.mips[static_cast<std::size_t>(mipLevel)];
+            rgba = decodeToRgba8(mip, tex.info.format);
+            outW = mip.width;
+            outH = mip.height;
         }
-        const MipLevel& mip = tex.mips[static_cast<std::size_t>(mipLevel)];
-        const auto rgba = decodeToRgba8(mip, tex.info.format);
-        const auto png = trainz::common::encodePngRgba(mip.width, mip.height, rgba);
+        const auto png = trainz::common::encodePngRgba(outW, outH, rgba);
 
         if (outDir.empty()) {
             outDir = trainz::common::portDataDir() / "textures";
@@ -145,7 +175,7 @@ int main(int argc, char** argv) {
                 done += static_cast<std::size_t>(w);
             }
         });
-        std::printf("wrote %s (%ux%u)\n", (out.path() / file).c_str(), mip.width, mip.height);
+        std::printf("wrote %s (%ux%u)\n", (out.path() / file).c_str(), outW, outH);
         return 0;
     } catch (const std::exception& err) {
         std::cerr << "error: " << err.what() << "\n";

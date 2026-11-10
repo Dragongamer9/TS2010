@@ -1,10 +1,10 @@
 # Roadmap – Trainz Simulator 2010 on Linux (Hearth OS)
 
-**Overall progress: 24%**
+**Overall progress: 25%**
 
-`[████░░░░░░░░░░░░░░░░]`
+`[█████░░░░░░░░░░░░░░░]`
 
-*Last updated: 2026-11-10, after tracing the game's key-binding parser (step 10).*
+*Last updated: 2026-11-10, after adding the `.tga` / `.bmp` / `.jpg` loaders (step 4).*
 
 This file is updated with every change that moves the project forward. The
 percentage is a **weighted estimate**, not a measurement: see
@@ -37,7 +37,7 @@ percentage is a **weighted estimate**, not a measurement: see
 | 1 | `.ja` archive reader + `ja-tool` | 3 | 90% | Claude | Done in C++, CI green, format in [`docs/formats/ja.md`](docs/formats/ja.md). **Real data:** every entry of `Base.ja` and `Data.ja` decoded in CI. **Missing:** a full pass over `Builtin\1.ja`–`8.ja` on Dad's PC. **Whole disc:** every config/texture/mesh/animation/terrain entry in all 8 `Builtin` archives decoded (Python survey, [`docs/DISC-SURVEY.md`](docs/DISC-SURVEY.md)). |
 | 2 | Asset configs: `config.txt` + `config.chump` + KUIDs | 3 | 85% | Claude | Done in C++, CI green, format in [`docs/formats/config.md`](docs/formats/config.md). **Real data:** 1,639 configs parse in CI, all 1,468 asset KUIDs match their folders. **Missing:** tracing the text grammar in `trainz.exe`; `Builtin\1.ja`–`7.ja`. **Whole disc:** all 19,112 `.chump` + 70 `config.txt` parse (one grammar fix: value on the next line). |
 | 3 | Asset index (KUID → where the asset lives) + `asset-tool` | 4 | 60% | Claude | Written in C++ ([`docs/formats/asset-index.md`](docs/formats/asset-index.md)). **Real data:** 1,626 assets indexed in CI, no KUID warnings. **Missing:** `.cdp` packages, which copy/version the game picks (not traced), an on-disk cache, a run on Dad's full install. |
-| 4 | Textures: `.texture` (`MMTF`), `.tga`, `.bmp`, `.jpg` + `texture-tool` | 4 | 60% | Claude | `.texture` done in C++ ([`docs/formats/texture.md`](docs/formats/texture.md)): ARGB8888, RGB0888, DXT1/3/5, mip chain, PNG export. **Real data:** every texture in the test data parses in CI. **Missing:** `.texture.txt`, `.tga`/`.bmp`/`.jpg`. **Whole disc:** all 89,524 textures fit (INFO version 262 found). |
+| 4 | Textures: `.texture` (`MMTF`), `.tga`, `.bmp`, `.jpg` + `texture-tool` | 4 | 75% | Claude | `.texture` done in C++ ([`docs/formats/texture.md`](docs/formats/texture.md)): ARGB8888, RGB0888, DXT1/3/5, mip chain, PNG export. **`.tga`/`.bmp`/`.jpg`** done in C++ ([`docs/formats/image.md`](docs/formats/image.md)): TGA types 1/2/3/10 (+9/11), BMP 4/8/24/32 bpp + RLE8, JPEG baseline/progressive via libjpeg (optional); `texture-tool png` takes them. **Real data:** every texture in the test data parses in CI; all 1,276 test-data images decode (C++, ASan, run by hand). **Missing:** `.texture.txt`; how the game itself loads images and uses alpha (not traced). **Whole disc:** all 89,524 textures fit (INFO version 262 found); of 20,544 images, 20,540 decode in C++ and 4 damaged ones are refused. |
 | 5 | 3D models: `.im` / `.pm` (`JIRF`/`IDXM`) + a model viewer | 8 | 60% | Claude | `GEOM` (v101/102/200/201) and `MATL` (v102/103) worked out from data; C++ reader, `mesh-tool` ([`docs/formats/mesh.md`](docs/formats/mesh.md)) and a **GPU `model-viewer`** (SDL2 + OpenGL 2.1, textures, `.kin` playback). **Real data:** 291 meshes / 1,438 parts parse in CI. **Missing:** the viewer has **not been run on a screen yet**; `INFO`/`INFL`/`ATCH`/`SKEL`/`PMIN`/`NINF`; tracing the reader code. **Whole disc:** all materials fit once UTF-16 text is read; 65 meshes look damaged by a text-mode transfer before the disc was made; `repairTextModeDamage` turns them into consistent files. |
 | 6 | Materials and shaders (`m.onetex` …, `vtx.txt`/`pxl.txt`) | 6 | 0% | Claude | Map to modern shaders; Cg is discontinued. |
 | 7 | Animation: `.kin` (`ANIM`) + `anim-tool` | 4 | 60% | Claude | `INFO`/`EVNT`/`SKEL`/`FRAM` worked out from data; C++ reader, posing in `mesh-tool preview --kin` ([`docs/formats/animation.md`](docs/formats/animation.md)). **Real data:** parses in CI. Playback is **implemented in `model-viewer`, awaiting a run on screen**. **Missing:** whether bone positions are absolute or parent-relative, what events do. **Whole disc:** all 2,629 animations fit. |
@@ -53,8 +53,8 @@ percentage is a **weighted estimate**, not a measurement: see
 | 17 | Validation on Dad's PC (real-install tests, full archive verify, speed on the hard drive) | 4 | 40% | Claude + owner | **Started:** real game data in the private repo (`testdata/ts2010`), all `RealInstall.*` tests run in CI with a full decode. **Missing:** the same tests on Dad's full install, speed on his hard drive. **Whole disc surveyed** (170,167 Builtin entries plus Base/Data scans; [`docs/DISC-SURVEY.md`](docs/DISC-SURVEY.md)). |
 | | **Total** | **102** | | | |
 
-**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.60 + 4×0.60 + 8×0.60 + 4×0.60 + 10×0.15 + 4×0.40 + 2×0.60 + 4×0.40) ÷ 102 =
-24.45 ÷ 102 = 23.97% → **24%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
+**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.60 + 4×0.75 + 8×0.60 + 4×0.60 + 10×0.15 + 4×0.40 + 2×0.60 + 4×0.40) ÷ 102 =
+25.05 ÷ 102 = 24.56% → **25%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
 102 weight points.
 
 ---
@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-10 | 25% | Step 4 (60% → 75%): `.tga` / `.bmp` / `.jpg` loaders (`src/content/ImageFile`, [`docs/formats/image.md`](docs/formats/image.md)), `texture-tool png` for them, JPEG through Debian's `libjpeg62-turbo-dev` (optional in CMake, added to CI). Survey of all 8 `Builtin` archives + Base/Data: 20,544 images (11,640 TGA, 2,687 BMP, 6,217 JPEG, no `.jpeg`); TGA types 2/10/1/3 at 16/24/32 bpp, both origins; BMP 4/8/24/32 bpp and 33 RLE8; JPEG 5,518 baseline + 699 progressive. The C++ decoders, run by hand with ASan/UBSan (not yet in CI), decode 20,540; 4 damaged files are refused (a TGA with a 32 bpp header and 24 bpp data, 3 JPEGs cut off mid-scan). Found 165 TGAs whose alpha is 0 everywhere, so alpha use must come from the material. Tests: 37 new unit tests + `RealInstall.LooseImagesDecode`. Overall 24.45 → 25.05 ÷ 102 = 24.56% → 25%. |
 | 2026-11-10 | 24% | Step 10 (50% → 60%): traced the game's key-binding parser (`trainz.exe` VA 0x4d5bb0 splitter, 0x4d4b60 word parser): 141 key names with their engine codes, `tolower`, `,`/space splitting, words applied in order, unknown words clear the combo. The reader now matches it exactly (dropped 27 names it never accepted: 24 display-table names such as `page up`, `kp/`, `.`, `~`, plus `f13`–`f15`). `camera_car` = ctrl+alt+shift+Z is now **traced**, no longer a guess. Engine codes are `DIK_`+1 for 80 of 98 keys, the rest in `DIK_` order: position-based numbering (the live conversion is not found). Shared-key mode choice and physical-key mapping labelled as inferences (ChatGPT review). Overall 24.25 → 24.45 ÷ 102 = 23.97% → 24%. |
 | 2026-11-10 | 24% | Step 10 (30% → 50%): key-press → action lookup (`ActionMap`, exact modifiers; the port's rule, not traced), SDL scancode mapping (every name round-trips), `input-tool list/shared/press`, SDL `key-tester` (built, not yet run on a screen). Found 52 shared combos in the shipped file (e.g. `W` = throttle, DCC and regulator up); the names suggest the game picks by mode, which is an inference, not traced. Scancode (physical-key) binding is the port's choice; the game's own name-to-key mapping is not traced (correction from ChatGPT review). Overall 23.85 → 24.25 ÷ 102 = 23.77% → 24%. |
 | 2026-11-10 | 23% | Step 10 (0% → 30%): `keyboard.txt` reader (`src/input/KeyBindings`), key names from the game's table in `trainz.exe`; the shipped file reads in full (383 actions); for the odd `camera_car  alt ctrl shift c a r z` line it binds `ctrl+alt+shift+Z` and ignores `c a r` with a warning; that reading is the port's **unconfirmed guess**, not the game's traced behaviour. `sound-player` now builds whenever SDL2 is present (ChatGPT review). Overall 23.25 → 23.85 ÷ 102 = 23.38%, still 23%. |
