@@ -384,23 +384,46 @@ TEST_F(RealInstall, RouteGroundFilesParse) {
 }
 
 TEST_F(RealInstall, SoundsDecode) {
-    // Every .wav must decode, except the formats known not to be handled yet
-    // (MP3 inside WAV) and the one MPEG stream named .wav on the disc.
+    // Every .wav and .mp3 must decode. Known exceptions:
+    //   - the one MPEG program stream named .wav on the disc (DVD-style video
+    //     with AC-3 audio, Builtin\1.ja), always refused;
+    //   - MP3 (3 .mp3 files, 3 MP3-inside-WAV files) in builds without libmpg123.
+    const bool haveMp3 = mp3DecodingAvailable();
     std::size_t decoded = 0;
+    std::size_t decodedMp3 = 0;
     std::size_t knownUnsupported = 0;
     std::size_t failures = 0;
+    auto endsWith = [](const std::string& n, const char* ext) {
+        return n.size() > 4 && n.compare(n.size() - 4, 4, ext) == 0;
+    };
+    auto mp3InWav = [](const std::vector<std::uint8_t>& b) {
+        try {
+            return parseWav(b).formatTag == 85;
+        } catch (const ContentError&) {
+            return true;  // decoded but not RIFF: a bare MP3 stream named .wav
+        }
+    };
     for (const auto& path : archives) {
         const auto a = JaArchive::open(path);
         for (const auto& e : a.entries()) {
-            if (e.name.size() <= 4 || e.name.compare(e.name.size() - 4, 4, ".wav") != 0 || !a.isLookupWinner(e)) {
+            const bool isMp3 = endsWith(e.name, ".mp3");
+            if ((!isMp3 && !endsWith(e.name, ".wav")) || !a.isLookupWinner(e)) {
                 continue;
             }
+            const auto bytes = a.readLimited(e, std::size_t{256} << 20);
             try {
-                (void)trainz::content::decodeWav(a.readLimited(e, std::size_t{256} << 20));
+                const auto s = decodeSoundFile(e.name, bytes);
                 ++decoded;
+                if (isMp3 || mp3InWav(bytes)) {
+                    ++decodedMp3;
+                    std::cout << "  mp3: " << e.name << ": " << s.channels << " ch, " << s.sampleRate << " Hz, "
+                              << s.samples.size() / s.channels << " frames\n";
+                }
             } catch (const ContentError& err) {
                 const std::string why = err.what();
-                if (why.find("MP3 inside") != std::string::npos || why.find("MPEG stream") != std::string::npos) {
+                const bool mp3Missing = !haveMp3 && (why.find("MP3 inside") != std::string::npos ||
+                                                     why.find("not built in") != std::string::npos);
+                if (mp3Missing || why.find("MPEG program stream") != std::string::npos) {
                     ++knownUnsupported;
                 } else {
                     ++failures;
@@ -409,7 +432,8 @@ TEST_F(RealInstall, SoundsDecode) {
             }
         }
     }
-    std::cout << "  sounds decoded: " << decoded << ", known unsupported: " << knownUnsupported << "\n";
+    std::cout << "  sounds decoded: " << decoded << " (" << decodedMp3 << " MP3), known unsupported: "
+              << knownUnsupported << (haveMp3 ? "" : " (built without libmpg123)") << "\n";
     EXPECT_EQ(failures, 0u);
 }
 

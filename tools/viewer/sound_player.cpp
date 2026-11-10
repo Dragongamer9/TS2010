@@ -1,4 +1,5 @@
-// sound-player: play a .wav from a Trainz archive through SDL2 audio (read-only).
+// sound-player: play a .wav or .mp3 from a Trainz archive through SDL2 audio
+// (read-only). MP3 needs a build with libmpg123.
 //
 //   sound-player ARCHIVE.ja NAME
 #include "content/ContentError.h"
@@ -24,7 +25,7 @@ int main(int argc, char** argv) {
             std::cerr << "'" << argv[2] << "' is not in " << argv[1] << "\n";
             return 1;
         }
-        s = decodeWav(archive.readLimited(*e, std::size_t{256} << 20));
+        s = decodeSoundFile(e->name, archive.readLimited(*e, std::size_t{256} << 20));
         for (const auto& m : s.warnings) {
             std::cerr << "warning: " << m << "\n";
         }

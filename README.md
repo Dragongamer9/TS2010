@@ -45,7 +45,8 @@ shows a mesh in that pose.
 `route-tool info / overview` lists a route's terrain sections and stitches their overview maps
 into one PNG ([`docs/formats/route.md`](docs/formats/route.md)); the section contents are not decoded yet.
 
-`sound-tool info / export` reads `.wav` sounds (PCM and MS ADPCM) and exports plain WAVs;
+`sound-tool info / export` reads `.wav` sounds (PCM, MS ADPCM, MP3 inside a WAV) and `.mp3`
+files, and exports plain WAVs (MP3 needs a build with `libmpg123-dev`);
 `sound-player ARCHIVE NAME` plays one through SDL2 ([`docs/formats/sound.md`](docs/formats/sound.md)).
 
 `src/input/KeyBindings` reads the game's key bindings, following the traced combo parser and key-name table in `trainz.exe` (how the game matches modifiers and converts live key presses is not confirmed) (`UserData/settings/keyboard.txt`;
@@ -79,7 +80,8 @@ The readers themselves run in CI on real game data (`testdata/ts2010`: `Base.ja`
 Debian packages:
 
 ```sh
-sudo apt install cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev
+sudo apt install cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev \
+  pkg-config libmpg123-dev
 ```
 
 ```sh
@@ -92,6 +94,8 @@ Options:
 - `-DTRAINZ_SANITIZE=ON`: AddressSanitizer + UBSan.
 - `-DTRAINZ_WERROR=ON`: treat warnings as errors.
 - `-DCMAKE_CXX_COMPILER=clang++`: build with clang.
+- `-DTRAINZ_WITH_MPG123=OFF`: leave out MP3 decoding (it is also left out,
+  with a CMake message, when `libmpg123-dev` is not installed).
 
 On Hearth OS the packages can be installed directly with `apt` (the system is
 writable), so no toolbox is needed. CI builds the same way in a plain Debian 13
