@@ -68,6 +68,15 @@ public:
     std::vector<const AssetRecord*> obsoletedBy(const Kuid& kuid) const;
 
 private:
+    struct ParsedConfig {
+        std::string folder;
+        std::string entryName;  // for messages
+        bool valid = false;
+        AssetRecord record;
+        std::string error;
+    };
+    // Keeps the valid configs that are not inside another VALID asset's folder.
+    void commit(std::vector<ParsedConfig>& parsed, const std::string& sourceName);
     void addRecord(AssetRecord rec, const std::string& folderName);
     void warn(std::string message);
 
@@ -77,10 +86,14 @@ private:
     std::size_t warningCount_ = 0;
 };
 
-// Picks the asset configs out of a list of '/'-separated file paths: every
-// config.txt / config.chump whose folder is not inside another config's
-// folder. When a folder has both, config.chump is used (an assumption; see the
-// doc). Exposed for tests.
+// Picks one config per folder out of a list of '/'-separated file paths
+// (config.chump when a folder has both: an assumption, see the doc).
+std::vector<std::pair<std::string, std::string>> selectConfigCandidates(const std::vector<std::string>& paths,
+                                                                        std::vector<std::string>* notes = nullptr);
+
+// selectConfigCandidates, then drops every folder inside another candidate's
+// folder (treating every candidate as a valid asset). The index itself only
+// lets VALID parents hide nested configs. Exposed for tests.
 std::vector<std::pair<std::string, std::string>> selectAssetConfigs(const std::vector<std::string>& paths,
                                                                     std::vector<std::string>* notes = nullptr);
 

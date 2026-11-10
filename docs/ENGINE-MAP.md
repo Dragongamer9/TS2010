@@ -313,7 +313,7 @@ packs and asset versions (kuid2 VERSION). It needs a trace through
 |---|---|---|---|
 | `Trainz.exe` (install root) | 64 KB | Small launcher | Imports only `SHELL32`, `KERNEL32` |
 | `bin\trainz.exe` | 6.55 MB | **The game itself**: trains and driving, routes, the Surveyor editor, TrainzScript binding descriptions (the compiler/VM probably too, not traced), the asset-DB client, networking | Imports every Jet core DLL plus `WSOCK32`, OpenSSL, `nvtt`, `trainznativeinterface`. Only export `JetGetPlugins` |
-| `KernelStandard_7c.dll` | 488 KB | Basics: files, `.ja` archives, `CFIL`/BPE, `ConfigData` (txt/chump), strings, bitmaps, paths, options | 1701 exports (`File`, `ConfigData`, `Bitmap`, `Path` …) |
+| `KernelStandard_7c.dll` | 488 KB | Basics: files, `.ja` archives, `CFIL`/BPE, `ConfigData` (the engine's own config files; asset `.chump` is read in `trainz.exe`), strings, bitmaps, paths, options | 1701 exports (`File`, `ConfigData`, `Bitmap`, `Path` …) |
 | `Kernel_7c.dll` | 116 KB | Plugin loader, tasks, app object, compression helpers | `PluginConfig`, `TaskManager`, `Compress`, `JetGetPluginsKernel` |
 | `KernelResource_7c.dll`, `KernelResources_7c.dll` | | Resource databases (mounting `.ja` files) and bitmap resources | `ResourceDatabase`, `ResourceSystem`, `BitmapResource` |
 | `RenderSystem_7c`, `Render2DCore_7c`, `Render3DCore_7c`, `Render3DFoundation_7c`, `Render3DExtension_7c` | | Renderer core, meshes, animation, particles (appear API-neutral: no D3D/GL imports) | See Graphics above |
@@ -345,7 +345,9 @@ Each step can be tested against the real data before the next one starts.
    *Written in C++ (`src/content/AssetIndex`, `asset-tool`) for `.ja` and
    loose folders; `.cdp` not yet. See [`formats/asset-index.md`](formats/asset-index.md).*
 4. **Images and textures**: `.tga`/`.bmp`/`.jpg`, then `.texture` (`MMTF`
-   mips). Work out the `INFO` pixel-format field.
+   mips). Work out the `INFO` pixel-format field. *`.texture` written in C++
+   (`src/content/TextureFile`, `texture-tool`); see
+   [`formats/texture.md`](formats/texture.md).*
 5. **Meshes**: `JIRF` reader → `.im`/`.pm` `CHNK`/`MATL`/`GEOM` → draw one
    static object with a simple OpenGL or Vulkan renderer. The game already
    abstracts its graphics API (it has an OpenGL back end), so this matches its

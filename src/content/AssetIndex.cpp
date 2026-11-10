@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <set>
 #include <string>
 #include <system_error>
 #include <unordered_map>
@@ -16,7 +17,7 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr std::size_t kMaxWarnings = 500;
-constexpr std::uintmax_t kMaxLooseConfigSize = 16u << 20;
+constexpr std::size_t kMaxConfigSize = std::size_t{16} << 20;  // configs are a few KB; 16 MiB is generous
 constexpr int kMaxFolderDepth = 6;
 
 std::string lower(std::string s) {
@@ -68,10 +69,25 @@ std::optional<fs::path> childNoCase(const fs::path& dir, const std::string& name
     return std::nullopt;
 }
 
+bool hasAncestorIn(const std::string& folder, const std::set<std::string>& folders) {
+    if (folder.empty()) {
+        return false;
+    }
+    if (folders.count("")) {
+        return true;
+    }
+    for (std::size_t pos = folder.find('/'); pos != std::string::npos; pos = folder.find('/', pos + 1)) {
+        if (folders.count(folder.substr(0, pos))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
-std::vector<std::pair<std::string, std::string>> selectAssetConfigs(const std::vector<std::string>& paths,
-                                                                    std::vector<std::string>* notes) {
+std::vector<std::pair<std::string, std::string>> selectConfigCandidates(const std::vector<std::string>& paths,
+                                                                        std::vector<std::string>* notes) {
     struct Seen {
         std::string txtName;
         std::string chumpName;
@@ -88,28 +104,50 @@ std::vector<std::pair<std::string, std::string>> selectAssetConfigs(const std::v
     }
     std::vector<std::pair<std::string, std::string>> out;
     for (const auto& [folder, seen] : folders) {
-        // A config inside another config's folder belongs to that asset (a sub-part).
-        bool nested = false;
-        if (!folder.empty()) {
-            if (folders.count("")) {
-                nested = true;
-            }
-            for (std::size_t pos = folder.find('/'); !nested && pos != std::string::npos;
-                 pos = folder.find('/', pos + 1)) {
-                if (folders.count(folder.substr(0, pos))) {
-                    nested = true;
-                }
-            }
-        }
-        if (nested) {
-            continue;
-        }
         if (!seen.chumpName.empty() && !seen.txtName.empty() && notes) {
             notes->push_back("'" + folder + "' has both config.txt and config.chump; using config.chump");
         }
         out.emplace_back(folder, seen.chumpName.empty() ? seen.txtName : seen.chumpName);
     }
     return out;
+}
+
+std::vector<std::pair<std::string, std::string>> selectAssetConfigs(const std::vector<std::string>& paths,
+                                                                    std::vector<std::string>* notes) {
+    const auto candidates = selectConfigCandidates(paths, notes);
+    std::set<std::string> all;
+    for (const auto& c : candidates) {
+        all.insert(c.first);
+    }
+    std::vector<std::pair<std::string, std::string>> out;
+    for (const auto& c : candidates) {
+        if (!hasAncestorIn(c.first, all)) {
+            out.push_back(c);
+        }
+    }
+    return out;
+}
+
+void AssetIndex::commit(std::vector<ParsedConfig>& parsed, const std::string& sourceName) {
+    std::set<std::string> validFolders;
+    for (const auto& p : parsed) {
+        if (p.valid) {
+            validFolders.insert(p.folder);
+        }
+    }
+    std::sort(parsed.begin(), parsed.end(),
+              [](const ParsedConfig& a, const ParsedConfig& b) { return a.folder < b.folder; });
+    for (auto& p : parsed) {
+        // A config inside a valid asset's folder is that asset's sub-part.
+        if (hasAncestorIn(p.folder, validFolders)) {
+            continue;
+        }
+        if (!p.valid) {
+            warn(sourceName + ":" + p.entryName + ": " + p.error);
+            continue;
+        }
+        addRecord(std::move(p.record), lastPart(p.folder));
+    }
 }
 
 void AssetIndex::warn(std::string message) {
@@ -173,7 +211,7 @@ void AssetIndex::addArchive(const JaArchive& archive) {
         }
     }
     std::vector<std::string> notes;
-    auto chosen = selectAssetConfigs(names, &notes);
+    auto chosen = selectConfigCandidates(names, &notes);
     for (auto& n : notes) {
         warn(archive.path().filename().string() + ": " + n);
     }
@@ -194,22 +232,23 @@ void AssetIndex::addArchive(const JaArchive& archive) {
     std::sort(jobs.begin(), jobs.end(),
               [](const Job& a, const Job& b) { return a.entry->dataOffset < b.entry->dataOffset; });
 
+    std::vector<ParsedConfig> parsed;
     for (const auto& job : jobs) {
+        ParsedConfig p;
+        p.folder = job.folder;
+        p.entryName = job.entry->name;
         AssetLocation where{AssetLocation::Container::Archive, archive.path(), job.folder, job.name};
         try {
-            const AssetConfig cfg = parseAssetConfig(archive.read(*job.entry));
-            bool ok = false;
-            std::string why;
-            AssetRecord rec = recordFromConfig(cfg, std::move(where), ok, why);
-            if (!ok) {
-                warn(archive.path().filename().string() + ":" + job.entry->name + ": " + why);
-                continue;
-            }
-            addRecord(std::move(rec), lastPart(job.folder));
+            // Bounded: a damaged size field cannot make us allocate more than 16 MiB.
+            const AssetConfig cfg = parseAssetConfig(archive.readLimited(*job.entry, kMaxConfigSize));
+            p.record = recordFromConfig(cfg, std::move(where), p.valid, p.error);
         } catch (const ContentError& err) {
-            warn(archive.path().filename().string() + ":" + job.entry->name + ": " + err.what());
+            p.valid = false;
+            p.error = err.what();
         }
+        parsed.push_back(std::move(p));
     }
+    commit(parsed, archive.path().filename().string());
 }
 
 void AssetIndex::addFolder(const fs::path& root) {
@@ -240,33 +279,33 @@ void AssetIndex::addFolder(const fs::path& root) {
     }
     std::sort(rels.begin(), rels.end());
     std::vector<std::string> notes;
-    const auto chosen = selectAssetConfigs(rels, &notes);
+    const auto chosen = selectConfigCandidates(rels, &notes);
     for (auto& n : notes) {
         warn(root.filename().string() + ": " + n);
     }
+    std::vector<ParsedConfig> parsed;
     for (const auto& [folder, name] : chosen) {
         const fs::path file = folder.empty() ? root / name : root / fs::path(folder) / name;
+        ParsedConfig p;
+        p.folder = folder;
+        p.entryName = folder.empty() ? name : folder + "/" + name;
         AssetLocation where{AssetLocation::Container::Folder, root, folder, name};
         try {
             const auto f = ReadOnlyFile::open(file);
-            if (f.size() > kMaxLooseConfigSize) {
+            if (f.size() > kMaxConfigSize) {
                 throw ContentError("config is larger than 16 MiB");
             }
             std::vector<std::uint8_t> bytes(static_cast<std::size_t>(f.size()));
             f.readExact(0, bytes);
             const AssetConfig cfg = parseAssetConfig(bytes);
-            bool ok = false;
-            std::string why;
-            AssetRecord rec = recordFromConfig(cfg, std::move(where), ok, why);
-            if (!ok) {
-                warn(file.string() + ": " + why);
-                continue;
-            }
-            addRecord(std::move(rec), lastPart(folder));
+            p.record = recordFromConfig(cfg, std::move(where), p.valid, p.error);
         } catch (const ContentError& err) {
-            warn(file.string() + ": " + err.what());
+            p.valid = false;
+            p.error = err.what();
         }
+        parsed.push_back(std::move(p));
     }
+    commit(parsed, root.string());
 }
 
 AssetIndex AssetIndex::scanInstall(const fs::path& installRoot) {

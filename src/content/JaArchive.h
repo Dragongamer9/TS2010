@@ -124,6 +124,10 @@ public:
     // Whole decoded entry in memory.
     std::vector<std::uint8_t> read(const JaEntry& entry) const;
 
+    // Like read(), but refuses (ContentError) an entry whose decoded size is
+    // larger than maxBytes, before allocating anything for it.
+    std::vector<std::uint8_t> readLimited(const JaEntry& entry, std::size_t maxBytes) const;
+
     // Streaming access for large entries.
     JaEntryStream openStream(const JaEntry& entry) const;
 

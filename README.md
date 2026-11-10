@@ -19,6 +19,14 @@ asset-tool find     /path/to/TS2010 "<kuid:447264:1073>"
 asset-tool versions /path/to/TS2010 5:6
 ```
 
+`texture-tool` shows a `.texture` and saves it as a PNG under
+`~/.local/share/trainz-native/textures/` ([`docs/formats/texture.md`](docs/formats/texture.md)):
+
+```sh
+texture-tool info /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 149987 21565/grass_15.texture"
+texture-tool png  /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 149987 21565/grass_15.texture"
+```
+
 ## How it protects your game data
 
 - **Read-only.** Game files are opened read-only (`O_RDONLY`, and `O_NOATIME`

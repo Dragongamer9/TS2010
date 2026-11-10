@@ -111,6 +111,39 @@ TEST_F(AssetIndexTest, IndexesAnArchive) {
     EXPECT_TRUE(hasWarningContaining(idx, "no readable top-level kuid"));
 }
 
+TEST_F(AssetIndexTest, BrokenParentDoesNotHideRealAssets) {
+    // A broken config (or one without a KUID) high up must not swallow the
+    // valid assets below it; only a valid asset's folder makes sub-parts.
+    JaTestBuilder b;
+    b.addPlain("pack/config.txt", bytesOf("kind \"never closed\r\n"));
+    b.addPlain("pack/a/config.txt", bytesOf(cfgText("<kuid:7:1>", "scenery", "A")));
+    b.addPlain("pack2/config.txt", bytesOf("kind \"scenery\"\r\n"));  // no kuid
+    b.addPlain("pack2/b/config.txt", bytesOf(cfgText("<kuid:7:2>", "scenery", "B")));
+    b.addPlain("good/config.txt", bytesOf(cfgText("<kuid:7:3>", "scenery", "C")));
+    b.addPlain("good/part/config.txt", bytesOf(cfgText("<kuid:7:4>", "x", "sub")));
+    const auto a = JaArchive::open(dir.write("p.ja", b.build()));
+    AssetIndex idx;
+    idx.addArchive(a);
+    EXPECT_EQ(idx.find(*parseKuid("<kuid:7:1>")).size(), 1u);
+    EXPECT_EQ(idx.find(*parseKuid("<kuid:7:2>")).size(), 1u);
+    EXPECT_EQ(idx.find(*parseKuid("<kuid:7:3>")).size(), 1u);
+    EXPECT_TRUE(idx.find(*parseKuid("<kuid:7:4>")).empty());
+    EXPECT_TRUE(hasWarningContaining(idx, "pack/config.txt"));
+    EXPECT_TRUE(hasWarningContaining(idx, "pack2/config.txt"));
+}
+
+TEST_F(AssetIndexTest, OversizedConfigIsReportedNotLoaded) {
+    JaTestBuilder b;
+    Bytes stored = cfilRaw(bytesOf("kuid <kuid:1:1>\n"));
+    setU32(stored, 8, 0x7FFFFFFFu);  // CFIL claims 2 GiB
+    b.addEntry({"big/config.txt", stored, 16, 0x80, 0});
+    const auto a = JaArchive::open(dir.write("big.ja", b.build()));
+    AssetIndex idx;
+    idx.addArchive(a);
+    EXPECT_TRUE(idx.records().empty());
+    EXPECT_TRUE(hasWarningContaining(idx, "allowed here"));
+}
+
 TEST_F(AssetIndexTest, IndexesALooseFolder) {
     const fs::path local = dir.path() / "local";
     dir.write("local/" + folderFor({10, 20, std::nullopt}) + "/config.txt",

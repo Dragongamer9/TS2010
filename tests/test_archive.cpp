@@ -217,6 +217,20 @@ TEST_F(ArchiveTest, RejectsBadHeaders) {
     EXPECT_THROW(JaArchive::open(dir.path()), ContentError);
 }
 
+TEST_F(ArchiveTest, ReadLimitedRefusesLargeEntries) {
+    const auto a = JaArchive::open(makeStandard());
+    const JaEntry& im = *a.find("Scenery/Shed/Shed.im");
+    EXPECT_EQ(a.readLimited(im, big.size()), big);
+    EXPECT_THROW(a.readLimited(im, big.size() - 1), ContentError);
+    // A CFIL header claiming 4 GiB is refused before any allocation.
+    JaTestBuilder b;
+    Bytes stored = cfilRaw(bytesOf("tiny"));
+    setU32(stored, 8, 0xFFFFFFF0u);
+    b.addEntry({"huge.bin", stored, 4, 0x80, 0});
+    const auto h = JaArchive::open(dir.write("huge.ja", b.build()));
+    EXPECT_THROW(h.readLimited(*h.find("huge.bin"), 1 << 20), ContentError);
+}
+
 TEST_F(ArchiveTest, DataPastTheEndIsReportedNotRead) {
     Bytes b = JaTestBuilder().addPlain("a.txt", bytesOf("abc")).build();
     const std::size_t rowAt = b.size() - 296;

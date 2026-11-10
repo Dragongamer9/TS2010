@@ -9,6 +9,7 @@
 #include "content/AssetConfig.h"
 #include "content/AssetIndex.h"
 #include "content/Kuid.h"
+#include "content/TextureFile.h"
 
 #include <gtest/gtest.h>
 
@@ -17,6 +18,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <regex>
 #include <string>
 #include <vector>
@@ -255,4 +257,42 @@ TEST_F(RealInstall, AssetIndexOfTheWholeInstall) {
     std::cout << "  assets indexed: " << idx.records().size() << "\n";
     EXPECT_GT(idx.records().size(), 0u);
     EXPECT_EQ(kuidWarnings, 0u);
+}
+
+TEST_F(RealInstall, TexturesParseAndDecode) {
+    // Every .texture must parse with mip sizes matching its format; a sample is also decoded.
+    std::size_t parsed = 0;
+    std::size_t failures = 0;
+    std::map<std::string, std::size_t> formats;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        std::vector<const JaEntry*> textures;
+        for (const auto& e : a.entries()) {
+            if (e.name.size() > 8 && e.name.compare(e.name.size() - 8, 8, ".texture") == 0 && a.isLookupWinner(e)) {
+                textures.push_back(&e);
+            }
+        }
+        std::sort(textures.begin(), textures.end(),
+                  [](const JaEntry* x, const JaEntry* y) { return x->dataOffset < y->dataOffset; });
+        const std::size_t step = fullVerify ? 1 : std::max<std::size_t>(1, textures.size() / 300);
+        for (std::size_t i = 0; i < textures.size(); i += step) {
+            try {
+                const auto tex = trainz::content::parseTexture(a.readLimited(*textures[i], std::size_t{128} << 20));
+                ++parsed;
+                ++formats[trainz::content::pixelFormatName(tex.info.format)];
+                if (i % (step * 10) == 0) {
+                    (void)trainz::content::decodeToRgba8(tex.mips.back(), tex.info.format);
+                }
+            } catch (const ContentError& err) {
+                ++failures;
+                std::cout << "  texture problem: " << textures[i]->name << ": " << err.what() << "\n";
+            }
+        }
+    }
+    std::cout << "  textures parsed: " << parsed << " (";
+    for (const auto& [k, v] : formats) {
+        std::cout << k << " " << v << " ";
+    }
+    std::cout << ")\n";
+    EXPECT_EQ(failures, 0u);
 }

@@ -35,7 +35,7 @@ std::vector<std::uint8_t> loadBytes(int argc, char** argv) {
         if (e == nullptr) {
             throw ContentError(std::string("'") + argv[3] + "' is not in " + argv[2]);
         }
-        return archive.read(*e);
+        return archive.readLimited(*e, std::size_t{64} << 20);
     }
     const auto file = ReadOnlyFile::open(argv[2]);
     if (file.size() > (64u << 20)) {

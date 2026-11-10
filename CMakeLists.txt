@@ -27,14 +27,17 @@ endif()
 
 add_library(trainz_content
   src/common/DataDirs.cpp
+  src/common/PngWriter.cpp
   src/common/SafeOutput.cpp
   src/content/ArchivePath.cpp
   src/content/AssetConfig.cpp
   src/content/AssetIndex.cpp
   src/content/CfilCodec.cpp
   src/content/JaArchive.cpp
+  src/content/JirfFile.cpp
   src/content/Kuid.cpp
   src/content/ReadOnlyFile.cpp
+  src/content/TextureFile.cpp
 )
 target_include_directories(trainz_content PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(trainz_content PRIVATE ${TRAINZ_WARNINGS})
@@ -51,6 +54,10 @@ add_executable(asset-tool tools/asset_tool.cpp)
 target_link_libraries(asset-tool PRIVATE trainz_content)
 target_compile_options(asset-tool PRIVATE ${TRAINZ_WARNINGS})
 
+add_executable(texture-tool tools/texture_tool.cpp)
+target_link_libraries(texture-tool PRIVATE trainz_content)
+target_compile_options(texture-tool PRIVATE ${TRAINZ_WARNINGS})
+
 if(TRAINZ_BUILD_TESTS)
   enable_testing()
   find_package(GTest REQUIRED)
@@ -63,6 +70,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_path_kuid.cpp
     tests/test_real_install.cpp
     tests/test_safe_output.cpp
+    tests/test_texture.cpp
   )
   target_link_libraries(content_tests PRIVATE trainz_content GTest::gtest_main)
   target_include_directories(content_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

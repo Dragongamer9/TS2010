@@ -269,6 +269,24 @@ std::vector<std::uint8_t> JaArchive::read(const JaEntry& entry) const {
     return stored;
 }
 
+std::vector<std::uint8_t> JaArchive::readLimited(const JaEntry& entry, std::size_t maxBytes) const {
+    auto stream = openStream(entry);
+    if (stream.size() > maxBytes) {
+        throw ContentError("'" + entry.name + "' decodes to " + std::to_string(stream.size()) +
+                           " bytes, more than the " + std::to_string(maxBytes) + " allowed here");
+    }
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(stream.size()));
+    std::size_t got = 0;
+    while (got < out.size()) {
+        const std::size_t n = stream.read(std::span<std::uint8_t>(out.data() + got, out.size() - got));
+        if (n == 0) {
+            throw ContentError("'" + entry.name + "' ended early");
+        }
+        got += n;
+    }
+    return out;
+}
+
 JaEntryStream JaArchive::openStream(const JaEntry& entry) const { return JaEntryStream(file_, entry, info_.version); }
 
 // ------------------------------------------------------------ JaEntryStream
