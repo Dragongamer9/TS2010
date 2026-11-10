@@ -24,8 +24,8 @@ struct ActionHit {
 
 // Two or more actions in one group bound to the same combo. This is normal in the
 // shipped file (W is cab throttle, DCC up and regulator up; Surveyor tools share
-// letters); which one fires depends on the mode, which the game's code decides
-// and which has not been traced.
+// letters). The action names suggest the game picks one by mode (cab vs DCC, the
+// current tool), but that is an inference: the game's dispatch is not traced.
 struct SharedCombo {
     std::string group;
     std::string combo;  // describe() form

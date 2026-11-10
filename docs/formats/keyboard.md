@@ -73,20 +73,23 @@ one copy of a repeated combo.
 **Shared keys are normal.** In the shipped file 52 combos are bound to more than
 one action in the same group (driver 15, surveyor 27, menu 5, standard_dialog 5).
 For example, `W` is `train_cabin_throttle_up`, `train_dcc_up` and
-`train_cabin_regulator_up`, and Surveyor tools reuse letters. The game must pick
-by mode (cab vs DCC, the current Surveyor tool). That choice is not traced; it
-belongs to the parts that use the input (steps 13 and 14).
+`train_cabin_regulator_up`, and Surveyor tools reuse letters. The action names
+**suggest** the game picks one by mode (cab vs DCC, the current Surveyor tool). That
+is an inference, not traced: the game might also fire several at once, or use
+other rules. It belongs to the parts that use the input (steps 13 and 14).
 
 `input-tool shared KEYBOARD.txt` lists them; `input-tool press KEYBOARD.txt driver "alt 1"`
 shows what a press triggers.
 
 ## SDL (src/input/SdlKeys, needs libsdl2-dev)
 
-Each canonical name maps to one SDL **scancode**, a physical key position. The game
-imports `DINPUT8.dll`, whose `DIK_` codes are positional too, so a binding stays on
-the same key on any keyboard layout. Which `DIK_` code each game name stands for
-is assumed from the names on a US layout (the game's name-to-code table is not
-traced). Every name round-trips name → scancode → name with no two names sharing
+Each canonical name maps to one SDL **scancode**, a physical key position, so a
+binding stays on the same key on any keyboard layout. That is **the port's
+choice**. The game imports `DINPUT8.dll`, but that alone doesn't show how it turns
+key names into keys: it could use positional `DIK_` codes, Windows virtual keys or
+typed characters, on whatever layout. That code is not traced. Each name's key is
+assumed from the name on a US layout, so on a non-US keyboard the port might put
+some bindings on different keys than the game does. Every name round-trips name → scancode → name with no two names sharing
 a scancode (`tests/test_sdl_keys.cpp`).
 
 `key-tester KEYBOARD.txt [GROUPS]` opens a small window and prints what each

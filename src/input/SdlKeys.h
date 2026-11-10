@@ -1,9 +1,10 @@
 // Canonical key names (KeyBindings.h) <-> SDL2 scancodes.
 //
-// Scancodes name physical key positions, as DirectInput 8's DIK_ codes do (the game
-// imports DINPUT8.dll), so a binding stays on the same key whatever the keyboard
-// layout. Which DIK code each game name stands for is assumed from the names on a
-// US layout; the game's name-to-code table has not been traced.
+// The port binds to SDL scancodes (physical key positions), so a binding stays on
+// the same key whatever the keyboard layout. This is the port's choice. The game
+// imports DINPUT8.dll, but that alone doesn't show how it maps names to keys
+// (DIK_ codes, virtual keys or characters, and on which layout); that code is not
+// traced. Each name's key is assumed from the name on a US layout.
 //
 // Needs SDL2 (libsdl2-dev); built only when SDL2 is found.
 #pragma once
