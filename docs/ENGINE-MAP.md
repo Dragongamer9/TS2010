@@ -131,8 +131,9 @@ repeat until original_size bytes are produced:
     1426 bytes.
   - Samples of every file type in `Base.ja` and `8.ja` decode to valid
     headers (`JIRF`, `BM`, `RIFF`, `JFIF`, `ACS$`, `ID3`).
-  - A full pass over every file was started but didn't finish, so whole-archive
-    decoding isn't proven yet.
+  - **Full pass (2026-11-10):** the C++ reader decodes every entry of
+    `Base.ja` (1,722) and `Data.ja` (973) to its recorded size in CI. A full pass
+    over `Builtin\1.ja`–`8.ja` still needs Dad's install.
 
 ### 1.3 How an asset is looked up – **KUIDs seen in every sample; folder rule observed**
 
@@ -181,7 +182,7 @@ packs and asset versions (kuid2 VERSION). It needs a trace through
 | Content package | `.cdp` (`.cdp2`) | Seen | `"Unable to write archive file. Needs to be .cdp file extension"` (`trainz.exe`, `TADDaemon.exe`); `TrainzUtil createCDP <file.cdp> <kuid…>`; `ContentManager.exe` file filter `CDP file (*.cdp;*.cdp2)`. Not sampled |
 | Asset config (text) | `config.txt` | **Confirmed** | In the samples: UTF-8 with BOM and CRLF line ends (what the parser accepts beyond that is not traced); `key  value` lines, `name { … }` sub-blocks, quoted strings, `<kuid…>` values, `-fr` style language suffixes (`username-fr`). Parser: `Jet::ConfigData` in `KernelStandard_7c.dll` (88 exports; writer `ConfigData::Write` `0x10011350`). `config.txt` referenced in `trainz.exe` at `0x61fea8`, `0x6212c7`, `0x64804f`, `0x648e51`, `0x66c8fe`, `0x7ccec3` |
 | Asset config (binary) | `.chump` | Header and item walk traced; value types observed | Magic `ACS$`, `u32` version 1, `u32` reserved, `u32` body size, then size/key/type/value items. Reader in **`trainz.exe`**: header `0x7ff710`, item walk `0x7ff1f0` (no symbols). Full layout in [`formats/config.md`](formats/config.md). Also used for settings and UI strings (`interfaceFrench.chump` …). *Correction:* `ConfigData::ReadBin` / `ReadBinFile` (`KernelStandard_7c.dll` `0x10013220`, `0x10012a50`) read a **different** binary format with type bytes 0–7, not `.chump` |
-| Mesh | `.im` | Layout checked (Python, all 7,982 parts in `Base.ja` + `8.ja`); C++ reader also run in CI on real data (Base/Data/sample of 8.ja) | `JIRF` form `IDXM`: `INFO`, one `CHNK` per material (`u32 100, u32 index`) holding `MATL` (name, 16 floats, textures with type/path/amount) and `GEOM` (v102/200/201: header, optional bone name, vertices x,y,z,u,v, u16 indices, vertex normals, face normals, optional extra per-vertex floats); optional `INFL`/`ATCH`/`SKEL`. Z is up. Reader code not traced. Full layout in [`formats/mesh.md`](formats/mesh.md) |
+| Mesh | `.im` | Layout checked (Python, all 7,982 parts in `Base.ja` + `8.ja`; GEOM v101 found later in `Data.ja` by the C++ run); C++ reader also run in CI on real data (Base/Data/sample of 8.ja) | `JIRF` form `IDXM`: `INFO`, one `CHNK` per material (`u32 100, u32 index`) holding `MATL` (name, 16 floats, textures with type/path/amount) and `GEOM` (v101/102/200/201: header, optional bone name, vertices x,y,z,u,v, u16 indices, vertex normals, face normals, optional extra per-vertex floats); optional `INFL`/`ATCH`/`SKEL`. Z is up. Reader code not traced. Full layout in [`formats/mesh.md`](formats/mesh.md) |
 | Older mesh | `.pm` | Container confirmed | Same `JIRF`/`IDXM` container; each `CHNK` also carries `NINF`. Class `IndexedMeshDefinitionOld` (93 exports) |
 | LOD set | `.lm`, `.lm.txt` | Seen | `trainz.lm`, `trainz.lm.txt` (`trainz.exe`, `TrainzUtil.exe`) |
 | Animation | `.kin` | Layout checked (Python, all 135 disc files); C++ reader also run in CI on real data (Base/Data/sample of 8.ja) | `JIRF` form `ANIM`: `INFO` (source file, frame count, fps), `EVNT` (frame, flags, name), `SKEL` (nested `BONE` tree), one `FRAM` per frame with position + quaternion per bone. Bone-position space not confirmed. Reader (`AnimationModifier`) not traced. See [`formats/animation.md`](formats/animation.md) |
@@ -351,7 +352,7 @@ Each step can be tested against the real data before the next one starts.
 5. **Meshes**: `JIRF` reader → `.im`/`.pm` `CHNK`/`MATL`/`GEOM` → draw one
    static object with a simple OpenGL or Vulkan renderer. *Reader, software
    preview and OBJ export written (`src/content/MeshFile`, `mesh-tool`); see
-   [`formats/mesh.md`](formats/mesh.md). GPU viewer not yet.* The game already
+   [`formats/mesh.md`](formats/mesh.md). GPU `model-viewer` written (SDL2 + OpenGL 2.1), not yet run on a screen.* The game already
    abstracts its graphics API (it has an OpenGL back end), so this matches its
    own split.
 6. **Materials and shaders**: map the `m.onetex`, `m.notex` … material names

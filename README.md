@@ -29,11 +29,13 @@ texture-tool png  /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 149987 21565/grass_
 
 `mesh-tool` reads `.im`/`.pm` meshes ([`docs/formats/mesh.md`](docs/formats/mesh.md)): `info`, a quick
 `preview` PNG, or `obj` to export OBJ + MTL + PNG textures for Blender, all under
-`~/.local/share/trainz-native/meshes/`:
+`~/.local/share/trainz-native/meshes/`. `model-viewer` shows a mesh with its textures in a window
+(OpenGL 2.1 + SDL2; mouse drag turns it, the wheel zooms, space plays a `--kin` animation, W toggles wireframe):
 
 ```sh
 mesh-tool preview /path/to/TS2010/Builtin/8.ja "hash-c0/kuid2 90361 120204 2/70ton_orecar_body/70ton_orecar_body.im"
 mesh-tool obj     /path/to/TS2010/Builtin/8.ja "hash-c0/kuid2 90361 120204 2/70ton_orecar_body/70ton_orecar_body.im"
+model-viewer      /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 58422 50128/benthd.pm" --kin "hash-c1/kuid 58422 50128/anim.kin"
 ```
 
 `anim-tool info` lists a `.kin` animation's bones, frames and events
@@ -70,7 +72,7 @@ The readers themselves run in CI on real game data (`testdata/ts2010`: `Base.ja`
 Debian packages:
 
 ```sh
-sudo apt install cmake ninja-build g++ clang libclang-rt-dev libgtest-dev
+sudo apt install cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev
 ```
 
 ```sh

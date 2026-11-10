@@ -29,7 +29,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates git cmake ninja-build g++ clang libclang-rt-dev libgtest-dev
+            ca-certificates git cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev
 
       - uses: actions/checkout@v4
 
@@ -46,6 +46,9 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
+      - name: Check the model viewer was built
+        run: test -x build/model-viewer
+
       - name: Test (includes the real game data in testdata/ts2010, read-only)
         env:
           TRAINZ_DATA_DIR: ${{ github.workspace }}/testdata/ts2010
@@ -53,9 +56,15 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
       - name: Real game data report
+        shell: bash
         env:
           TRAINZ_DATA_DIR: ${{ github.workspace }}/testdata/ts2010
-        run: ./build/content_tests --gtest_filter='RealInstall.*' --gtest_brief=0 | grep -vE '^  index warning:' | tail -n 80
+        run: |
+          set -o pipefail
+          status=0
+          ./build/content_tests --gtest_filter='RealInstall.*' > report.txt 2>&1 || status=$?
+          grep -vE '^  index warning:' report.txt | tail -n 80
+          exit $status
 
       - name: CLI smoke test
         run: |
