@@ -1,10 +1,10 @@
 # Roadmap – Trainz Simulator 2010 on Linux (Hearth OS)
 
-**Overall progress: 13%**
+**Overall progress: 15%**
 
 `[███░░░░░░░░░░░░░░░░░]`
 
-*Last updated: 2026-11-10, after step 5 (mesh format, preview, OBJ export).*
+*Last updated: 2026-11-10, after step 7 (animation format).*
 
 This file is updated with every change that moves the project forward. The
 percentage is a **weighted estimate**, not a measurement: see
@@ -40,7 +40,7 @@ percentage is a **weighted estimate**, not a measurement: see
 | 4 | Textures: `.texture` (`MMTF`), `.tga`, `.bmp`, `.jpg` + `texture-tool` | 4 | 50% | Claude | `.texture` done in C++ ([`docs/formats/texture.md`](docs/formats/texture.md)): all 5 formats in use (ARGB8888, RGB0888, DXT1/3/5), mip chain, PNG export; checked on all 6,666 disc textures. **Missing:** `.texture.txt`, `.tga`/`.bmp`/`.jpg`, a real-install C++ run. |
 | 5 | 3D models: `.im` / `.pm` (`JIRF`/`IDXM`) + a model viewer | 8 | 45% | Claude | `GEOM` (v102/200/201) and `MATL` (v102/103) layouts worked out from data and checked on all 7,982 parts; C++ reader, `mesh-tool` (info, software preview PNG, OBJ+MTL+PNG export) ([`docs/formats/mesh.md`](docs/formats/mesh.md)). **Missing:** a GPU viewer, `INFO`/`INFL`/`ATCH`/`SKEL`/`PMIN`/`NINF`, tracing the reader code, a real-install C++ run. |
 | 6 | Materials and shaders (`m.onetex` …, `vtx.txt`/`pxl.txt`) | 6 | 0% | Claude | Map to modern shaders; Cg is discontinued. |
-| 7 | Animation: `.kin` (`ANIM`) | 4 | 0% | Claude | Container known. |
+| 7 | Animation: `.kin` (`ANIM`) + `anim-tool` | 4 | 50% | Claude | `INFO`/`EVNT`/`SKEL`/`FRAM` worked out from data, all 135 disc files fit; C++ reader, posing in `mesh-tool preview --kin` ([`docs/formats/animation.md`](docs/formats/animation.md)). **Missing:** whether bone positions are absolute or parent-relative (absolute looks right, not confirmed), playback, what events do, a real-install C++ run. |
 | 8 | Routes: `mapfile.gnd` / `.trk` / `.obs` / `.bmk` + a route viewer | 10 | 0% | Claude (viewer) | Headers known; inner layouts unknown. |
 | 9 | Sound: WAV/MP3 playback, 3D positioning | 4 | 0% | Claude (decoding/playback layer) | |
 | 10 | Input: keyboard, mouse, joystick (SDL) + `keyboard.txt` bindings | 2 | 0% | Claude (device layer) | |
@@ -53,8 +53,8 @@ percentage is a **weighted estimate**, not a measurement: see
 | 17 | Validation on Dad's PC (real-install tests, full archive verify, speed on the hard drive) | 4 | 0% | Claude + owner | Needs the tests run with `TRAINZ_DATA_DIR` on his PC. |
 | | **Total** | **102** | | | |
 
-**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.80 + 3×0.75 + 4×0.55 + 4×0.50 + 8×0.45) ÷ 102 =
-13.75 ÷ 102 = 13.5% → **13%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
+**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.80 + 3×0.75 + 4×0.55 + 4×0.50 + 8×0.45 + 4×0.50) ÷ 102 =
+15.75 ÷ 102 = 15.44% → **15%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
 102 weight points.
 
 ---
@@ -67,7 +67,7 @@ A milestone reaches **100%** only when **all** of these are true:
 3. The format doc says what is traced, checked, observed and unknown.
 4. It has been run read-only against Dad's real install.
 
-Until then it stays below 100%, so steps 1–5 are at 80%, 75%, 55%, 50% and 45% and not 100%.
+Until then it stays below 100%, so none of steps 1–7 is at 100% yet.
 
 ## How the percentage works
 
@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-10 | 15% | Step 7 (0% → 50%): `.kin` reader (`anim-tool`, mesh posing); all 135 disc animations fit; bone-position space rendered both ways (absolute looks right, not confirmed). Preview hardened against overflowing intermediate maths (ChatGPT review). |
 | 2026-11-10 | 13% | Step 5 (0% → 45%): mesh reader (`GEOM`/`MATL` worked out from data, all 7,982 parts fit), software preview and OBJ export (`mesh-tool`); ore-car mesh rendered correctly. Step 4 review fix: texture sizes bounded before any arithmetic (no overflow). |
 | 2026-11-10 | 10% | Step 4 (0% → 50%): `.texture` reader, DXT1/3/5 + 32-bit decoding, PNG export, `texture-tool`; format ids traced to the engine's name list; sizes checked on 6,666 textures, colours checked by eye. Step 3 review fixes: only valid parent assets hide sub-parts; config reads bounded to 16 MiB. |
 | 2026-11-10 | 8% | Step 3 (0% → 55%): asset index + `asset-tool`; selection rule checked on the disc (8.ja: 1,468 assets, 1 sub-part skipped). |

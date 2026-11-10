@@ -29,6 +29,7 @@ add_library(trainz_content
   src/common/DataDirs.cpp
   src/common/PngWriter.cpp
   src/common/SafeOutput.cpp
+  src/content/AnimationFile.cpp
   src/content/ArchivePath.cpp
   src/content/AssetConfig.cpp
   src/content/AssetIndex.cpp
@@ -64,10 +65,15 @@ add_executable(mesh-tool tools/mesh_tool.cpp)
 target_link_libraries(mesh-tool PRIVATE trainz_content)
 target_compile_options(mesh-tool PRIVATE ${TRAINZ_WARNINGS})
 
+add_executable(anim-tool tools/anim_tool.cpp)
+target_link_libraries(anim-tool PRIVATE trainz_content)
+target_compile_options(anim-tool PRIVATE ${TRAINZ_WARNINGS})
+
 if(TRAINZ_BUILD_TESTS)
   enable_testing()
   find_package(GTest REQUIRED)
   add_executable(content_tests
+    tests/test_animation.cpp
     tests/test_archive.cpp
     tests/test_asset_config.cpp
     tests/test_asset_index.cpp

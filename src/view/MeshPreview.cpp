@@ -5,6 +5,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <string>
 
 namespace trainz::view {
 
@@ -70,10 +71,14 @@ std::vector<std::uint8_t> renderMeshPreview(const trainz::content::MeshFile& mes
     if (!any) {
         return img;
     }
-    const float spanX = std::max(maxX - minX, 1e-6f);
-    const float spanY = std::max(maxY - minY, 1e-6f);
+    float spanX = std::max(maxX - minX, 1e-6f);
+    float spanY = std::max(maxY - minY, 1e-6f);
+    if (!std::isfinite(spanX) || !std::isfinite(spanY)) {  // finite coordinates whose difference overflows
+        spanX = std::numeric_limits<float>::max();
+        spanY = std::numeric_limits<float>::max();
+    }
     const float scale = 0.9f * std::min(static_cast<float>(width) / spanX, static_cast<float>(height) / spanY);
-    const float cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    const float cx = minX / 2 + maxX / 2, cy = minY / 2 + maxY / 2;  // halves first: no overflow
     std::vector<float> depth(static_cast<std::size_t>(width) * height, -std::numeric_limits<float>::max());
     const Vec3 light = {0.4f, 0.3f, 0.86f};
 
@@ -98,7 +103,7 @@ std::vector<std::uint8_t> renderMeshPreview(const trainz::content::MeshFile& mes
             const Vec3 w = {p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]};
             const Vec3 n = {u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]};
             const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-            if (!(len > 0)) {
+            if (!(len > 0) || !std::isfinite(len)) {  // degenerate, or so large the maths overflowed
                 continue;
             }
             const float shade = std::fabs(n[0] * light[0] + n[1] * light[1] + n[2] * light[2]) / len;
@@ -108,8 +113,12 @@ std::vector<std::uint8_t> renderMeshPreview(const trainz::content::MeshFile& mes
                 sx[k] = (p[k][0] - cx) * scale + static_cast<float>(width) / 2;
                 sy[k] = static_cast<float>(height) / 2 - (p[k][1] - cy) * scale;
             }
+            bool screenOk = true;
+            for (int k = 0; k < 3; ++k) {
+                screenOk = screenOk && std::isfinite(sx[k]) && std::isfinite(sy[k]);
+            }
             const float den = (sy[1] - sy[2]) * (sx[0] - sx[2]) + (sx[2] - sx[1]) * (sy[0] - sy[2]);
-            if (std::fabs(den) < 1e-9f) {
+            if (!screenOk || !std::isfinite(den) || std::fabs(den) < 1e-9f) {
                 continue;
             }
             const int x0 = std::max(0, toInt(std::floor(std::min({sx[0], sx[1], sx[2]}))));
@@ -137,6 +146,38 @@ std::vector<std::uint8_t> renderMeshPreview(const trainz::content::MeshFile& mes
         }
     }
     return img;
+}
+
+std::size_t poseMesh(trainz::content::MeshFile& mesh, const trainz::content::AnimationFile& anim, std::size_t frame) {
+    if (frame >= anim.frames.size()) {
+        throw std::out_of_range("animation frame " + std::to_string(frame) + " does not exist");
+    }
+    std::size_t moved = 0;
+    for (auto& part : mesh.parts) {
+        auto& g = part.geometry;
+        if (g.boneName.empty()) {
+            continue;
+        }
+        const int b = anim.boneIndex(g.boneName);
+        if (b < 0) {
+            continue;
+        }
+        const auto& pose = anim.frames[frame][static_cast<std::size_t>(b)];
+        for (auto& v : g.vertices) {
+            const auto p = trainz::content::rotate(pose.rotation, {v.x, v.y, v.z});
+            v.x = p[0] + pose.position[0];
+            v.y = p[1] + pose.position[1];
+            v.z = p[2] + pose.position[2];
+        }
+        for (auto& n : g.vertexNormals) {
+            n = trainz::content::rotate(pose.rotation, n);
+        }
+        for (auto& n : g.faceNormals) {
+            n = trainz::content::rotate(pose.rotation, n);
+        }
+        ++moved;
+    }
+    return moved;
 }
 
 }  // namespace trainz::view

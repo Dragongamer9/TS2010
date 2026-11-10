@@ -252,6 +252,16 @@ TEST(Preview, DrawsSomething) {
     }
 }
 
+TEST(Preview, ExtremeFiniteCoordinatesDoNotBreakTheImage) {
+    auto f = parseMesh(mesh({{matl(102, "a", {}), geom(200)}}));
+    for (auto& v : f.parts[0].geometry.vertices) {
+        v.x *= 3.0e38f;  // finite, but differences overflow to infinity
+        v.y *= 3.0e38f;
+    }
+    const auto img = trainz::view::renderMeshPreview(f, 32, 32, trainz::view::PreviewView::Top);
+    EXPECT_EQ(img.size(), 32u * 32 * 4);
+}
+
 TEST(Preview, HugeAndBrokenCoordinatesAreSafe) {
     auto f = parseMesh(mesh({{matl(102, "a", {}), geom(200)}}));
     f.parts[0].geometry.vertices[0].x = 3.0e38f;

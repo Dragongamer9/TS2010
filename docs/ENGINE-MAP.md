@@ -184,7 +184,7 @@ packs and asset versions (kuid2 VERSION). It needs a trace through
 | Mesh | `.im` | Layout checked (Python, all 7,982 parts in `Base.ja` + `8.ja`); C++ reader CI-tested on made-up files only | `JIRF` form `IDXM`: `INFO`, one `CHNK` per material (`u32 100, u32 index`) holding `MATL` (name, 16 floats, textures with type/path/amount) and `GEOM` (v102/200/201: header, optional bone name, vertices x,y,z,u,v, u16 indices, vertex normals, face normals, optional extra per-vertex floats); optional `INFL`/`ATCH`/`SKEL`. Z is up. Reader code not traced. Full layout in [`formats/mesh.md`](formats/mesh.md) |
 | Older mesh | `.pm` | Container confirmed | Same `JIRF`/`IDXM` container; each `CHNK` also carries `NINF`. Class `IndexedMeshDefinitionOld` (93 exports) |
 | LOD set | `.lm`, `.lm.txt` | Seen | `trainz.lm`, `trainz.lm.txt` (`trainz.exe`, `TrainzUtil.exe`) |
-| Animation | `.kin` | Container confirmed | `JIRF` form `ANIM` with an `INFO` chunk. Class `AnimationModifier` (`Render3DFoundation_7c.dll`). Strings `anim.kin` (references in `trainz.exe` at `0x554c17`, `0x5a9882`, `0x67a218`, `0x87ac1f`, `0x907778`) |
+| Animation | `.kin` | Layout checked (Python, all 135 disc files); C++ reader CI-tested on made-up files only | `JIRF` form `ANIM`: `INFO` (source file, frame count, fps), `EVNT` (frame, flags, name), `SKEL` (nested `BONE` tree), one `FRAM` per frame with position + quaternion per bone. Bone-position space not confirmed. Reader (`AnimationModifier`) not traced. See [`formats/animation.md`](formats/animation.md) |
 | Texture | `.texture` | Layout and formats checked (Python, all 6,666 disc textures); C++ reader written, CI-tested on made-up files only | `JIRF` form `MMTF`: `INFO` (80 bytes, version `0x107`; 60 bytes in `0x103`), then one `MMAP` per mip level, **smallest first**. INFO word 2 = mip count, 4 = pixel format, 5/6 = width/height. Formats are Jet's `DisplayFormat` ids (name list in `RenderSystem_7c.dll`): **ARGB8888 (1), RGB0888 (3), DXT1 (10), DXT3 (11), DXT5 (12)** are in use; the other ids (2, 4–9) were never seen. Reader `TextureResource::Load` `0x10045500`. Full layout in [`formats/texture.md`](formats/texture.md) |
 | Texture descriptor | `.texture.txt` | Seen | Text file pointing at a `.tga`/`.bmp`/`.jpg`. Plugins `RenderSystem:texture.txt`, `RenderSystem:tga-tex/bmp-tex/jpg-tex` in `plugins.ini` |
 | Image sources | `.tga`, `.bmp`, `.jpg` | Confirmed (standard) | Standard headers. `KernelResources:tga/bmp/jpg` plugins; JPEG through `ijl10.dll` (Intel JPEG Library), imported by `KernelStandard_7c.dll` |
@@ -357,7 +357,7 @@ Each step can be tested against the real data before the next one starts.
 6. **Materials and shaders**: map the `m.onetex`, `m.notex` … material names
    and the `vtx.txt`/`pxl.txt` programs to modern shaders. Cg itself is
    discontinued.
-7. **Animation** `.kin` (`ANIM`).
+7. **Animation** `.kin` (`ANIM`). *Reader written (`src/content/AnimationFile`, `anim-tool`); see [`formats/animation.md`](formats/animation.md).*
 8. **Routes**: `mapfile.gnd` (terrain), then `mapfile.trk` (track),
    `mapfile.obs` (objects), `mapfile.bmk` → load and fly around a built-in route.
 9. **Sound**: WAV and MP3 through OpenAL or SDL audio, positional like `Snd3D`.

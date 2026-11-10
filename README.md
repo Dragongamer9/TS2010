@@ -36,6 +36,10 @@ mesh-tool preview /path/to/TS2010/Builtin/8.ja "hash-c0/kuid2 90361 120204 2/70t
 mesh-tool obj     /path/to/TS2010/Builtin/8.ja "hash-c0/kuid2 90361 120204 2/70ton_orecar_body/70ton_orecar_body.im"
 ```
 
+`anim-tool info` lists a `.kin` animation's bones, frames and events
+([`docs/formats/animation.md`](docs/formats/animation.md)); `mesh-tool preview --kin ANIM.kin --frame N`
+shows a mesh in that pose.
+
 ## How it protects your game data
 
 - **Read-only.** Game files are opened read-only (`O_RDONLY`, and `O_NOATIME`

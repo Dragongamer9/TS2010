@@ -6,6 +6,7 @@
 //   TRAINZ_FULL_VERIFY=1 ...   decode every entry (slow on a hard drive: about 7 GB)
 #include "content/ContentError.h"
 #include "content/JaArchive.h"
+#include "content/AnimationFile.h"
 #include "content/AssetConfig.h"
 #include "content/AssetIndex.h"
 #include "content/Kuid.h"
@@ -328,5 +329,27 @@ TEST_F(RealInstall, MeshesParse) {
         }
     }
     std::cout << "  meshes parsed: " << parsed << " (" << parts << " parts)\n";
+    EXPECT_EQ(failures, 0u);
+}
+
+TEST_F(RealInstall, AnimationsParse) {
+    std::size_t parsed = 0;
+    std::size_t failures = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        for (const auto& e : a.entries()) {
+            if (e.name.size() <= 4 || e.name.compare(e.name.size() - 4, 4, ".kin") != 0 || !a.isLookupWinner(e)) {
+                continue;
+            }
+            try {
+                (void)trainz::content::parseAnimation(a.readLimited(e, std::size_t{256} << 20));
+                ++parsed;
+            } catch (const ContentError& err) {
+                ++failures;
+                std::cout << "  animation problem: " << e.name << ": " << err.what() << "\n";
+            }
+        }
+    }
+    std::cout << "  animations parsed: " << parsed << "\n";
     EXPECT_EQ(failures, 0u);
 }

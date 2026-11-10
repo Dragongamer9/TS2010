@@ -2,6 +2,7 @@
 //
 //   mesh-tool info    ARCHIVE.ja NAME
 //   mesh-tool preview ARCHIVE.ja NAME [--view side|front|top|3q] [--size WxH] [--out DIR]
+//                     [--kin ANIM.kin --frame N]   pose animated parts (bone positions taken as absolute)
 //   mesh-tool obj     ARCHIVE.ja NAME [--out DIR]
 //
 // "obj" writes NAME.obj + NAME.mtl (Y-up, for Blender and other viewers) and
@@ -11,6 +12,7 @@
 #include "common/DataDirs.h"
 #include "common/PngWriter.h"
 #include "common/SafeOutput.h"
+#include "content/AnimationFile.h"
 #include "content/ContentError.h"
 #include "content/JaArchive.h"
 #include "content/MeshFile.h"
@@ -19,6 +21,7 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
@@ -40,6 +43,7 @@ int usage() {
     std::cerr << "usage:\n"
                  "  mesh-tool info    ARCHIVE.ja NAME\n"
                  "  mesh-tool preview ARCHIVE.ja NAME [--view side|front|top|3q] [--size WxH] [--out DIR]\n"
+                 "                    [--kin ANIM.kin --frame N]\n"
                  "  mesh-tool obj     ARCHIVE.ja NAME [--out DIR]\n";
     return 2;
 }
@@ -98,9 +102,18 @@ int main(int argc, char** argv) {
     std::string viewName = "3q";
     std::uint32_t w = 640, h = 480;
     fs::path outDir;
+    std::string kinName;
+    long frame = 0;
     for (int i = 4; i < argc; ++i) {
         const std::string a = argv[i];
-        if (a == "--view" && i + 1 < argc) {
+        if (a == "--kin" && i + 1 < argc) {
+            kinName = argv[++i];
+        } else if (a == "--frame" && i + 1 < argc) {
+            frame = std::strtol(argv[++i], nullptr, 10);
+            if (frame < 0) {
+                return usage();
+            }
+        } else if (a == "--view" && i + 1 < argc) {
             viewName = argv[++i];
         } else if (a == "--size" && i + 1 < argc) {
             if (std::sscanf(argv[++i], "%ux%u", &w, &h) != 2 || w == 0 || h == 0 || w > 4096 || h > 4096) {
@@ -119,7 +132,7 @@ int main(int argc, char** argv) {
             std::cerr << "'" << name << "' is not in " << archivePath.string() << "\n";
             return 1;
         }
-        const MeshFile mesh = parseMesh(archive.readLimited(*e, kMaxFile));
+        MeshFile mesh = parseMesh(archive.readLimited(*e, kMaxFile));
         for (const auto& wmsg : mesh.warnings) {
             std::cerr << "warning: " << wmsg << "\n";
         }
@@ -163,8 +176,20 @@ int main(int argc, char** argv) {
             } else if (viewName != "3q") {
                 return usage();
             }
+            std::string suffix;
+            if (!kinName.empty()) {
+                const JaEntry* ke = archive.find(kinName);
+                if (ke == nullptr) {
+                    std::cerr << "'" << kinName << "' is not in " << archivePath.string() << "\n";
+                    return 1;
+                }
+                const auto anim = parseAnimation(archive.readLimited(*ke, kMaxFile));
+                const std::size_t moved = trainz::view::poseMesh(mesh, anim, static_cast<std::size_t>(frame));
+                std::printf("posed %zu part(s) at frame %ld of %u\n", moved, frame, anim.frameCount);
+                suffix = ".f" + std::to_string(frame);
+            }
             const auto rgba = trainz::view::renderMeshPreview(mesh, w, h, view);
-            const std::string file = base + "." + viewName + ".png";
+            const std::string file = base + suffix + "." + viewName + ".png";
             writeFile(out, file, trainz::common::encodePngRgba(w, h, rgba));
             std::printf("wrote %s\n", (out.path() / file).c_str());
             return 0;
