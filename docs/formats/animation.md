@@ -71,8 +71,8 @@ confirmed.**
 
 ## 4. Not done yet
 
-- Playback (interpolating between frames, timing from `fps`) and a viewer
-  that animates.
+- Playback is implemented in `model-viewer` (frame by frame, timed by `fps`,
+  no interpolation between frames) but has not been run on a screen yet.
 - What events do (sounds? script messages?).
 - The mesh-side `SKEL` and `INFL` chunks (bone weights for skinned meshes, if
   that's what `INFL` is).
