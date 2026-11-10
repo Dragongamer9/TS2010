@@ -25,7 +25,7 @@ tests. The format is described in [`docs/formats/ja.md`](docs/formats/ja.md).
 Debian packages:
 
 ```sh
-sudo apt install cmake ninja-build g++ clang libgtest-dev
+sudo apt install cmake ninja-build g++ clang libclang-rt-dev libgtest-dev
 ```
 
 ```sh
