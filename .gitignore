@@ -7,3 +7,6 @@ compile_commands.json
 *.cdp
 !testdata/ts2010/*.ja
 !testdata/ts2010/Builtin/*.ja
+
+# Temporary helper checkouts (Claude Code worktrees); never commit them.
+/.claude/worktrees/
