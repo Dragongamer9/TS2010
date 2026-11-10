@@ -55,10 +55,23 @@ int main(int argc, char** argv) {
             std::cerr << "warning: " << w << "\n";
         }
         if (cmd == "info") {
-            std::printf("%s: %zu sections, %zu bytes of unknown header data\n", e->name.c_str(), g.sections.size(),
-                        g.extraHeader.size());
+            std::printf("%s: version %u, %zu sections, %zu bytes of world data (not decoded)\n", e->name.c_str(),
+                        static_cast<unsigned>(g.version), g.sections.size(), g.extraHeader.size());
             for (const auto& s : g.sections) {
-                std::printf("  %s at (%d, %d): %zu bytes of section data\n", s.tag.c_str(), s.x, s.y, s.data.size());
+                const auto d = parseGroundSection(s, g.version);
+                std::size_t used = 0;
+                float lo = 0, hi = 0;
+                for (const auto& t : d.textures) {
+                    used += t.used ? 1 : 0;
+                }
+                for (std::size_t i = 0; i < d.vertices.size(); ++i) {
+                    const float h = d.vertices[i].height;
+                    lo = i == 0 ? h : std::min(lo, h);
+                    hi = i == 0 ? h : std::max(hi, h);
+                }
+                std::printf("  %s at (%d, %d): %zu bytes, %zu textures, %zu height cells, %zu vertices, height %.2f..%.2f\n",
+                            s.tag.c_str(), s.x, s.y, s.data.size(), used, d.cells.size(), d.vertices.size(),
+                            static_cast<double>(lo), static_cast<double>(hi));
             }
             return 0;
         }
