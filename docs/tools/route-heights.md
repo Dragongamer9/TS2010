@@ -91,8 +91,9 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
 - track as straight red lines between vertices, 0.5 m above them (yellow: `tkBr`); only
   pieces with both ends inside the area;
 - placed objects as dark green dots (signals magenta) at their stored height;
-- with `--session`, every vehicle as an orange dot, at the height of its train's track piece
-  (a vehicle's own stored `z` is often 0.3, not a height on the route).
+- with `--session`, every vehicle as an orange dot, drawn at the height of its train's track
+  piece. That height is a **preview approximation, not a decoded vehicle elevation**: a
+  vehicle's own stored `z` is often 0.3, and what it means is not known.
 
 No meshes, textures, curves or rotation yet. `--at X Y` takes world metres (+x east, +y
 north); without it the view centres on the first train, or else the area with the most

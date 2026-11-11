@@ -132,8 +132,8 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
         }
     }
     if (in.trains != nullptr) {
-        // A vehicle's stored z is often 0.3 (not a height above the route's datum), so the
-        // train is drawn at the height of its own track piece when the route has it.
+        // PREVIEW APPROXIMATION, not decoded data: a vehicle's stored z is often 0.3 (its
+        // meaning is not known), so the train is drawn at the height of its own track piece.
         std::map<std::int32_t, const TrackStretch*> pieces;
         if (in.track != nullptr) {
             for (const auto& st : in.track->stretches) {
