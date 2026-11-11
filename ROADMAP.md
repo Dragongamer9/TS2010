@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-11 | 36% | No step change. Gamepad selection moved into `trainz::input::GamepadSlot` (`src/input/SdlGamepad`) and tested with SDL's virtual game controllers (`sdl_input_tests`): first pad opened, events from another pad not ours, handover when ours is unplugged, none left. The test fails without the handover. (ChatGPT pointed out virtual controllers make this testable.) |
 | 2026-11-11 | 36% | No step change. Review fixes (ChatGPT): when the gamepad in use is unplugged, another one already connected takes over; Start resets the view only from the gamepad in use. |
 | 2026-11-11 | 36% | No step change. `route-viewer` controls: mouse (right-drag to look, wheel to move) and a gamepad (SDL game controller: sticks, triggers, A faster, Start to reset; plugging in while running works), mapped by `applyFlyControls` and `stickAxis` (15% dead zone), unit-tested. These are the viewer's controls, not the game's mouse and joystick input (step 10 unchanged). |
 | 2026-11-11 | 36% | No step change. Review fixes (ChatGPT): the launcher writes its one setting through a fresh `mktemp` file renamed into place (a planted `install-dir.new` symlink could make the old version overwrite another file), refuses a symlinked data folder or setting, and refuses a data folder inside the game folder, checked before anything is created; regression tests (fail on the old launcher). Uninstall instructions use a line-by-line loop (`xargs` split paths with spaces). |

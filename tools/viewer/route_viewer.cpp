@@ -24,6 +24,7 @@
 #include "content/ContentError.h"
 #include "content/GroundFile.h"
 #include "content/JaArchive.h"
+#include "input/SdlGamepad.h"
 #include "view/FlyCamera.h"
 #include "view/RouteCatalog.h"
 #include "view/RouteLoader.h"
@@ -222,15 +223,8 @@ int main(int argc, char** argv) {
         auto cam = start;
         bool dirty = true, running = true;
         Uint32 last = SDL_GetTicks();
-        SDL_GameController* pad = nullptr;  // the first gamepad SDL knows, if any
-        auto openPad = [&]() {
-            for (int j = 0; pad == nullptr && j < SDL_NumJoysticks(); ++j) {
-                if (SDL_IsGameController(j)) {
-                    pad = SDL_GameControllerOpen(j);
-                }
-            }
-        };
-        openPad();
+        trainz::input::GamepadSlot pads;  // the first gamepad SDL knows, if any
+        pads.openIfNone();
         while (running) {
             trainz::view::FlyControls ctl;
             SDL_Event ev;
@@ -246,14 +240,11 @@ int main(int argc, char** argv) {
                 } else if (ev.type == SDL_MOUSEWHEEL) {
                     ctl.wheel += ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -ev.wheel.y : ev.wheel.y;
                 } else if (ev.type == SDL_CONTROLLERDEVICEADDED) {
-                    openPad();
-                } else if (ev.type == SDL_CONTROLLERDEVICEREMOVED && pad != nullptr &&
-                           ev.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad))) {
-                    SDL_GameControllerClose(pad);
-                    pad = nullptr;
-                    openPad();  // another one already plugged in takes over
+                    pads.openIfNone();
+                } else if (ev.type == SDL_CONTROLLERDEVICEREMOVED) {
+                    pads.removed(ev.cdevice.which);  // another one already plugged in takes over
                 } else if (ev.type == SDL_CONTROLLERBUTTONDOWN && ev.cbutton.button == SDL_CONTROLLER_BUTTON_START &&
-                           pad != nullptr && ev.cbutton.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad))) {
+                           pads.isOurs(ev.cbutton.which)) {
                     cam = start, dirty = true;  // only the gamepad in use resets the view
                 }
             }
@@ -267,7 +258,7 @@ int main(int argc, char** argv) {
             ctl.up = (k[SDL_SCANCODE_E] ? 1 : 0) - (k[SDL_SCANCODE_Q] ? 1 : 0);
             ctl.turnLeft = (k[SDL_SCANCODE_LEFT] ? 1 : 0) - (k[SDL_SCANCODE_RIGHT] ? 1 : 0);
             ctl.lookUp = (k[SDL_SCANCODE_PAGEUP] ? 1 : 0) - (k[SDL_SCANCODE_PAGEDOWN] ? 1 : 0);
-            if (pad != nullptr) {  // sticks add to the keys (applyFlyControls clamps the sums)
+            if (SDL_GameController* pad = pads.get()) {  // sticks add to the keys (applyFlyControls clamps the sums)
                 using trainz::view::stickAxis;
                 ctl.forward -= stickAxis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY));
                 ctl.right += stickAxis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX));
@@ -304,9 +295,7 @@ int main(int argc, char** argv) {
                 SDL_Delay(15);
             }
         }
-        if (pad != nullptr) {
-            SDL_GameControllerClose(pad);
-        }
+        pads.close();
         SDL_DestroyTexture(tex);
         SDL_DestroyRenderer(ren);
         SDL_DestroyWindow(win);
