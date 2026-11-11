@@ -68,7 +68,11 @@ no session has that name; extra options such as `--radius 900` are passed on).
 The launcher writes only `~/.local/share/trainz-native/install-dir`, and only when you run
 `--set-install`; `TRAINZ_INSTALL=/path` overrides it for one run. The game folder is only
 read. To remove the install, delete exactly the files it put there: CMake lists them in
-`build/install_manifest.txt` (`xargs rm -v < build/install_manifest.txt`).
+`build/install_manifest.txt`, one path per line:
+
+```sh
+while IFS= read -r f; do rm -v -- "$f"; done < build/install_manifest.txt
+```
 
 ## Running route-viewer
 

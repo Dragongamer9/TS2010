@@ -44,6 +44,38 @@ def main():
         made = sorted(str(p.relative_to(tmp)) for p in Path(tmp).rglob("*"))
         assert made == ["data", "data/trainz-native", "data/trainz-native/install-dir"], made  # nothing else
 
+        # Symlinks are never written through, and the data folder may not be inside the game.
+        victim = Path(tmp) / "victim.txt"
+        victim.write_text("keep me\n")
+        planted = setting.parent / "install-dir.new"
+        planted.symlink_to(victim)  # the old fixed temporary name, pointing at another file
+        r = run([launcher, "--set-install", str(data)], env)
+        assert r.returncode == 0 and victim.read_text() == "keep me\n", (r.returncode, r.stderr, victim.read_text())
+        planted.unlink()
+        setting.unlink()
+        setting.symlink_to(victim)  # the setting itself a symlink: refused, victim untouched
+        r = run([launcher, "--set-install", str(data)], env)
+        assert r.returncode == 1 and "symlink" in r.stderr and victim.read_text() == "keep me\n", (r.returncode, r.stderr)
+        r = run([launcher, "springfield"], env)  # and not read either
+        assert r.returncode == 1 and "--set-install" in r.stderr, (r.returncode, r.stderr)
+        setting.unlink()
+        other = Path(tmp) / "elsewhere"
+        other.mkdir()
+        envlink = dict(env, XDG_DATA_HOME=str(Path(tmp) / "linked"))
+        (Path(tmp) / "linked").mkdir()
+        (Path(tmp) / "linked" / "trainz-native").symlink_to(other)  # the data folder a symlink: refused
+        r = run([launcher, "--set-install", str(data)], envlink)
+        assert r.returncode == 1 and "symlink" in r.stderr and not any(other.iterdir()), (r.returncode, r.stderr)
+        game = Path(tmp) / "game"
+        (game / "Builtin").mkdir(parents=True)
+        inside = dict(env, XDG_DATA_HOME=str(game / "data"))  # the data folder inside the game folder
+        r = run([launcher, "--set-install", str(game)], inside)
+        assert r.returncode == 1 and "inside the game folder" in r.stderr, (r.returncode, r.stderr)
+        assert sorted(p.name for p in game.iterdir()) == ["Builtin"], list(game.iterdir())  # nothing created there
+        r = run([launcher, "--set-install", str(data)], env)  # back to normal
+        assert r.returncode == 0 and setting.read_text().strip() == str(data.resolve()), (r.returncode, r.stderr)
+        assert [p.name for p in setting.parent.iterdir()] == ["install-dir"], list(setting.parent.iterdir())  # no temp files left
+
         # A name no session has: falls back to the routes, then draws (offscreen) and quits.
         r = run([launcher, "springfield", "--radius", "200", "--frames", "2"], env)
         if r.returncode != 0 and "SDL_Init failed" in r.stderr and "not available" in r.stderr:

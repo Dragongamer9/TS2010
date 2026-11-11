@@ -30,20 +30,49 @@ if [ "${1:-}" = "--set-install" ]; then
         echo "usage: trainz-route-viewer --set-install DIR   (DIR: the TS2010 folder, holding Builtin/)" >&2
         exit 2
     fi
-    dir=$(CDPATH= cd -- "$2" && pwd)
+    dir=$(CDPATH= cd -- "$2" && pwd -P)
     if [ ! -d "$dir/Builtin" ]; then
         echo "$dir has no Builtin folder; is it the TS2010 folder?" >&2
         exit 1
     fi
+    # Never write through a symlink, and never into the game folder.
+    if [ -L "$data_dir" ] || [ -L "$setting" ]; then
+        echo "refusing: $data_dir or $setting is a symlink" >&2
+        exit 1
+    fi
+    # Check before creating anything: the nearest folder that already exists decides.
+    probe=$data_dir
+    while [ ! -d "$probe" ]; do
+        probe=$(dirname -- "$probe")
+    done
+    real_probe=$(CDPATH= cd -- "$probe" && pwd -P)
+    case "$real_probe/" in
+        "$dir"/*)
+            echo "refusing: the data folder $data_dir is inside the game folder $dir" >&2
+            exit 1
+            ;;
+    esac
     mkdir -p "$data_dir"
-    printf '%s\n' "$dir" > "$setting.new"
-    mv "$setting.new" "$setting"
+    real_data=$(CDPATH= cd -- "$data_dir" && pwd -P)
+    case "$real_data/" in
+        "$dir"/*)
+            echo "refusing: the data folder $real_data is inside the game folder $dir" >&2
+            exit 1
+            ;;
+    esac
+    # A fresh file (mktemp creates it, never an existing name), then renamed into place.
+    tmp=$(mktemp "$real_data/install-dir.XXXXXX")
+    if ! printf '%s\n' "$dir" > "$tmp" || ! mv -f -- "$tmp" "$real_data/install-dir"; then
+        rm -f -- "$tmp"
+        echo "could not write $setting" >&2
+        exit 1
+    fi
     echo "remembered: $dir (in $setting)"
     exit 0
 fi
 
 install="${TRAINZ_INSTALL:-}"
-if [ -z "$install" ] && [ -r "$setting" ]; then
+if [ -z "$install" ] && [ -r "$setting" ] && [ ! -L "$setting" ]; then
     install=$(head -n 1 "$setting")
 fi
 if [ -z "$install" ] || [ ! -d "$install" ]; then
