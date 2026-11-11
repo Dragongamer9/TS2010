@@ -92,13 +92,21 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
 - track as straight red lines between vertices, 0.5 m above them (yellow: `tkBr`); only
   pieces with both ends inside the area;
 - placed objects as dark green dots (signals magenta) at their stored height, or, with
-  `--install`, as **their 3D models**: the install is indexed (`AssetIndex`), each object's
-  asset config gives its first mesh (`mesh`, or the first `mesh` in `mesh-table`), and the
-  mesh is drawn turned by the object's yaw (radians, anticlockwise, inferred; which side
-  faces +x at 0 is not known) at its position. Each part is one flat colour: the average of
-  its colour texture. `.lm` level-of-detail files are not read yet (an `.im` of the same
-  name is used if there is one); assets without a readable mesh stay dots, and the reasons
-  are printed;
+  `--install`, as **their 3D models**: the install is indexed (`AssetIndex`) and each
+  object's asset config chooses the meshes (`selectAssetMeshes`):
+  - a top-level `mesh`; or every `mesh-table` entry that is the full-detail daytime model at
+    the asset's origin; or, with neither, `asset-filename` + `.im`;
+  - **skipped and counted**: entries with `lod-level` above 0 (simpler copies for distance),
+    `night-mesh-base` (night variants), `att` (hanging from an attachment point, which is
+    not decoded yet, so attached parts such as doors can be **missing**) and shadow meshes
+    (by name).
+
+  These rules are the port's reading of the key names, not traced game behaviour. Each mesh
+  is turned by the object's yaw (radians, anticlockwise, inferred; which side faces +x at 0
+  is not known) and placed at its position. **Each part is one flat colour**, the average of
+  its colour texture. `.lm` level-of-detail lists are not read (an `.im` of the same name
+  is used if there is one). Assets without a readable mesh stay dots; the reasons and the
+  skipped parts are printed;
 - with `--session`, every vehicle as an orange dot, drawn at the height of its train's track
   piece. That height is a **preview approximation, not a decoded vehicle elevation**: a
   vehicle's own stored `z` is often 0.3, and what it means is not known.

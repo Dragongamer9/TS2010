@@ -188,6 +188,9 @@ int main(int argc, char** argv) {
                 for (const auto& [why, n] : meshes->misses()) {
                     std::printf("  assets without a model: %zu (%s)\n", n, why.c_str());
                 }
+                for (const auto& [what, n] : meshes->parts()) {
+                    std::printf("  %s: %zu\n", what.c_str(), n);
+                }
             }
         } else {
         int minX = g.sections[0].x, maxX = minX, minY = g.sections[0].y, maxY = minY;

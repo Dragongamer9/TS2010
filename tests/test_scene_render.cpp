@@ -1,9 +1,12 @@
+#include "content/AssetConfig.h"
 #include "view/AssetMeshes.h"
 #include "view/SceneRender.h"
 
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <map>
+#include <string>
 #include <limits>
 #include <numbers>
 #include <stdexcept>
@@ -109,4 +112,39 @@ TEST(SceneRender, PlacedMeshIsRotatedAnticlockwiseThenMoved) {
     EXPECT_NEAR(p[1].y, 200, 1e-9);
     EXPECT_NEAR(p[2].z, 8, 1e-9);  // height kept, moved up by 5
     EXPECT_EQ(s.triangles[0].c[0].g, 20);
+}
+
+namespace {
+
+trainz::content::ConfigNode config(const std::string& text) {
+    return trainz::content::parseConfigText(std::vector<std::uint8_t>(text.begin(), text.end())).root;
+}
+
+}  // namespace
+
+TEST(SceneRender, MeshSelectionSkipsLodsNightAttachmentsAndShadows) {
+    std::map<std::string, std::size_t> parts;
+    const auto picked = selectAssetMeshes(config(
+        "mesh-table\n{\n"
+        "  lod-0\n  {\n    mesh \"lod0.im\"\n    lod-level 0\n    auto-create 1\n  }\n"
+        "  lod-1\n  {\n    mesh \"lod1.im\"\n    lod-level 1\n    auto-create 1\n  }\n"
+        "  default-night\n  {\n    mesh \"night/night.im\"\n    night-mesh-base \"lod-0\"\n  }\n"
+        "  door\n  {\n    mesh \"door.im\"\n    att \"a.door\"\n    att-parent \"lod-0\"\n  }\n"
+        "  shadow\n  {\n    mesh \"car_shadow.im\"\n  }\n"
+        "  load\n  {\n    mesh \"load/load.im\"\n    auto-create 1\n  }\n"
+        "}\n"),
+        parts);
+    EXPECT_EQ(picked, (std::vector<std::string>{"lod0.im", "load/load.im"}));
+    EXPECT_EQ(parts["mesh-table entries skipped: lower level of detail"], 1U);
+    EXPECT_EQ(parts["mesh-table entries skipped: night variant"], 1U);
+    EXPECT_EQ(parts["mesh-table entries skipped: on an attachment point"], 1U);
+    EXPECT_EQ(parts["mesh-table entries skipped: shadow mesh"], 1U);
+}
+
+TEST(SceneRender, MeshSelectionTopLevelAndAssetFilename) {
+    std::map<std::string, std::size_t> parts;
+    EXPECT_EQ(selectAssetMeshes(config("mesh \"tree.im\"\n"), parts), std::vector<std::string>{"tree.im"});
+    EXPECT_EQ(selectAssetMeshes(config("kind \"scenery\"\nasset-filename \"usa_building_brick_5\"\n"), parts),
+              std::vector<std::string>{"usa_building_brick_5.im"});
+    EXPECT_TRUE(selectAssetMeshes(config("kind \"scenery\"\n"), parts).empty());
 }

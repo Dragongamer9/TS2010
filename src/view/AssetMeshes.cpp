@@ -21,23 +21,56 @@ std::string folderOf(const std::string& path) {
     return slash == std::string::npos ? std::string() : path.substr(0, slash + 1);
 }
 
-// The first mesh named in a config: "mesh" at the top, or the first "mesh" inside the
-// first group of "mesh-table" (usually "default").
-std::string firstMesh(const ConfigNode& root) {
+}  // namespace
+
+// The meshes to draw from a config (the port's reading of the key names; the game's own
+// rules are not traced):
+// - "mesh" at the top level; or
+// - every mesh-table entry that is the full-detail, daytime model at the asset's origin.
+//   Skipped and counted: "lod-level" above 0 (simpler copies for distance),
+//   "night-mesh-base" (night variants), "att" (hangs from an attachment point, not
+//   decoded yet) and shadow meshes (by name; flat dark planes for the shadow effect);
+// - with neither, "asset-filename" + ".im" (an older convention; observed, not traced).
+std::vector<std::string> selectAssetMeshes(const ConfigNode& root, std::map<std::string, std::size_t>& parts) {
+    std::vector<std::string> out;
     if (const auto* m = root.child("mesh"); m != nullptr && m->type == ConfigType::String) {
-        return m->text;
+        out.push_back(m->text);
+        return out;
     }
     if (const auto* table = root.child("mesh-table"); table != nullptr) {
         for (const auto& group : table->children) {
-            if (const auto* m = group.child("mesh"); m != nullptr && m->type == ConfigType::String) {
-                return m->text;
+            const auto* m = group.child("mesh");
+            if (m == nullptr || m->type != ConfigType::String) {
+                continue;
             }
+            if (const auto* lod = group.child("lod-level");
+                lod != nullptr && lod->type == ConfigType::Integers && !lod->ints.empty() && lod->ints[0] > 0) {
+                ++parts["mesh-table entries skipped: lower level of detail"];
+                continue;
+            }
+            if (group.child("night-mesh-base") != nullptr) {
+                ++parts["mesh-table entries skipped: night variant"];
+                continue;
+            }
+            if (group.child("att") != nullptr) {
+                ++parts["mesh-table entries skipped: on an attachment point"];
+                continue;
+            }
+            if (asciiLower(m->text).find("shadow") != std::string::npos) {
+                ++parts["mesh-table entries skipped: shadow mesh"];
+                continue;
+            }
+            out.push_back(m->text);
         }
+        return out;
     }
-    return {};
+    if (const auto* f = root.child("asset-filename"); f != nullptr && f->type == ConfigType::String && !f->text.empty()) {
+        out.push_back(f->text + ".im");
+        ++parts["models found by asset-filename"];
+    }
+    return out;
 }
 
-}  // namespace
 
 const JaArchive* AssetMeshes::archive(const std::filesystem::path& path) {
     auto& slot = archives_[path.string()];
@@ -73,17 +106,37 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
         ++misses_["config missing"];
         return nullptr;
     }
-    std::string mesh;
+    std::vector<std::string> meshes;
     try {
-        mesh = firstMesh(parseAssetConfig(a->readLimited(*ce, std::size_t{16} << 20)).root);
+        meshes = selectAssetMeshes(parseAssetConfig(a->readLimited(*ce, std::size_t{16} << 20)).root, parts_);
     } catch (const ContentError&) {
         ++misses_["config unreadable"];
         return nullptr;
     }
-    if (mesh.empty()) {
+    if (meshes.empty()) {
         ++misses_["no mesh in the config"];
         return nullptr;
     }
+    auto out = std::make_unique<PreparedMesh>();
+    for (auto& mesh : meshes) {
+        if (!appendMesh(*a, base, mesh, *out)) {
+            if (out->triangles.size() >= kMaxTrianglesPerMesh) {
+                ++misses_["over the triangle limit"];
+                return nullptr;
+            }
+            continue;  // that part is counted in parts_; the others may still draw
+        }
+        ++parts_["mesh-table entries drawn"];
+    }
+    if (out->triangles.empty()) {
+        ++misses_["no readable mesh"];
+        return nullptr;
+    }
+    return out;
+}
+
+bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& base, std::string mesh, PreparedMesh& out) {
+    const JaArchive* a = &archiveRef;
     for (char& c : mesh) {
         if (c == '\\') {
             c = '/';
@@ -94,25 +147,24 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
         // .lm (level-of-detail list) is not read yet: use an .im of the same name if there is one.
         const std::string im = meshPath.substr(0, meshPath.size() - 3) + ".im";
         if (a->find(im) == nullptr) {
-            ++misses_["only a .lm (LOD list, not read yet)"];
-            return nullptr;
+            ++parts_["mesh-table entries skipped: only a .lm (LOD list, not read yet)"];
+            return false;
         }
         meshPath = im;
     }
     const JaEntry* me = a->find(meshPath);
     if (me == nullptr) {
-        ++misses_["mesh file missing"];
-        return nullptr;
+        ++parts_["mesh-table entries skipped: mesh file missing"];
+        return false;
     }
     MeshFile m;
     try {
         m = parseMeshOrRepair(a->readLimited(*me, kMaxFileBytes));
     } catch (const ContentError&) {
-        ++misses_["mesh unreadable"];
-        return nullptr;
+        ++parts_["mesh-table entries skipped: mesh unreadable"];
+        return false;
     }
-    auto out = std::make_unique<PreparedMesh>();
-    out->meshName = meshPath;
+    out.meshName += (out.meshName.empty() ? "" : ", ") + meshPath;
     const std::string meshDir = folderOf(meshPath);
     for (const auto& part : m.parts) {
         Rgb colour{170, 165, 155};
@@ -146,9 +198,8 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
         }
         const auto& g = part.geometry;
         for (std::size_t i = 0; i + 2 < g.indices.size(); i += 3) {
-            if (out->triangles.size() >= kMaxTrianglesPerMesh) {
-                ++misses_["over the triangle limit"];
-                return nullptr;
+            if (out.triangles.size() >= kMaxTrianglesPerMesh) {
+                return false;
             }
             LocalTriangle tri{};
             bool ok = true;
@@ -162,15 +213,11 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
             }
             if (ok) {
                 tri.colour = colour;
-                out->triangles.push_back(tri);
+                out.triangles.push_back(tri);
             }
         }
     }
-    if (out->triangles.empty()) {
-        ++misses_["mesh has no triangles"];
-        return nullptr;
-    }
-    return out;
+    return true;
 }
 
 const PreparedMesh* AssetMeshes::get(const Kuid& kuid) {
