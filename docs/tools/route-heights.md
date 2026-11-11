@@ -124,7 +124,11 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
     (`mesh("1.0") { name="body.im"; }`), and the entry with the largest level is used;
   - reskins: a Paint Shed reskin (`skin.dat`) without a mesh of its own uses the base asset
     named by the second KUID in its `skin.dat` (25 of the 61 disc reskins with two KUIDs get
-    a model this way). Its own textures are not applied yet.
+    a model this way). Its **own textures are used**: a texture of the base model whose file
+    name the reskin also ships (e.g. `main.texture`, the Paint Shed's finished paint) is read
+    from the reskin's folder instead (observed, not traced; 28 textures in the 25 reskins
+    drawn). `skin.dat`'s decals and `colormap.dat` are not read (the finished texture already
+    holds them).
 
   SpeedTree trees (`.srt` files, a separate format) are not read: they are drawn as a
   **placeholder** green cone, 4 m wide and 12 m tall, an invented stand-in, not the tree.

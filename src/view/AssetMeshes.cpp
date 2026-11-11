@@ -157,7 +157,7 @@ const JaArchive* AssetMeshes::archive(const std::filesystem::path& path) {
     return slot.get();
 }
 
-std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
+std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid, const TextureOverride* reskin) {
     auto records = index_.find(kuid);
     if (records.empty()) {
         // Another version of the same asset (newest last), as installs often differ.
@@ -228,7 +228,7 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
             return;
         }
         std::map<std::string, LocalFrame> points;
-        if (!appendMesh(*a, base, c.mesh, *out, frame, points)) {
+        if (!appendMesh(*a, base, c.mesh, *out, frame, points, reskin)) {
             overLimit = overLimit || out->triangles.size() >= kMaxTrianglesPerMesh;
             return;  // that part is counted in parts_; the others may still draw
         }
@@ -287,7 +287,8 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
 }
 
 bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& base, std::string mesh, PreparedMesh& out,
-                             const LocalFrame& frame, std::map<std::string, LocalFrame>& points) {
+                             const LocalFrame& frame, std::map<std::string, LocalFrame>& points,
+                             const TextureOverride* reskin) {
     const JaArchive* a = &archiveRef;
     for (char& c : mesh) {
         if (c == '\\') {
@@ -349,17 +350,27 @@ bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& bas
             if (t.type != 1 || t.fileName.empty()) {
                 continue;  // only the colour map
             }
-            const std::string file = meshDir + t.fileName;
+            std::string file = meshDir + t.fileName;
+            const JaArchive* from = a;
+            // A Paint Shed reskin drawn through its base model: a texture whose file name the
+            // reskin also has comes from the reskin (observed: e.g. its "main.texture"; not traced).
+            if (reskin != nullptr && reskin->archive != nullptr) {
+                const std::string leaf = asciiLower(t.fileName.substr(t.fileName.find_last_of("/\\") + 1));
+                if (const auto it = reskin->byName.find(leaf); it != reskin->byName.end()) {
+                    file = it->second, from = reskin->archive;
+                    ++parts_["textures taken from the reskin"];
+                }
+            }
             if (const auto known = textureByFile.find(file); known != textureByFile.end()) {
                 texture = known->second;
                 break;
             }
-            const JaEntry* te = a->find(file);
+            const JaEntry* te = from->find(file);
             if (te == nullptr) {
                 break;
             }
             try {
-                const TextureFile tex = parseTexture(a->readLimited(*te, kMaxFileBytes));
+                const TextureFile tex = parseTexture(from->readLimited(*te, kMaxFileBytes));
                 if (!tex.mips.empty()) {
                     // mips are largest first: take the first that fits kTextureSide.
                     const MipLevel* pick = &tex.mips.back();
@@ -417,6 +428,24 @@ bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& bas
     return true;
 }
 
+std::optional<AssetMeshes::TextureOverride> AssetMeshes::reskinFiles(const Kuid& reskin) {
+    auto records = index_.find(reskin);
+    if (records.empty() || records.front()->where.container != AssetLocation::Container::Archive) {
+        return std::nullopt;
+    }
+    const AssetRecord& rec = *records.front();
+    TextureOverride o;
+    o.archive = archive(rec.where.source);
+    const std::string prefix = asciiLower(rec.where.folder.empty() ? std::string() : rec.where.folder + "/");
+    for (const auto& e : o.archive->entries()) {  // names are stored lowercased
+        if (e.name.size() > prefix.size() && e.name.compare(0, prefix.size(), prefix) == 0 && e.name.ends_with(".texture")) {
+            const std::string leaf = e.name.substr(e.name.find_last_of('/') + 1);
+            o.byName.emplace(leaf, e.name);  // the first (shallowest in index order) wins
+        }
+    }
+    return o;
+}
+
 std::optional<Kuid> AssetMeshes::reskinBase(const Kuid& kuid) {
     // A Paint Shed reskin's skin.dat starts "1.6", then "<KUID:template>\<KUID:base>"; the
     // base (2nd KUID) holds the meshes the reskin names. Observed: for 25 of the 61 disc
@@ -457,7 +486,8 @@ const PreparedMesh* AssetMeshes::get(const Kuid& kuid) {
             loaded = load(kuid);
             if (!loaded) {
                 if (const auto base = reskinBase(kuid)) {
-                    loaded = load(*base);  // a Paint Shed reskin without a mesh of its own
+                    const auto own = reskinFiles(kuid);
+                    loaded = load(*base, own ? &*own : nullptr);  // a Paint Shed reskin without a mesh of its own
                     if (loaded) {
                         ++parts_["models taken from a reskin's base asset"];
                     }

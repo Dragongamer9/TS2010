@@ -23,6 +23,7 @@
 #include "content/TrackLayout.h"
 #include "content/TextureFile.h"
 #include "input/KeyBindings.h"
+#include "view/AssetMeshes.h"
 
 #include <gtest/gtest.h>
 
@@ -805,4 +806,35 @@ TEST_F(RealInstall, SessionProfilesRead) {
     EXPECT_EQ(failures, 0u);
     EXPECT_GE(decoded * 100, behaviours * 99);  // 4,251 of 4,254 on the disc
     EXPECT_EQ(named, vehicles);
+}
+
+// A Paint Shed reskin drawn through its base model takes the textures it ships itself
+// (testdata: Builtin/sample-reskin.ja, made by tools/dev/make_reskin_ja.py).
+TEST_F(RealInstall, ReskinUsesItsOwnTextures) {
+    if (!fs::exists(root / "Builtin" / "sample-reskin.ja")) {
+        GTEST_SKIP() << "no Builtin/sample-reskin.ja in this install";
+    }
+    const AssetIndex idx = AssetIndex::scanInstall(root);
+    trainz::view::AssetMeshes meshes(idx);
+    const auto* reskin = meshes.get(Kuid{107727, 100012, std::nullopt});
+    const auto* base = meshes.get(Kuid{-10, 199, std::nullopt});
+    ASSERT_NE(reskin, nullptr);
+    ASSERT_NE(base, nullptr);
+    ASSERT_TRUE(meshes.parts().count("textures taken from the reskin"));
+    EXPECT_GE(meshes.parts().at("textures taken from the reskin"), 1u);
+    EXPECT_EQ(reskin->triangles.size(), base->triangles.size());  // the same model
+    // The body (first textured triangle) shows a different image in the reskin.
+    auto bodyTexture = [](const trainz::view::PreparedMesh& m) -> const trainz::view::SceneTexture* {
+        for (const auto& t : m.triangles) {
+            if (t.texture >= 0) {
+                return &m.textures.at(static_cast<std::size_t>(t.texture));
+            }
+        }
+        return nullptr;
+    };
+    const auto* a = bodyTexture(*reskin);
+    const auto* b = bodyTexture(*base);
+    ASSERT_NE(a, nullptr);
+    ASSERT_NE(b, nullptr);
+    EXPECT_NE(a->rgba, b->rgba);
 }

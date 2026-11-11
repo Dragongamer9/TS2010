@@ -99,13 +99,22 @@ public:
 
 private:
     const trainz::content::JaArchive* archive(const std::filesystem::path& path);
-    std::unique_ptr<PreparedMesh> load(const trainz::content::Kuid& kuid);
+    // A reskin's own .texture files, by lowercased file name (no folder): drawn through its
+    // base model, a base texture with one of these names comes from the reskin instead
+    // (observed, e.g. "main.texture"; not traced).
+    struct TextureOverride {
+        const trainz::content::JaArchive* archive = nullptr;
+        std::map<std::string, std::string> byName;  // "main.texture" -> full entry name
+    };
+    std::unique_ptr<PreparedMesh> load(const trainz::content::Kuid& kuid, const TextureOverride* reskin = nullptr);
+    std::optional<TextureOverride> reskinFiles(const trainz::content::Kuid& reskin);
     std::optional<trainz::content::Kuid> reskinBase(const trainz::content::Kuid& kuid);
     // Adds one mesh file's triangles; false (and counted) if it can't be read.
     // The triangles are placed by `frame`; the mesh's own attachment points, placed the same
     // way, are added to `points`.
     bool appendMesh(const trainz::content::JaArchive& archive, const std::string& base, std::string mesh,
-                    PreparedMesh& out, const LocalFrame& frame, std::map<std::string, LocalFrame>& points);
+                    PreparedMesh& out, const LocalFrame& frame, std::map<std::string, LocalFrame>& points,
+                    const TextureOverride* reskin = nullptr);
 
     const trainz::content::AssetIndex& index_;
     std::map<std::string, std::unique_ptr<PreparedMesh>> cache_;  // by formatted KUID; null = none
