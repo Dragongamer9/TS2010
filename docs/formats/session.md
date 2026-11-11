@@ -30,7 +30,7 @@ container** ([route-objects.md](route-objects.md)) hold:
 | Block (version 1) | Block (versions 2, 3) | Items | What they are |
 |---|---|---|---|
 | 0 | 0 | `BHVR` (4,254 on the disc) | **behaviours**: the session's rules, each with its settings |
-| 1 | 2 | `trCt` (1,481) | probably trains (tag `tCrt`); 3 KB payloads, not decoded |
+| 1 | 2 | `trCt` (1,481) | **trains** (tag `tCrt`): version 5 decoded, see below |
 | 2 | 1, 3 | (not a container) | not decoded |
 | 3 | 4 | `gslb` (252) | library state, e.g. `helpmode`, `hidesigns`, `template` |
 
@@ -49,9 +49,34 @@ unexplained. Names are UTF-8 ("Prüfe Trackside"). The most common rules: "Set H
 "Trigger Check", "Set Junctions", "Ordered List", "Wait", "Driver Setup". The "Startup
 Options" rule's settings include `startupoptions.hour`, `.mins`, `.rate`, `.weathertype`.
 
+### Trains (`trCt`)
+
+```
+u32 0xcaffa1da   u32 5   u32 vehicleCount   u32 0   i32 trackPiece   f32 distance   u32 direction
+vehicles: { u32 content, u32 packed user/version (the vehicle's KUID), u32 0, u8 0, u32 size, record[size] }
+tail: FEEDCEEB … (with an embedded .chump; not decoded)
+```
+
+A vehicle record starts `u32 8 or 9, u32 3, u32 …ff` (perhaps a colour), then the
+placed-object position block (flag, board, x, y, z, yaw; see
+[route-objects.md](route-objects.md)); at offset 41 its name: `u8 0x80, u32 length, text`
+("CN SD40-2 1", "GATX Oil Tanker 4"). The rest is not decoded.
+
+Checked:
+- all **655 version-5 trains** on the disc chain to their tail; all **3,363 vehicles** have a
+  position block and a name;
+- on the test session "Midday Manifest" (25 trains, 231 vehicles) against its route
+  `<kuid:107727:1019>`: every `trackPiece` is one of the route's track stretches, the first
+  vehicle stands on that piece's line (0.0 m away), and `distance` is the metres from one
+  end of the piece (all 25 within 1 m). Which end, and `direction`, are not known.
+
+The other **826 trains** (in version-1 sessions) don't start with the magic and use an
+older layout, not decoded.
+
 ## Not known
 
-- `trCt` (trains?) and the non-container blocks; the version-3 trailer.
+- Version-1 trains (826), most of each vehicle record, the train tail; the
+  non-container blocks; the version-3 trailer.
 - The 3 behaviours that fit neither layout.
 - `profile.lyr` (25 bytes; contains `session-layer`).
 - How the game applies a session's `.obs`/`.trk` over the route's.

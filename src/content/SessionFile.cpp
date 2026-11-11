@@ -3,6 +3,8 @@
 #include "ByteOrder.h"
 #include "ContentError.h"
 
+#include <cstring>
+
 namespace trainz::content {
 
 namespace {
@@ -102,6 +104,59 @@ std::optional<Behaviour> decodeBehaviour(const ObjectItem& item) {
         return std::nullopt;
     }
     return b;
+}
+
+std::optional<Train> decodeTrain(const ObjectItem& item) {
+    const auto& d = item.payload;
+    if (item.tag != "trCt" || d.size() < 28 || loadU32LE(d.data()) != 0xCAFFA1DAu || loadU32LE(d.data() + 4) != 5) {
+        return std::nullopt;
+    }
+    const std::uint32_t count = loadU32LE(d.data() + 8);
+    if (count > d.size() / 17) {
+        return std::nullopt;
+    }
+    Train t;
+    t.index = item.index;
+    t.trackPiece = static_cast<std::int32_t>(loadU32LE(d.data() + 16));
+    std::memcpy(&t.distance, d.data() + 20, 4);
+    t.direction = loadU32LE(d.data() + 24);
+    std::size_t pos = 28;
+    for (std::uint32_t k = 0; k < count; ++k) {
+        if (d.size() - pos < 17) {
+            return std::nullopt;
+        }
+        Vehicle v;
+        v.kuid = unpackChumpKuid(loadU32LE(d.data() + pos + 4), static_cast<std::int32_t>(loadU32LE(d.data() + pos)));
+        const std::uint32_t size = loadU32LE(d.data() + pos + 13);
+        pos += 17;
+        if (size > d.size() - pos) {
+            return std::nullopt;
+        }
+        v.record.assign(d.begin() + static_cast<std::ptrdiff_t>(pos), d.begin() + static_cast<std::ptrdiff_t>(pos + size));
+        pos += size;
+        const auto& r = v.record;
+        if (r.size() >= 46 && r[41] == 0x80) {
+            v.recordVersion = loadU32LE(r.data());
+            v.flag = r[12];
+            v.boardX = static_cast<std::int16_t>(loadU16LE(r.data() + 13));
+            v.boardY = static_cast<std::int16_t>(loadU16LE(r.data() + 15));
+            std::memcpy(&v.x, r.data() + 17, 4);
+            std::memcpy(&v.y, r.data() + 21, 4);
+            std::memcpy(&v.z, r.data() + 25, 4);
+            std::memcpy(&v.yaw, r.data() + 29, 4);
+            const std::uint32_t len = loadU32LE(r.data() + 42);
+            if (len > 0 && len <= r.size() - 46) {
+                std::string name(reinterpret_cast<const char*>(r.data() + 46), len);
+                if (const auto nul = name.find('\0'); nul != std::string::npos) {
+                    name.resize(nul);
+                }
+                v.name = std::move(name);
+            }
+        }
+        t.vehicles.push_back(std::move(v));
+    }
+    t.tail.assign(d.begin() + static_cast<std::ptrdiff_t>(pos), d.end());
+    return t;
 }
 
 }  // namespace trainz::content

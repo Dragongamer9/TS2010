@@ -745,7 +745,8 @@ TEST_F(RealInstall, PlacedObjectsHavePositions) {
 
 TEST_F(RealInstall, SessionProfilesRead) {
     // profile.dat: version, size-prefixed blocks; behaviours carry a name and a .chump.
-    std::size_t files = 0, behaviours = 0, decoded = 0, failures = 0;
+    std::size_t files = 0, behaviours = 0, decoded = 0, failures = 0, trains = 0, newTrains = 0, vehicles = 0,
+                named = 0;
     std::vector<std::string> names;
     for (const auto& path : archives) {
         const auto a = JaArchive::open(path);
@@ -761,6 +762,21 @@ TEST_F(RealInstall, SessionProfilesRead) {
                         continue;
                     }
                     for (const auto& item : b.container->items) {
+                        if (item.tag == "trCt") {
+                            ++trains;
+                            const bool v5 = item.payload.size() >= 8 && item.payload[0] == 0xDA && item.payload[4] == 5;
+                            if (const auto t = decodeTrain(item)) {
+                                ++newTrains;
+                                for (const auto& v : t->vehicles) {
+                                    ++vehicles;
+                                    named += !v.name.empty();
+                                }
+                            } else if (v5) {
+                                ++failures;
+                                std::cout << "  " << e.name << ": version-5 train " << item.index << " did not decode\n";
+                            }
+                            continue;
+                        }
                         if (item.tag != "BHVR") {
                             continue;
                         }
@@ -784,7 +800,9 @@ TEST_F(RealInstall, SessionProfilesRead) {
     for (std::size_t i = 0; i < names.size() && i < 4; ++i) {
         std::cout << (i == 0 ? ": " : ", ") << names[i];
     }
-    std::cout << "\n";
+    std::cout << "\n  trains " << trains << ", version 5 decoded " << newTrains << " with " << vehicles
+              << " vehicles (" << named << " named)\n";
     EXPECT_EQ(failures, 0u);
     EXPECT_GE(decoded * 100, behaviours * 99);  // 4,251 of 4,254 on the disc
+    EXPECT_EQ(named, vehicles);
 }

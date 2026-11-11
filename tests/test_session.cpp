@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
+
 using namespace trainz::content;
 using namespace trainz::test;
 
@@ -150,4 +152,80 @@ TEST(Session, BadInputIsRefused) {
         } catch (const ContentError&) {
         }
     }
+}
+
+namespace {
+
+Bytes vehicleRecord(const std::string& name, std::int16_t bx, std::int16_t by, float x, float y) {
+    Bytes r;
+    putU32(r, 8);
+    putU32(r, 3);
+    putU32(r, 0xFF000000u);
+    r.push_back(1);  // flag
+    putU16(r, static_cast<std::uint16_t>(bx));
+    putU16(r, static_cast<std::uint16_t>(by));
+    for (const float f : {x, y, 0.3F, 1.5F}) {
+        std::uint32_t u;
+        std::memcpy(&u, &f, 4);
+        putU32(r, u);
+    }
+    r.resize(41, 0);
+    r.push_back(0x80);
+    putU32(r, static_cast<std::uint32_t>(name.size() + 1));
+    r.insert(r.end(), name.begin(), name.end());
+    r.push_back(0);
+    r.resize(r.size() + 30, 0);  // more vehicle data, not decoded
+    return r;
+}
+
+}  // namespace
+
+TEST(Session, TrainsAndVehicles) {
+    Bytes p;
+    putU32(p, 0xCAFFA1DAu);
+    putU32(p, 5);
+    putU32(p, 2);  // vehicles
+    putU32(p, 0);
+    putU32(p, 592);  // track piece
+    const float dist = 34.0F;
+    std::uint32_t u;
+    std::memcpy(&u, &dist, 4);
+    putU32(p, u);
+    putU32(p, 1);
+    for (const auto& [name, content] : {std::pair<std::string, std::int32_t>{"CN SD40-2 1", 100076},
+                                        std::pair<std::string, std::int32_t>{"CN 40 FT Box 2", 100077}}) {
+        putU32(p, static_cast<std::uint32_t>(content));
+        putU32(p, 37187);
+        putU32(p, 0);
+        p.push_back(0);
+        const Bytes r = vehicleRecord(name, 0, -5, 354.4F, 453.9F);
+        putU32(p, static_cast<std::uint32_t>(r.size()));
+        p.insert(p.end(), r.begin(), r.end());
+    }
+    const Bytes tail = {0xEB, 0xCE, 0xED, 0xFE, 1, 2, 3};
+    p.insert(p.end(), tail.begin(), tail.end());
+
+    ObjectItem it;
+    it.tag = "trCt";
+    it.payload = p;
+    const auto t = decodeTrain(it);
+    ASSERT_TRUE(t.has_value());
+    EXPECT_EQ(t->trackPiece, 592);
+    EXPECT_FLOAT_EQ(t->distance, 34.0F);
+    ASSERT_EQ(t->vehicles.size(), 2U);
+    EXPECT_EQ(t->vehicles[0].name, "CN SD40-2 1");
+    EXPECT_EQ(t->vehicles[1].kuid.content, 100077);
+    EXPECT_EQ(t->vehicles[1].boardY, -5);
+    EXPECT_FLOAT_EQ(t->vehicles[1].x, 354.4F);
+    EXPECT_EQ(t->tail, tail);
+
+    // Truncated anywhere inside the vehicles: refused, never read past the end.
+    for (std::size_t n = 28; n + tail.size() < p.size(); ++n) {
+        ObjectItem cut = it;
+        cut.payload.resize(n);
+        EXPECT_FALSE(decodeTrain(cut).has_value()) << n;
+    }
+    ObjectItem old = it;
+    old.payload[4] = 4;  // not version 5
+    EXPECT_FALSE(decodeTrain(old).has_value());
 }
