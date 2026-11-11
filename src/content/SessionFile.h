@@ -64,12 +64,13 @@ std::optional<Behaviour> decodeBehaviour(const ObjectItem& item);
 // Older trains (826 on the disc, from version-1 sessions) have no magic and no record
 // sizes: u32 vehicleCount, u32 0, i32 trackPiece, f32 distance, u32 direction, then
 // vehicles of { u32 content, u32 packed user, u32 0, u8 0, record } where the record is
-// u32 4, u32 3, u32 colour?, i16 boardX, i16 boardY, f32 x, f32 y, f32 z, f32 yaw, …,
-// u32 nameLength (at record offset 40), name. Since nothing gives a record's length,
-// vehicles are FOUND BY A PATTERN (5 zero bytes + u32 4 + u32 3 after the KUID), and a
-// train is decoded only if the pattern count equals vehicleCount and the first vehicle
-// starts at byte 20: 606 of the 826 qualify (2,977 vehicles, every one with a valid
-// name). The other 220 old trains are refused. A heuristic, not a traced layout.
+// u32 4 (or 1), u32 3, u32 colour?, i16 boardX, i16 boardY, f32 x, f32 y, f32 z, f32 yaw,
+// …, u32 nameLength (at record offset 40), name. Since nothing gives a record's length,
+// vehicles are FOUND BY A PATTERN (5 zero bytes + u32 4 or 1 + u32 3 after the KUID), and
+// a train is decoded only if the number of matches equals vehicleCount, the first starts
+// at byte 20 and every match has a valid name: 627 of the 826 qualify (3,127 vehicles).
+// Record version 5 also occurs but its position looks different, so trains with it are
+// refused, like the other 199. A heuristic, not a traced layout.
 struct Vehicle {
     Kuid kuid;
     std::string name;  // e.g. "CN SD40-2 1"

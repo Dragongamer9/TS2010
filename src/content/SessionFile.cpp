@@ -118,10 +118,13 @@ std::optional<Train> decodeOldTrain(const ObjectItem& item) {
     if (count == 0 || count > d.size() / 61) {
         return std::nullopt;
     }
-    static constexpr std::uint8_t kMark[13] = {0, 0, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0};
+    // 5 zero bytes, then the record's u32 version (4, or 1 in a few) and u32 3. Version 5
+    // records also occur but their position block looks different, so they are not used.
+    static constexpr std::uint8_t kMark4[13] = {0, 0, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0};
+    static constexpr std::uint8_t kMark1[13] = {0, 0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0};
     std::vector<std::size_t> starts;
-    for (std::size_t i = 8; i + sizeof kMark <= d.size(); ++i) {
-        if (std::memcmp(d.data() + i, kMark, sizeof kMark) == 0) {
+    for (std::size_t i = 8; i + sizeof kMark4 <= d.size(); ++i) {
+        if (std::memcmp(d.data() + i, kMark4, sizeof kMark4) == 0 || std::memcmp(d.data() + i, kMark1, sizeof kMark1) == 0) {
             starts.push_back(i - 8);
         }
     }

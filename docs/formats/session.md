@@ -78,25 +78,30 @@ Checked:
 ```
 u32 vehicleCount   u32 0   i32 trackPiece   f32 distance   u32 direction
 vehicles: { u32 content, u32 packed user, u32 0, u8 0, record }
-record: u32 4   u32 3   u32 colour?   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   f32 yaw   …
+record: u32 4 (or 1)   u32 3   u32 colour?   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   f32 yaw   …
         u32 nameLength (record offset 40)   name   … (more, not decoded)
 ```
 
 Nothing gives a record's length, so the reader **finds vehicles by a pattern** (5 zero
-bytes, `u32 4`, `u32 3` after each KUID). It accepts a train only when the number found
-equals `vehicleCount`, the first one starts at byte 20, and every name is valid. **606 of
-the 826** qualify (2,977 vehicles); the other 220 are refused. This is a heuristic, not a
+bytes, `u32 4` or `u32 1`, `u32 3` after each KUID). It accepts a train only when the
+number found equals `vehicleCount`, the first one starts at byte 20, and every match has
+a valid name. **627 of the 826** qualify (3,127 vehicles; 156 of them record version 1);
+the other 199 are refused. Record version 5 also occurs (215 vehicles), but 56 of those
+would get implausible board numbers at this offset, so its layout differs and such
+trains are refused. This is a heuristic, not a
 traced layout. False matches are the main risk (the pattern could appear inside a
 vehicle's undecoded data), so `tests/test_session.cpp` checks that such a train is
 refused, both when the extra match breaks the count and when the count is altered to
 agree (the fake vehicle has no valid name), and that over-long or unterminated names and
 every truncation are refused. Removing the name check makes those tests fail. Checked on one version-1 session ("hash-0b/kuid2 239249 100534 2" on its
 route `<kuid2:143919:27565:1>`): all 12 trains name a track piece of the route and the
-first vehicle stands within 0.1 m of that piece's line.
+first vehicle stands within 0.1 m of that piece's line. Record version 1 was added after
+the same check on two more sessions whose accepted trains contain version-1 vehicles
+(`<kuid:164042:100181>` and `<kuid:63015:100022>`): 5 of 5 trains each, within 0.1 m.
 
 ## Not known
 
-- The 220 old trains the pattern check refuses; the real length of an old vehicle
+- The 199 old trains the pattern check refuses (many with record version 5); the real length of an old vehicle
   record; most of each vehicle record, the train tail; the non-container blocks; the
   version-3 trailer.
 - The 3 behaviours that fit neither layout.
