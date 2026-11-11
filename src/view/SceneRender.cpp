@@ -73,6 +73,26 @@ std::uint8_t clamp8(double v) { return static_cast<std::uint8_t>(std::clamp(v, 0
 
 }  // namespace
 
+// Bilinear colour at (u, v) in 0..1, wrapping at the edges (textures repeat).
+void sampleTextureBilinear(const SceneTexture& t, double u, double v, double out[3]) {
+    const double x = u * t.width - 0.5, y = v * t.height - 0.5;
+    const double fx = std::floor(x), fy = std::floor(y);
+    const double ax = x - fx, ay = y - fy;
+    auto wrap = [](double i, std::uint32_t n) {
+        const auto m = static_cast<std::int64_t>(n);
+        const auto k = static_cast<std::int64_t>(i) % m;  // i is within -1..n, so the cast is safe
+        return static_cast<std::size_t>(k < 0 ? k + m : k);
+    };
+    const std::size_t x0 = wrap(fx, t.width), x1 = wrap(fx + 1, t.width), y0 = wrap(fy, t.height), y1 = wrap(fy + 1, t.height);
+    const std::uint8_t* p00 = t.rgba.data() + (y0 * t.width + x0) * 4;
+    const std::uint8_t* p10 = t.rgba.data() + (y0 * t.width + x1) * 4;
+    const std::uint8_t* p01 = t.rgba.data() + (y1 * t.width + x0) * 4;
+    const std::uint8_t* p11 = t.rgba.data() + (y1 * t.width + x1) * 4;
+    for (int c = 0; c < 3; ++c) {
+        out[c] = (1 - ay) * ((1 - ax) * p00[c] + ax * p10[c]) + ay * ((1 - ax) * p01[c] + ax * p11[c]);
+    }
+}
+
 std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, std::uint32_t width,
                                       std::uint32_t height) {
     if (width == 0 || height == 0 || width > 8192 || height > 8192) {
@@ -175,9 +195,11 @@ std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, 
                     const auto ty = std::min<std::uint32_t>(tex->height - 1, static_cast<std::uint32_t>(std::clamp(fv, 0.0, 1.0) * tex->height));
                     const std::uint8_t* texel = tex->rgba.data() + (static_cast<std::size_t>(ty) * tex->width + tx) * 4;
                     if (alphaTest && texel[3] < 128) {
-                        continue;
+                        continue;  // cut-outs use the nearest texel, so their edges stay sharp
                     }
-                    r = r * texel[0] / 255.0, gg = gg * texel[1] / 255.0, b = b * texel[2] / 255.0;
+                    double rgb[3];
+                    sampleTextureBilinear(*tex, fu, fv, rgb);
+                    r = r * rgb[0] / 255.0, gg = gg * rgb[1] / 255.0, b = b * rgb[2] / 255.0;
                 }
                 put(x, y, z, clamp8(light * r), clamp8(light * gg), clamp8(light * b));
             }

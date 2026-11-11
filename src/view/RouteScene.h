@@ -10,8 +10,10 @@
 #include "content/SessionFile.h"
 #include "content/TrackLayout.h"
 #include "view/AssetMeshes.h"
+#include "view/GroundTextures.h"
 #include "view/SceneRender.h"
 
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -23,6 +25,7 @@ struct RouteSceneInput {
     const std::vector<trainz::content::PlacedObject>* objects = nullptr;  // optional
     const std::vector<trainz::content::Train>* trains = nullptr;          // optional
     AssetMeshes* meshes = nullptr;  // optional: draw objects' 3D models instead of dots
+    GroundTextures* groundTextures = nullptr;  // optional: texture the terrain (else overview colours)
 };
 
 struct RouteView {
@@ -30,6 +33,8 @@ struct RouteView {
     Camera camera;
     double centreX = 0, centreY = 0;  // world metres
     std::size_t sections = 0;
+    std::size_t texturedSections = 0;  // sections drawn with baked ground textures
+    std::vector<std::unique_ptr<SceneTexture>> ownedTextures;  // the baked ground; scene.textures points here
     std::size_t objectsAsMeshes = 0;
     std::size_t objectsAsDots = 0;
     std::size_t vehiclesAsMeshes = 0;

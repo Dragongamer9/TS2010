@@ -55,6 +55,7 @@ add_library(trainz_content
   src/input/ActionMap.cpp
   src/input/KeyBindings.cpp
   src/view/AssetMeshes.cpp
+  src/view/GroundTextures.cpp
   src/view/MeshPreview.cpp
   src/view/RouteScene.cpp
   src/view/SceneRender.cpp

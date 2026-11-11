@@ -213,12 +213,15 @@ int main(int argc, char** argv) {
             }
             std::optional<AssetIndex> index;
             std::optional<trainz::view::AssetMeshes> meshes;
+            std::optional<trainz::view::GroundTextures> groundTextures;
             if (!installDir.empty()) {
                 index = AssetIndex::scanInstall(installDir);
                 meshes.emplace(*index);
+                groundTextures.emplace(*index);
             }
             trainz::view::RouteSceneInput in;
             in.meshes = meshes ? &*meshes : nullptr;
+            in.groundTextures = groundTextures ? &*groundTextures : nullptr;
             in.ground = &g;
             in.track = haveTrack ? &track : nullptr;
             in.objects = &objects;
@@ -239,6 +242,13 @@ int main(int argc, char** argv) {
                         view.centreX, view.centreY, radius, view.sections, view.scene.triangles.size(),
                         view.scene.lines.size(), view.scene.dots.size(), view.objectsAsMeshes, view.objectsAsDots,
                         view.vehiclesAsMeshes, view.bogiesAsMeshes, view.vehiclesOnTrack, view.bogiesOnTrack);
+            if (groundTextures) {
+                std::printf("  ground: %zu of %zu sections textured (tile size assumed: %g cell)\n", view.texturedSections,
+                            view.sections, trainz::view::kGroundTileCells);
+                for (const auto& [why, n] : groundTextures->counts()) {
+                    std::printf("  ground textures %s: %zu\n", why.c_str(), n);
+                }
+            }
             if (meshes) {
                 for (const auto& [why, n] : meshes->misses()) {
                     std::printf("  assets without a model: %zu (%s)\n", n, why.c_str());

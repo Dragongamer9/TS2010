@@ -147,7 +147,17 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   vehicle's own stored `z` is often 0.3, and what it means is not known.
 
 `--eye DX DY DZ` puts the camera that many metres from the centre's ground point (for
-close-ups). Track follows the curve model above (drawn in pieces of about 5 m). No terrain textures
-(the ground is coloured from the overview maps) or animation yet. `--at X Y` takes world metres (+x east, +y
+close-ups). Track follows the curve model above (drawn in pieces of about 5 m). With `--install` the
+**ground is textured**: each section's vertices name up to 3 texture layers (slot number +
+weight byte, decoded and traced, see [route.md](../formats/route.md)); a slot names a
+`groundtexture` asset, whose image is its `asset-filename` + `.texture` (or `.texture.txt`,
+a descriptor naming a `.bmp`/`.tga`; observed). For each section one image (1024 px for a
+radius up to 300 m, else 512) is baked: every pixel blends the textures of the four nearest
+vertices' layers by distance and weight byte (bilinear, in the game's reading of the weight
+as a blend weight, not traced). **Assumed:** one texture repeat per 10 m cell (not traced;
+how the game scales and turns ground textures, possibly the per-layer `extra` byte, is not
+known). Version 12 files (which remap texture numbers through a world table) keep the
+overview colours. Textures are sampled bilinearly (cut-outs keep the nearest texel). No
+animation yet. `--at X Y` takes world metres (+x east, +y
 north); without it the view centres on the first train, or else the area with the most
 track junctions. Writes `<route-folder>.view.png` through `SafeOutputDir`.

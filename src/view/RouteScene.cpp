@@ -103,6 +103,30 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
         auto point = [&](std::size_t row, std::size_t col) {
             return ScenePoint{ox + col * step, oy + row * step, d.vertices[row * side + col].height};
         };
+        // Ground textures: the section's own blend, baked into one image (GroundTextures.h).
+        // Version 12 files remap texture numbers through a world table (not read): not textured.
+        int baked = -1;
+        if (in.groundTextures != nullptr && g.version >= 13) {
+            std::vector<const SceneTexture*> slots(d.textures.size(), nullptr);
+            bool any = false;
+            for (std::size_t k = 0; k < d.textures.size(); ++k) {
+                if (d.textures[k].used) {
+                    slots[k] = in.groundTextures->get(d.textures[k].kuid);
+                    any = any || slots[k] != nullptr;
+                }
+            }
+            if (any) {
+                const std::uint32_t size = radius <= 300 ? 1024 : 512;
+                auto fallback = [&](double col, double row) {
+                    return colour(std::min(cells, static_cast<std::size_t>(row)), std::min(cells, static_cast<std::size_t>(col)));
+                };
+                v.ownedTextures.push_back(std::make_unique<SceneTexture>(bakeGroundSection(d, side, slots, size, fallback)));
+                baked = static_cast<int>(v.scene.textures.size());
+                v.scene.textures.push_back(v.ownedTextures.back().get());
+                ++v.texturedSections;
+            }
+        }
+        const float uvStep = 1.0F / static_cast<float>(cells);
         for (std::size_t r = 0; r < cells; ++r) {
             for (std::size_t c = 0; c < cells; ++c) {
                 const ScenePoint p00 = point(r, c), p01 = point(r, c + 1), p10 = point(r + 1, c), p11 = point(r + 1, c + 1);
@@ -112,9 +136,19 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
                 if (!std::isfinite(p00.z) || !std::isfinite(p01.z) || !std::isfinite(p10.z) || !std::isfinite(p11.z)) {
                     continue;
                 }
-                const Rgb c00 = colour(r, c), c01 = colour(r, c + 1), c10 = colour(r + 1, c), c11 = colour(r + 1, c + 1);
-                v.scene.triangles.push_back({{p00, p01, p11}, {c00, c01, c11}});
-                v.scene.triangles.push_back({{p00, p11, p10}, {c00, c11, c10}});
+                if (baked >= 0) {
+                    const Rgb w{255, 255, 255};
+                    const float u0 = static_cast<float>(c) * uvStep, u1 = static_cast<float>(c + 1) * uvStep;
+                    const float v0 = static_cast<float>(r) * uvStep, v1 = static_cast<float>(r + 1) * uvStep;
+                    SceneTriangle a{{p00, p01, p11}, {w, w, w}, baked, {u0, u1, u1}, {v0, v0, v1}};
+                    SceneTriangle b{{p00, p11, p10}, {w, w, w}, baked, {u0, u1, u0}, {v0, v1, v1}};
+                    v.scene.triangles.push_back(a);
+                    v.scene.triangles.push_back(b);
+                } else {
+                    const Rgb c00 = colour(r, c), c01 = colour(r, c + 1), c10 = colour(r + 1, c), c11 = colour(r + 1, c + 1);
+                    v.scene.triangles.push_back({{p00, p01, p11}, {c00, c01, c11}});
+                    v.scene.triangles.push_back({{p00, p11, p10}, {c00, c11, c10}});
+                }
                 if (!haveCentreZ && std::fabs(p00.x - v.centreX) < step && std::fabs(p00.y - v.centreY) < step) {
                     centreZ = p00.z, haveCentreZ = true;
                 }

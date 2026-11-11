@@ -89,6 +89,7 @@ def main():
         assert r.returncode == 0, r.stderr
         m = re.search(r"objects as models (\d+)", r.stdout)
         assert m and int(m.group(1)) > 0, r.stdout
+        assert re.search(r"ground: \d+ of \d+ sections textured", r.stdout), r.stdout
         r = subprocess.run([tool, "view", str(archive), ROUTE, "--radius", "5"], env=env, capture_output=True,
                            text=True, timeout=60)
         assert r.returncode != 0 and "radius" in r.stderr, r.stderr

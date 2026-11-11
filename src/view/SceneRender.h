@@ -59,6 +59,10 @@ struct Camera {
     double fovYDegrees = 50;
 };
 
+// Bilinear R, G, B (0..255) of a usable texture at (u, v) in 0..1, wrapping at the edges.
+// The texture must have width x height x 4 bytes (as renderScene checks).
+void sampleTextureBilinear(const SceneTexture& t, double u, double v, double out[3]);
+
 // Renders the scene into width x height RGBA (sky gradient behind). Lines and dots get
 // a small depth bias so they show on the surface they lie on. Width and height must be
 // 1..8192; throws std::invalid_argument otherwise.

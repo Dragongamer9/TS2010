@@ -1,6 +1,7 @@
 #include "content/AssetConfig.h"
 #include "view/AssetMeshes.h"
 #include "view/RouteScene.h"
+#include "view/GroundTextures.h"
 #include "view/SceneRender.h"
 
 #include <gtest/gtest.h>
@@ -506,4 +507,104 @@ TEST(SceneRender, SwivelTurnsAboutTheModelsVertical) {
     for (int i = 0; i < 9; ++i) {
         EXPECT_NEAR(a.r[i], b.r[i], 1e-5);
     }
+}
+
+namespace {
+
+SceneTexture solidTexture(std::uint32_t side, Rgb c) {
+    SceneTexture t;
+    t.width = t.height = side;
+    for (std::uint32_t i = 0; i < side * side; ++i) {
+        t.rgba.insert(t.rgba.end(), {c.r, c.g, c.b, 255});
+    }
+    return t;
+}
+
+// An 8 x 8 vertex grid (4 x 4 cells), every vertex one layer of slot `slot` at full weight.
+trainz::content::GroundSectionData groundGrid(std::uint8_t slot) {
+    trainz::content::GroundSectionData d;
+    d.vertices.resize(64);
+    for (auto& v : d.vertices) {
+        v.texture[0] = slot;
+        v.weight[0] = 255;
+    }
+    return d;
+}
+
+}  // namespace
+
+TEST(GroundTextures, BilinearSampleAndHalving) {
+    SceneTexture t;
+    t.width = t.height = 2;
+    t.rgba = {0, 0, 0, 255, 200, 0, 0, 255, 0, 100, 0, 255, 200, 100, 40, 255};
+    double c[3];
+    sampleTextureBilinear(t, 0.5, 0.5, c);  // the middle: the average of all four
+    EXPECT_NEAR(c[0], 100, 1e-9);
+    EXPECT_NEAR(c[1], 50, 1e-9);
+    EXPECT_NEAR(c[2], 10, 1e-9);
+    sampleTextureBilinear(t, 0.25, 0.25, c);  // a texel centre: that texel
+    EXPECT_NEAR(c[0], 0, 1e-9);
+    sampleTextureBilinear(t, 0.0, 0.25, c);  // the left edge wraps to the right column
+    EXPECT_NEAR(c[0], 100, 1e-9);
+
+    const SceneTexture h = halveTexture(t);
+    ASSERT_EQ(h.width, 1U);
+    ASSERT_EQ(h.rgba.size(), 4U);
+    EXPECT_EQ(h.rgba[0], 100);
+    EXPECT_EQ(h.rgba[1], 50);
+    SceneTexture odd = solidTexture(3, {9, 9, 9});
+    EXPECT_EQ(halveTexture(odd).width, 1U);
+    SceneTexture broken;
+    broken.width = broken.height = 4;  // no pixel data
+    EXPECT_EQ(halveTexture(broken).width, 0U);
+}
+
+TEST(GroundTextures, BakeBlendsLayersAndFallsBack) {
+    const SceneTexture red = solidTexture(16, {200, 0, 0}), blue = solidTexture(16, {0, 0, 200});
+    const std::vector<const SceneTexture*> slots = {&red, &blue};
+    auto fallback = [](double, double) { return Rgb{1, 2, 3}; };
+
+    const SceneTexture all = bakeGroundSection(groundGrid(0), 8, slots, 32, fallback);
+    ASSERT_EQ(all.width, 32U);
+    ASSERT_EQ(all.rgba.size(), 32U * 32 * 4);
+    EXPECT_EQ(all.rgba[0], 200);
+    EXPECT_EQ(all.rgba[2], 0);
+    EXPECT_FALSE(all.smaller.empty());  // mips for distant terrain
+
+    // Columns 0-1 red, 2-7 blue: the left edge red, the right blue, a blend between.
+    auto d = groundGrid(0);
+    for (std::size_t row = 0; row < 8; ++row) {
+        for (std::size_t col = 2; col < 8; ++col) {
+            d.vertices[row * 8 + col].texture[0] = 1;
+        }
+    }
+    const SceneTexture mix = bakeGroundSection(d, 8, slots, 32, fallback);
+    auto px = [&](std::uint32_t x, std::uint32_t y) { return mix.rgba.data() + (std::size_t{y} * 32 + x) * 4; };
+    EXPECT_GT(px(1, 16)[0], 190);   // inside cell 0: all red
+    EXPECT_GT(px(30, 16)[2], 190);  // right side: all blue
+    const auto* between = px(12, 16);  // cell 1, 3/8 of the way from col 1 to col 2
+    EXPECT_GT(between[0], 60);
+    EXPECT_GT(between[2], 30);
+
+    // A second layer at a lower weight mixes in proportionally.
+    auto two = groundGrid(0);
+    for (auto& v : two.vertices) {
+        v.texture[1] = 1;
+        v.weight[1] = 85;  // one third of the first layer's 255
+    }
+    const SceneTexture blend = bakeGroundSection(two, 8, slots, 8, fallback);
+    EXPECT_NEAR(blend.rgba[0], 150, 1);  // 200 * 255/340
+    EXPECT_NEAR(blend.rgba[2], 50, 1);
+
+    // No usable texture: the fallback colour.
+    const std::vector<const SceneTexture*> none = {nullptr, nullptr};
+    const SceneTexture fb = bakeGroundSection(groundGrid(0), 8, none, 8, fallback);
+    EXPECT_EQ(fb.rgba[0], 1);
+    EXPECT_EQ(fb.rgba[2], 3);
+    auto bad = groundGrid(7);  // slot number past the table, and 0xFF layers: ignored
+    EXPECT_EQ(bakeGroundSection(bad, 8, slots, 8, fallback).rgba[1], 2);
+
+    EXPECT_THROW(bakeGroundSection(groundGrid(0), 9, slots, 8, fallback), std::invalid_argument);  // 64 != 81
+    EXPECT_THROW(bakeGroundSection(groundGrid(0), 8, slots, 0, fallback), std::invalid_argument);
+    EXPECT_THROW(bakeGroundSection(groundGrid(0), 8, slots, 8, fallback, 0.0), std::invalid_argument);
 }
