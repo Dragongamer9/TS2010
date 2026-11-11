@@ -170,9 +170,9 @@ C++ reader agree:
   `side − 4` cells (72 for Secs, 144 for Sec5): its column 72 equals column 0 of the
   section at x+1, and its row 72 equals row 0 of the section at y+1. The last 3 rows
   and columns (73–75) lie past the shared edge. Checked on all 50 disc routes:
-  21,955 of 27,006 neighbouring edges (81%) match exactly; the rest differ (often by
-  metres; along x and y alike), for reasons not known: perhaps sections edited
-  apart. (This replaces the earlier guess of a 2-vertex border on each side.)
+  21,955 of 27,006 neighbouring edges (81%) match exactly. The other 19% differ,
+  often by metres and along x and y alike; this is **unexplained** (one untested idea:
+  sections edited apart). (This replaces the earlier guess of a 2-vertex border on each side.)
   72 cells on a 720 m baseboard would be a 10 m grid (144 → 5 m for Sec5);
   the spacing is still not traced.
 - `cells` (a 36 × 36 grid, one cell per 2 × 2 vertices in the old index form)

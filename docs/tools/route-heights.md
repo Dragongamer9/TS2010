@@ -22,8 +22,8 @@ positions: increasing x goes right and increasing y goes up. Inside a section,
 columns run toward +x and rows toward +y, so the tile's top is the section's last
 row. This layout is observed, not traced: a section's column/row `side − 4` equals the
 neighbour's column/row 0 on 81% of the disc's section edges (see
-[route.md](../formats/route.md)), so most seams vanish; the other edges really differ
-in the data. The 3 rows and columns past the shared edge are not drawn. Grid spacing
+[route.md](../formats/route.md)). The other 19% of edges don't match and are
+**unexplained**, so seams still show there; this is not a seamless reconstruction. The 3 rows and columns past the shared edge are not drawn. Grid spacing
 and the mapping to world coordinates are still unconfirmed; this is not a terrain
 interchange format.
 

@@ -109,7 +109,8 @@ int main(int argc, char** argv) {
             // Grid layout (observed on the disc, not traced): vertex = row * side + column;
             // columns run toward +x and rows toward +y; a section spans side - 4 cells
             // (72 or 144), sharing its edge vertices with the next section (column/row
-            // side - 4 equals the neighbour's 0 on 81% of disc edges). The last 3 rows and
+            // side - 4 equals the neighbour's 0 on 81% of disc edges; the other 19% differ,
+            // unexplained, so seams remain there). The last 3 rows and
             // columns lie past the edge and are not drawn. One 64x64 tile per section;
             // the image's top is +y, as in "overview".
             double low = std::numeric_limits<double>::infinity();
