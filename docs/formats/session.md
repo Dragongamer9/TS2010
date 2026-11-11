@@ -98,9 +98,9 @@ established format constraints**. The baseboard rule rests on the size-checked d
 surveyed disc data exceeds it (all 655 size-checked version-5 trains and all accepted old
 trains have their largest neighbour gap under 50 m). How many false matches it catches
 is not measured. **823 of the 826** qualify (4,500 vehicles); the other 3 are refused (2 with more matches
-than `vehicleCount`, 1 failing a vehicle check). **Check of the 157 added trains:** on the
-125 disc sessions whose route the index finds, 98.2% of the vehicles of trains holding a
-word-1 vehicle lie within 1 m of the route's modelled track (99.4% within 3 m, worst 3.6 m),
+than `vehicleCount`, 1 failing a vehicle check). **Check of the 157 added trains:** for the
+632 old trains whose session's route the index finds (131 of them holding a word-1 vehicle,
+1,125 vehicles), 98.2% of those trains' vehicles lie within 1 m of the route's modelled track (99.4% within 3 m, worst 3.6 m),
 as do 97.6% of the trains accepted before (99.6%, worst 6.7 m). (An earlier note here said version-5 records had a different
 position layout; that was a misreading: their board numbers looked implausible only
 because big routes use boards beyond ±50. They use the version-4 layout.) This is a heuristic, not a
