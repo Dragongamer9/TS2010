@@ -106,9 +106,72 @@ std::optional<Behaviour> decodeBehaviour(const ObjectItem& item) {
     return b;
 }
 
+namespace {
+
+// Old (pre-version-5) trains: see SessionFile.h. Vehicles are found by a pattern.
+std::optional<Train> decodeOldTrain(const ObjectItem& item) {
+    const auto& d = item.payload;
+    if (d.size() < 20 || loadU32LE(d.data() + 4) != 0) {
+        return std::nullopt;
+    }
+    const std::uint32_t count = loadU32LE(d.data());
+    if (count == 0 || count > d.size() / 61) {
+        return std::nullopt;
+    }
+    static constexpr std::uint8_t kMark[13] = {0, 0, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0};
+    std::vector<std::size_t> starts;
+    for (std::size_t i = 8; i + sizeof kMark <= d.size(); ++i) {
+        if (std::memcmp(d.data() + i, kMark, sizeof kMark) == 0) {
+            starts.push_back(i - 8);
+        }
+    }
+    if (starts.size() != count || starts[0] != 20) {
+        return std::nullopt;
+    }
+    Train t;
+    t.index = item.index;
+    t.oldLayout = true;
+    t.trackPiece = static_cast<std::int32_t>(loadU32LE(d.data() + 8));
+    std::memcpy(&t.distance, d.data() + 12, 4);
+    t.direction = loadU32LE(d.data() + 16);
+    for (std::size_t k = 0; k < starts.size(); ++k) {
+        const std::size_t s = starts[k];
+        const std::size_t end = k + 1 < starts.size() ? starts[k + 1] : d.size();
+        if (end < s + 57) {
+            return std::nullopt;
+        }
+        Vehicle v;
+        v.kuid = unpackChumpKuid(loadU32LE(d.data() + s + 4), static_cast<std::int32_t>(loadU32LE(d.data() + s)));
+        v.record.assign(d.begin() + static_cast<std::ptrdiff_t>(s + 13), d.begin() + static_cast<std::ptrdiff_t>(end));
+        const auto& r = v.record;
+        v.recordVersion = loadU32LE(r.data());
+        v.boardX = static_cast<std::int16_t>(loadU16LE(r.data() + 12));
+        v.boardY = static_cast<std::int16_t>(loadU16LE(r.data() + 14));
+        std::memcpy(&v.x, r.data() + 16, 4);
+        std::memcpy(&v.y, r.data() + 20, 4);
+        std::memcpy(&v.z, r.data() + 24, 4);
+        std::memcpy(&v.yaw, r.data() + 28, 4);
+        const std::uint32_t len = loadU32LE(r.data() + 40);
+        if (len == 0 || len > r.size() - 44 || r[44 + len - 1] != 0) {
+            return std::nullopt;  // the pattern found something that isn't a vehicle
+        }
+        v.name.assign(reinterpret_cast<const char*>(r.data() + 44), len - 1);
+        t.vehicles.push_back(std::move(v));
+    }
+    return t;
+}
+
+}  // namespace
+
 std::optional<Train> decodeTrain(const ObjectItem& item) {
     const auto& d = item.payload;
-    if (item.tag != "trCt" || d.size() < 28 || loadU32LE(d.data()) != 0xCAFFA1DAu || loadU32LE(d.data() + 4) != 5) {
+    if (item.tag != "trCt") {
+        return std::nullopt;
+    }
+    if (d.size() >= 4 && loadU32LE(d.data()) != 0xCAFFA1DAu) {
+        return decodeOldTrain(item);
+    }
+    if (d.size() < 28 || loadU32LE(d.data() + 4) != 5) {
         return std::nullopt;
     }
     const std::uint32_t count = loadU32LE(d.data() + 8);

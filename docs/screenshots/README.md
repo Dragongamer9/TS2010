@@ -18,6 +18,8 @@ port can already read and draw.
 | ![](sample-route-objects.png) | The test route with its 10,201 placed objects (dark green dots; signals magenta) under the track | `route-tool track` |
 | ![](midday-manifest-trains.png) | The "Midday Manifest" session's 25 trains (231 vehicles, orange) on its route `<kuid:107727:1019>`, with track, junctions and objects | `route-tool track … --session …` |
 | ![](midday-manifest-yard.png) | Close-up (3×) of the busiest yard: a long train sitting on its track line | `route-tool track … --session …`, cropped |
+| ![](old-session-trains.png) | An older (version-1) session, "Frühdienst Teil 2", on its route "Winter in Deutschland": 12 trains, 33 vehicles (orange, small at this scale) | `route-tool track … --session …` |
+| ![](old-session-station.png) | Close-up (3×) of its busiest area: vehicles on their track lines around junctions. Old-layout trains are found by a pattern (see session.md) | `route-tool track … --session …`, cropped |
 | ![](avery-drexel-track.png) | "Avery – Drexel", the disc's largest route that fits one image (30,169 spline pieces) | `route-tool track` |
 
 In the track maps, **red** is every `tkSt` spline piece, which seems to include roads

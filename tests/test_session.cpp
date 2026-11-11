@@ -229,3 +229,58 @@ TEST(Session, TrainsAndVehicles) {
     old.payload[4] = 4;  // not version 5
     EXPECT_FALSE(decodeTrain(old).has_value());
 }
+
+TEST(Session, OldTrainsFoundByPattern) {
+    auto vehicle = [](Bytes& p, std::int32_t content, const std::string& name) {
+        putU32(p, static_cast<std::uint32_t>(content));
+        putU32(p, 0x14011C1Au);
+        putU32(p, 0);
+        p.push_back(0);
+        Bytes r;
+        putU32(r, 4);
+        putU32(r, 3);
+        putU32(r, 0xFF0000FFu);
+        putU16(r, static_cast<std::uint16_t>(-3));
+        putU16(r, static_cast<std::uint16_t>(-14));
+        for (const float f : {378.08F, 277.88F, 0.3F, 0.0F}) {
+            std::uint32_t u;
+            std::memcpy(&u, &f, 4);
+            putU32(r, u);
+        }
+        r.resize(40, 0);
+        putU32(r, static_cast<std::uint32_t>(name.size() + 1));
+        r.insert(r.end(), name.begin(), name.end());
+        r.push_back(0);
+        r.resize(r.size() + 40, 0x11);  // more vehicle data, not decoded
+        p.insert(p.end(), r.begin(), r.end());
+    };
+    Bytes p;
+    putU32(p, 2);  // vehicles
+    putU32(p, 0);
+    putU32(p, 2400);
+    putU32(p, 0x41280000u);  // 10.5
+    putU32(p, 1);
+    vehicle(p, 16022, "Schlackenwagen Ork 5");
+    vehicle(p, 16023, "Schlackenwagen Ork 6");
+    ObjectItem it;
+    it.tag = "trCt";
+    it.payload = p;
+    const auto t = decodeTrain(it);
+    ASSERT_TRUE(t.has_value());
+    EXPECT_TRUE(t->oldLayout);
+    EXPECT_EQ(t->trackPiece, 2400);
+    EXPECT_FLOAT_EQ(t->distance, 10.5F);
+    ASSERT_EQ(t->vehicles.size(), 2U);
+    EXPECT_EQ(t->vehicles[1].name, "Schlackenwagen Ork 6");
+    EXPECT_EQ(t->vehicles[1].kuid.content, 16023);
+    EXPECT_EQ(t->vehicles[0].boardY, -14);
+
+    ObjectItem wrongCount = it;
+    wrongCount.payload[0] = 3;  // says 3 vehicles, the pattern finds 2: refused
+    EXPECT_FALSE(decodeTrain(wrongCount).has_value());
+    for (std::size_t n = 0; n < p.size(); ++n) {  // cut anywhere: refused or read, never past the end
+        ObjectItem cut = it;
+        cut.payload.resize(n);
+        (void)decodeTrain(cut);
+    }
+}

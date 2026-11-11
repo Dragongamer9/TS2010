@@ -73,13 +73,28 @@ Checked:
   `direction` means, or how placement works on curved track (pieces are compared as
   straight lines).
 
-The other **826 trains** (in version-1 sessions) don't start with the magic and use an
-older layout, not decoded.
+**Older trains** (826, in version-1 sessions) have no magic and no record sizes:
+
+```
+u32 vehicleCount   u32 0   i32 trackPiece   f32 distance   u32 direction
+vehicles: { u32 content, u32 packed user, u32 0, u8 0, record }
+record: u32 4   u32 3   u32 colour?   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   f32 yaw   …
+        u32 nameLength (record offset 40)   name   … (more, not decoded)
+```
+
+Nothing gives a record's length, so the reader **finds vehicles by a pattern** (5 zero
+bytes, `u32 4`, `u32 3` after each KUID). It accepts a train only when the number found
+equals `vehicleCount`, the first one starts at byte 20, and every name is valid. **606 of
+the 826** qualify (2,977 vehicles); the other 220 are refused. This is a heuristic, not a
+traced layout. Checked on one version-1 session ("hash-0b/kuid2 239249 100534 2" on its
+route `<kuid2:143919:27565:1>`): all 12 trains name a track piece of the route and the
+first vehicle stands within 0.1 m of that piece's line.
 
 ## Not known
 
-- Version-1 trains (826), most of each vehicle record, the train tail; the
-  non-container blocks; the version-3 trailer.
+- The 220 old trains the pattern check refuses; the real length of an old vehicle
+  record; most of each vehicle record, the train tail; the non-container blocks; the
+  version-3 trailer.
 - The 3 behaviours that fit neither layout.
 - `profile.lyr` (25 bytes; contains `session-layer`).
 - How the game applies a session's `.obs`/`.trk` over the route's.

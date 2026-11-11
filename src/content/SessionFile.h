@@ -59,8 +59,17 @@ std::optional<Behaviour> decodeBehaviour(const ObjectItem& item);
 //   tail: FEEDCEEB ... (with an embedded .chump; not decoded)
 // A vehicle record: u32 8 or 9, u32 3, u32 (…ff; perhaps a colour), the placed-object
 // position block (flag, board, x, y, z, yaw) and, at offset 41, its name
-// (u8 0x80, u32 length, text). Older trains (826 on the disc, from version-1 sessions)
-// use another layout and are not decoded.
+// (u8 0x80, u32 length, text).
+//
+// Older trains (826 on the disc, from version-1 sessions) have no magic and no record
+// sizes: u32 vehicleCount, u32 0, i32 trackPiece, f32 distance, u32 direction, then
+// vehicles of { u32 content, u32 packed user, u32 0, u8 0, record } where the record is
+// u32 4, u32 3, u32 colour?, i16 boardX, i16 boardY, f32 x, f32 y, f32 z, f32 yaw, …,
+// u32 nameLength (at record offset 40), name. Since nothing gives a record's length,
+// vehicles are FOUND BY A PATTERN (5 zero bytes + u32 4 + u32 3 after the KUID), and a
+// train is decoded only if the pattern count equals vehicleCount and the first vehicle
+// starts at byte 20: 606 of the 826 qualify (2,977 vehicles, every one with a valid
+// name). The other 220 old trains are refused. A heuristic, not a traced layout.
 struct Vehicle {
     Kuid kuid;
     std::string name;  // e.g. "CN SD40-2 1"
@@ -85,10 +94,12 @@ struct Train {
     float distance = 0;
     std::uint32_t direction = 0;  // perhaps which end distance counts from (not checked)
     std::vector<Vehicle> vehicles;
-    std::vector<std::uint8_t> tail;
+    std::vector<std::uint8_t> tail;  // version 5 only
+    bool oldLayout = false;          // decoded with the pattern heuristic described above
 };
 
-// nullopt if the item is not trCt, not version 5, or a vehicle runs past the end.
+// nullopt if the item is not trCt, a version-5 vehicle runs past the end, or an old
+// train fails the pattern check.
 std::optional<Train> decodeTrain(const ObjectItem& item);
 
 }  // namespace trainz::content
