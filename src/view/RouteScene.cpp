@@ -7,6 +7,7 @@
 #include <limits>
 #include <map>
 #include <numbers>
+#include <optional>
 
 namespace trainz::view {
 
@@ -19,6 +20,11 @@ double worldOf(std::int16_t board, float local) { return board * kBaseboardSize 
 bool fits(const Scene& scene, const PreparedMesh& mesh) { return sceneHasRoomFor(scene, mesh.triangles.size()); }
 
 }  // namespace
+
+double headingAlong(double h, double ref) {
+    const double d = std::remainder(h - ref, 2 * std::numbers::pi);
+    return std::fabs(d) <= std::numbers::pi / 2 ? ref + d : ref + std::remainder(d + std::numbers::pi, 2 * std::numbers::pi);
+}
 
 bool sceneHasRoomFor(const Scene& scene, std::size_t triangles) {
     return scene.triangles.size() <= kMaxSceneTriangles && triangles <= kMaxSceneTriangles - scene.triangles.size();
@@ -174,6 +180,12 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
                 pieces.emplace(st.index, &st);
             }
         }
+        // Vehicles and bogies follow the modelled track (TrackLayout.h) where it is near.
+        std::optional<TrackLocator> onTrack;
+        if (in.track != nullptr) {
+            onTrack.emplace(*in.track, v.centreX, v.centreY, radius + 50.0);
+        }
+
         for (const auto& t : *in.trains) {
             double z = std::numeric_limits<double>::quiet_NaN();
             double pieceHeading = std::numeric_limits<double>::quiet_NaN();
@@ -188,7 +200,11 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
             for (std::size_t i = 0; i < vs.size(); ++i) {
                 const auto& veh = vs[i];
                 const double x = worldOf(veh.boardX, veh.x), y = worldOf(veh.boardY, veh.y);
-                const double vz = std::isfinite(z) ? z : veh.z;
+                double vz = std::isfinite(z) ? z : veh.z;
+                const auto here = onTrack ? onTrack->nearest(x, y, kOnTrackDistance) : std::nullopt;
+                if (here) {
+                    vz = here->z;  // the height of the track under it (still a preview approximation)
+                }
                 if (!near(x, y) || !std::isfinite(vz)) {
                     continue;
                 }
@@ -203,11 +219,15 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
                     heading = std::atan2(worldOf(next.boardY, next.y) - worldOf(prev.boardY, prev.y),
                                          worldOf(next.boardX, next.x) - worldOf(prev.boardX, prev.x));
                 }
+                if (here) {  // the track's direction under the vehicle, the way round the train runs
+                    heading = std::isfinite(heading) ? headingAlong(here->heading, heading) : here->heading;
+                }
                 if (in.meshes != nullptr && std::isfinite(heading)) {
                     if (const PreparedMesh* m = in.meshes->get(veh.kuid); m != nullptr && fits(v.scene, *m)) {
                         const double yaw = heading - std::numbers::pi / 2;
                         addPlacedMesh(v.scene, *m, x, y, vz, yaw);
                         ++v.vehiclesAsMeshes;
+                        v.vehiclesOnTrack += here ? 1 : 0;
                         // Bogies on the body's "a.bog<N>" points (see PreparedMesh::bogeyFor).
                         for (const auto& [name, frame] : m->attachments) {
                             const auto b = m->bogeyFor(name);
@@ -216,8 +236,21 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
                                 continue;
                             }
                             // The point's own rotation turns the bogie; "reversed" only reverses
-                            // the wheel animation (documented), so it adds no turn here.
-                            addPlacedMesh(v.scene, *bogie, frame, x, y, vz, yaw);
+                            // the wheel animation (documented), so it adds no turn here. On the
+                            // modelled track, the bogie also turns to the track under its point.
+                            LocalFrame inner = frame;
+                            const double c = std::cos(yaw), s = std::sin(yaw);
+                            const double bx = x + c * frame.t[0] - s * frame.t[1], by = y + s * frame.t[0] + c * frame.t[1];
+                            if (const auto under = onTrack ? onTrack->nearest(bx, by, kOnTrackDistance) : std::nullopt) {
+                                const double turn = headingAlong(under->heading, heading) - heading;  // within +-90 degrees
+                                LocalFrame swivel;
+                                swivel.r[0] = swivel.r[4] = static_cast<float>(std::cos(turn));
+                                swivel.r[1] = static_cast<float>(std::sin(turn));
+                                swivel.r[3] = -swivel.r[1];
+                                inner = swivel.then(frame);
+                                ++v.bogiesOnTrack;
+                            }
+                            addPlacedMesh(v.scene, *bogie, inner, x, y, vz, yaw);
                             ++v.bogiesAsMeshes;
                         }
                         continue;

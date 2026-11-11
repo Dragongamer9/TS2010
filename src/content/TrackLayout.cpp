@@ -252,4 +252,77 @@ std::optional<TrackCurve> trackCurve(const TrackLayout& layout, const TrackStret
     return c;
 }
 
+TrackLocator::TrackLocator(const TrackLayout& layout, double centreX, double centreY, double radius, double step) {
+    if (!(step > 0.1) || !std::isfinite(step)) {
+        step = 2.0;
+    }
+    auto cell = [](double v) { return static_cast<std::int64_t>(std::floor(v / kCell)); };
+    for (const auto& st : layout.stretches) {
+        const auto c = trackCurve(layout, st);
+        if (!c) {
+            continue;
+        }
+        const double len = std::hypot(c->p1[0] - c->p0[0], c->p1[1] - c->p0[1]);
+        // Both ends far outside the area (pieces are shorter than a few km): skip.
+        if (std::hypot(c->p0[0] - centreX, c->p0[1] - centreY) > radius + len &&
+            std::hypot(c->p1[0] - centreX, c->p1[1] - centreY) > radius + len) {
+            continue;
+        }
+        // Straight pieces in 20 m segments (so each fits a few grid cells), curves every `step`.
+        const int n = std::clamp(static_cast<int>(std::ceil(len / (st.straight() ? 20.0 : step))), 1, 4096);
+        double prev[3];
+        c->point(0, prev);
+        for (int k = 1; k <= n; ++k) {
+            Seg sg{};
+            std::copy(prev, prev + 3, sg.a);
+            c->point(static_cast<double>(k) / n, sg.b);
+            std::copy(sg.b, sg.b + 3, prev);
+            sg.piece = st.index;
+            if (!(std::hypot(sg.b[0] - sg.a[0], sg.b[1] - sg.a[1]) > 1e-6)) {
+                continue;  // no length: no direction
+            }
+            const std::size_t i = segs_.size();
+            segs_.push_back(sg);
+            const auto x0 = cell(std::min(sg.a[0], sg.b[0])), x1 = cell(std::max(sg.a[0], sg.b[0]));
+            const auto y0 = cell(std::min(sg.a[1], sg.b[1])), y1 = cell(std::max(sg.a[1], sg.b[1]));
+            if ((x1 - x0 + 1) * (y1 - y0 + 1) > 64) {
+                continue;  // cannot happen for segments of at most ~20 m; a guard against bad data
+            }
+            for (auto gx = x0; gx <= x1; ++gx) {
+                for (auto gy = y0; gy <= y1; ++gy) {
+                    grid_[{gx, gy}].push_back(i);
+                }
+            }
+        }
+    }
+}
+
+std::optional<TrackSample> TrackLocator::nearest(double x, double y, double maxDistance) const {
+    if (!std::isfinite(x) || !std::isfinite(y) || !(maxDistance > 0)) {
+        return std::nullopt;
+    }
+    maxDistance = std::min(maxDistance, kCell);
+    const auto cx = static_cast<std::int64_t>(std::floor(x / kCell)), cy = static_cast<std::int64_t>(std::floor(y / kCell));
+    std::optional<TrackSample> best;
+    for (std::int64_t gx = cx - 1; gx <= cx + 1; ++gx) {
+        for (std::int64_t gy = cy - 1; gy <= cy + 1; ++gy) {
+            const auto it = grid_.find({gx, gy});
+            if (it == grid_.end()) {
+                continue;
+            }
+            for (const std::size_t i : it->second) {
+                const Seg& sg = segs_[i];
+                const double dx = sg.b[0] - sg.a[0], dy = sg.b[1] - sg.a[1], l2 = dx * dx + dy * dy;
+                const double f = l2 > 0 ? std::clamp(((x - sg.a[0]) * dx + (y - sg.a[1]) * dy) / l2, 0.0, 1.0) : 0.0;
+                const double px = sg.a[0] + f * dx, py = sg.a[1] + f * dy;
+                const double d = std::hypot(x - px, y - py);
+                if (d <= maxDistance && (!best || d < best->distance)) {
+                    best = TrackSample{px, py, sg.a[2] + f * (sg.b[2] - sg.a[2]), std::atan2(dy, dx), d, sg.piece};
+                }
+            }
+        }
+    }
+    return best;
+}
+
 }  // namespace trainz::content

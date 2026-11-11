@@ -491,3 +491,44 @@ TEST(TrackCurve, LinksToPiecesNotEndingThereAreIgnored) {
         EXPECT_NEAR(std::atan2(c->t1[1], c->t1[0]), 0, 1e-9);
     }
 }
+
+TEST(TrackLocator, NearestPointHeadingAndHeight) {
+    Builder b;
+    b.vertex(0, 0, 0, {{70, 0}}, 0);
+    b.vertex(1, 100, 0, {{70, 0}, {71, 1}}, 10);
+    b.vertex(2, 200, 100, {{71, 0}}, 10);
+    b.piece(70, 0, 1, 0x20);  // straight
+    b.piece(71, 1, 2);        // curved
+    const TrackLocator loc(b.t, 0, 0, 1000);
+    EXPECT_GT(loc.segments(), 10U);
+    const auto s = loc.nearest(40, 2);
+    ASSERT_TRUE(s);
+    EXPECT_EQ(s->piece, 70);
+    EXPECT_NEAR(s->x, 40, 1e-9);
+    EXPECT_NEAR(s->y, 0, 1e-9);
+    EXPECT_NEAR(s->z, 4, 1e-9);  // height interpolated along the piece
+    EXPECT_NEAR(s->distance, 2, 1e-9);
+    EXPECT_NEAR(s->heading, 0, 1e-9);  // from -> to
+    EXPECT_FALSE(loc.nearest(40, 9));  // more than 5 m away
+    EXPECT_TRUE(loc.nearest(40, 9, 10));
+    EXPECT_FALSE(loc.nearest(std::numeric_limits<double>::quiet_NaN(), 0));
+    EXPECT_FALSE(loc.nearest(40, 2, -1));
+
+    // On the curve: a point on the modelled curve is found at distance ~0, its heading the
+    // curve's direction there (between 0 and 90 degrees, rising toward the end).
+    const auto c = trackCurve(b.t, b.t.stretches[1]);
+    ASSERT_TRUE(c);
+    double q[3];
+    c->point(0.5, q);
+    const auto on = loc.nearest(q[0], q[1]);
+    ASSERT_TRUE(on);
+    EXPECT_EQ(on->piece, 71);
+    EXPECT_LT(on->distance, 0.05);
+    EXPECT_GT(on->heading, 0.1);
+    EXPECT_LT(on->heading, std::numbers::pi / 2);
+
+    // Pieces far outside the requested area are left out.
+    const TrackLocator far(b.t, 5000, 5000, 100);
+    EXPECT_EQ(far.segments(), 0U);
+    EXPECT_FALSE(far.nearest(40, 2));
+}

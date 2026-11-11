@@ -130,16 +130,20 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   **placeholder** green cone, 4 m wide and 12 m tall, an invented stand-in, not the tree.
   Assets without a readable mesh stay dots; the reasons and the skipped parts are printed;
 - with `--session`, every vehicle as its 3D model when `--install` is given and the model
-  can be read (else an orange dot), drawn at the height of its train's track piece and turned
-  to follow its neighbours in the train (a vehicle's own stored yaw is 0 on the disc; front and
-  back are not known; train models are long along their own +y). **Bogies** are drawn on the
+  can be read (else an orange dot). Where the modelled track lies within 3 m (99.5% of disc
+  session vehicles), the vehicle takes the track's direction and height there, the way round
+  given by its neighbours in the train; otherwise it is drawn at its train's track piece's
+  height and turned to follow its neighbours (a vehicle's own stored yaw is 0 on the disc;
+  front and back are not known; train models are long along their own +y). **Bogies** are drawn on the
   body's `a.bog<N>` points: a traincar names them as `bogey <kuid>` (827 disc traincars, the
   same model on every point) or as a `bogeys` group (328 traincars) whose entry named N is
   for `a.bog<N>` (documented in the Trainz wiki). `reversed` only reverses the wheel
   animation (documented; on the disc 64 of 71 reversed points are already turned 180°), so
   the bogie is turned by its point's rotation alone. Not traced in the exe. Bare numbers are user −1 (the disc's bogie folders, e.g. `kuid _1 100008`,
   confirm it). A bogie's `asset-filename` often exists only as a `.pm` (286 disc assets),
-  which is used when there is no `.im`. Bogies don't turn on curves yet (they keep the body's direction). That height is a **preview approximation, not a decoded vehicle elevation**: a
+  which is used when there is no `.im`. Each bogie also turns to the modelled track under its own point (within ±90° of
+  the body), as the game's wiki describes `a.bog0`/`a.bog1` locating the vehicle on the
+  track; the body itself is not yet placed from its two bogies. That height is a **preview approximation, not a decoded vehicle elevation**: a
   vehicle's own stored `z` is often 0.3, and what it means is not known.
 
 `--eye DX DY DZ` puts the camera that many metres from the centre's ground point (for

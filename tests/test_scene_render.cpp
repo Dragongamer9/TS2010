@@ -454,3 +454,19 @@ TEST(SceneRender, SceneTriangleBudget) {
     EXPECT_FALSE(sceneHasRoomFor(s, kMaxSceneTriangles));  // e.g. one more bogie than fits
     EXPECT_TRUE(sceneHasRoomFor(s, 0));
 }
+
+TEST(SceneRender, HeadingAlongTheTrain) {
+    const double pi = std::numbers::pi;
+    EXPECT_NEAR(headingAlong(0.1, 0), 0.1, 1e-12);
+    EXPECT_NEAR(headingAlong(pi + 0.1, 0), 0.1, 1e-12);     // the track the other way round
+    EXPECT_NEAR(headingAlong(-pi + 0.2, 0), 0.2, 1e-12);
+    EXPECT_NEAR(headingAlong(0.1, 2 * pi), 2 * pi + 0.1, 1e-12);  // stays next to ref
+    EXPECT_NEAR(headingAlong(pi / 2 + 0.3, 0), -pi / 2 + 0.3, 1e-12);
+    for (double h = -7; h < 7; h += 0.37) {
+        for (double ref = -7; ref < 7; ref += 0.53) {
+            const double r = headingAlong(h, ref);
+            EXPECT_LE(std::fabs(r - ref), pi / 2 + 1e-12);
+            EXPECT_NEAR(std::remainder(2 * (r - h), 2 * pi), 0, 1e-9);  // r = h or h + pi
+        }
+    }
+}

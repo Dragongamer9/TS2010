@@ -120,4 +120,33 @@ struct TrackCurve {
 std::optional<TrackCurve> trackCurve(const TrackLayout& layout, const TrackStretch& stretch,
                                      double tangentScale = kCurveTangentScale);
 
+// The nearest point on the modelled track (trackCurve) to a world position.
+struct TrackSample {
+    double x = 0, y = 0, z = 0;  // world metres; z interpolated along the piece
+    double heading = 0;          // radians, anticlockwise from +x, in the piece's from -> to direction
+    double distance = 0;         // from the asked position, in x/y
+    std::int32_t piece = -1;     // the stretch's index
+};
+
+// Finds the nearest track point within a search distance. Built for the pieces that come
+// within `radius` of (centreX, centreY) (whole route: a huge radius), cut into pieces of
+// about `step` metres. Read-only on the layout, which must outlive it.
+class TrackLocator {
+public:
+    TrackLocator(const TrackLayout& layout, double centreX, double centreY, double radius, double step = 2.0);
+    // nullopt if no track lies within maxDistance (at most kCell metres).
+    std::optional<TrackSample> nearest(double x, double y, double maxDistance = 5.0) const;
+    std::size_t segments() const { return segs_.size(); }
+
+    static constexpr double kCell = 25.0;  // grid cell, metres
+
+private:
+    struct Seg {
+        double a[3], b[3];
+        std::int32_t piece;
+    };
+    std::vector<Seg> segs_;
+    std::map<std::pair<std::int64_t, std::int64_t>, std::vector<std::size_t>> grid_;
+};
+
 }  // namespace trainz::content
