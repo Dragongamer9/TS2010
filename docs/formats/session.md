@@ -78,21 +78,22 @@ Checked:
 ```
 u32 vehicleCount   u32 0   i32 trackPiece   f32 distance   u32 direction
 vehicles: { u32 content, u32 packed user, u32 0, u8 0, record }
-record: u32 4 (or 1)   u32 3   u32 colour?   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   f32 yaw   …
+record: u32 4 (or 1 or 5)   u32 3   u32 colour?   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   f32 yaw   …
         u32 nameLength (record offset 40)   name   … (more, not decoded)
 ```
 
 Nothing gives a record's length, so the reader **finds vehicles by a pattern** (5 zero
-bytes, `u32 4` or `u32 1`, `u32 3` after each KUID). It accepts a train only when the
+bytes, `u32 4`, `1` or `5`, `u32 3` after each KUID). It accepts a train only when the
 number found equals `vehicleCount`, the first one starts at byte 20, every match has a
-valid name, and neighbouring vehicles stand under 50 m apart. That last rule is a
+valid name and a position inside its baseboard, and neighbouring vehicles stand under
+50 m apart. That last rule is a
 **disc-tested heuristic, not an established format constraint**: no accepted train in the
 surveyed disc data exceeds it (all 655 size-checked version-5 trains and all accepted old
 trains have their largest neighbour gap under 50 m). How many false matches it catches
-is not measured. **627 of the 826** qualify (3,127 vehicles; 156 of them record version 1);
-the other 199 are refused. Record version 5 also occurs (215 vehicles), but 56 of those
-would get implausible board numbers at this offset, so its layout differs and such
-trains are refused. This is a heuristic, not a
+is not measured. **666 of the 826** qualify (3,266 vehicles; 156 with record version 1, 169 with 5); the
+other 160 are refused. (An earlier note here said version-5 records had a different
+position layout; that was a misreading: their board numbers looked implausible only
+because big routes use boards beyond ±50. They use the version-4 layout.) This is a heuristic, not a
 traced layout. False matches are the main risk (the pattern could appear inside a
 vehicle's undecoded data), so `tests/test_session.cpp` checks that such a train is
 refused, both when the extra match breaks the count and when the count is altered to
@@ -104,10 +105,12 @@ route `<kuid2:143919:27565:1>`): all 12 trains name a track piece of the route a
 first vehicle stands within 0.1 m of that piece's line. Record version 1 was added after
 the same check on two more sessions whose accepted trains contain version-1 vehicles
 (`<kuid:164042:100181>` and `<kuid:63015:100022>`): 5 of 5 trains each, within 0.1 m.
+Record version 5: one session (`<kuid:-12:111224>` on `<kuid:-12:1002>`): 15 of 15 trains,
+0.0 m.
 
 ## Not known
 
-- The 199 old trains the pattern check refuses (many with record version 5); the real length of an old vehicle
+- The 160 old trains the checks refuse; the real length of an old vehicle
   record; most of each vehicle record, the train tail; the non-container blocks; the
   version-3 trailer.
 - The 3 behaviours that fit neither layout.

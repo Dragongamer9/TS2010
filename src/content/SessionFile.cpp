@@ -119,13 +119,13 @@ std::optional<Train> decodeOldTrain(const ObjectItem& item) {
     if (count == 0 || count > d.size() / 61) {
         return std::nullopt;
     }
-    // 5 zero bytes, then the record's u32 version (4, or 1 in a few) and u32 3. Version 5
-    // records also occur but their position block looks different, so they are not used.
-    static constexpr std::uint8_t kMark4[13] = {0, 0, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0};
-    static constexpr std::uint8_t kMark1[13] = {0, 0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0};
+    // 5 zero bytes, then the record's u32 version (4; 1 or 5 in a few) and u32 3.
+    static constexpr std::uint8_t kMark[13] = {0, 0, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0};
     std::vector<std::size_t> starts;
-    for (std::size_t i = 8; i + sizeof kMark4 <= d.size(); ++i) {
-        if (std::memcmp(d.data() + i, kMark4, sizeof kMark4) == 0 || std::memcmp(d.data() + i, kMark1, sizeof kMark1) == 0) {
+    for (std::size_t i = 8; i + sizeof kMark <= d.size(); ++i) {
+        const std::uint8_t ver = d[i + 5];
+        if ((ver == 1 || ver == 4 || ver == 5) && std::memcmp(d.data() + i, kMark, 5) == 0 &&
+            std::memcmp(d.data() + i + 6, kMark + 6, sizeof kMark - 6) == 0) {
             starts.push_back(i - 8);
         }
     }
@@ -160,6 +160,9 @@ std::optional<Train> decodeOldTrain(const ObjectItem& item) {
             return std::nullopt;  // the pattern found something that isn't a vehicle
         }
         v.name.assign(reinterpret_cast<const char*>(r.data() + 44), len - 1);
+        if (!(v.x >= 0 && v.x < 720 && v.y >= 0 && v.y < 720)) {
+            return std::nullopt;  // not inside a baseboard
+        }
         if (!t.vehicles.empty()) {
             // Disc-tested heuristic, not a format rule: no accepted train in the surveyed disc
             // data (nor any size-checked version-5 train) has neighbours 50 m or more apart.

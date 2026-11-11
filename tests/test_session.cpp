@@ -423,3 +423,25 @@ TEST(Session, OldTrainFakeWithPlausibleNameButFarAwayIsRefused) {
     oldVehicle(near, 2, "Wagon B", {});
     EXPECT_TRUE(decodeOld(near).has_value()) << "a plausible name at a plausible position is accepted: the residual risk";
 }
+
+TEST(Session, OldTrainRecordVersionsAndRange) {
+    // Record version 5 (like 1) uses the version-4 layout.
+    Bytes p = oldHeader(2);
+    oldVehicle(p, 1, "Wagon A", {});
+    oldVehicle(p, 2, "Wagon B", {});
+    const std::size_t secondRecord = 20 + (13 + 40 + 4 + 8) + 13;  // header, first vehicle, prefix
+    p[secondRecord] = 5;
+    const auto t = decodeOld(p);
+    ASSERT_TRUE(t.has_value());
+    EXPECT_EQ(t->vehicles[1].recordVersion, 5U);
+
+    p[secondRecord] = 6;  // an unknown record version: no match, so the count is short
+    EXPECT_FALSE(decodeOld(p).has_value());
+
+    // A vehicle whose x is outside its baseboard: refused.
+    Bytes q = oldHeader(1);
+    oldVehicle(q, 1, "Wagon A", {});
+    const float bad = 900.0F;  // record offset 16
+    std::memcpy(q.data() + 20 + 13 + 16, &bad, 4);
+    EXPECT_FALSE(decodeOld(q).has_value());
+}
