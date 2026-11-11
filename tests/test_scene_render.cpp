@@ -2,6 +2,7 @@
 #include "view/AssetMeshes.h"
 #include "view/RouteScene.h"
 #include "view/GroundTextures.h"
+#include "view/FlyCamera.h"
 #include "view/SceneRender.h"
 
 #include <gtest/gtest.h>
@@ -755,4 +756,45 @@ TEST(SpeedTree, MeshScaleIsReadAsTheMean) {
     ASSERT_EQ(picked.size(), 2U);
     EXPECT_NEAR(picked[0].scale, 0.45, 1e-6);
     EXPECT_DOUBLE_EQ(picked[1].scale, 1.0);
+}
+
+TEST(FlyCamera, TakesOverAViewAndMovesLevel) {
+    Camera c;
+    c.eye = {0, 0, 10};
+    c.target = {10, 0, 0};  // looking along +x, 45 degrees down
+    auto f = FlyCamera::lookingAlong(c);
+    EXPECT_NEAR(f.heading, 0, 1e-12);
+    EXPECT_NEAR(f.pitch, -std::numbers::pi / 4, 1e-12);
+    const Camera back = f.camera(55);
+    EXPECT_NEAR(back.eye.z, 10, 1e-12);
+    EXPECT_GT(back.target.x, back.eye.x);  // still looking along +x and down
+    EXPECT_LT(back.target.z, back.eye.z);
+    EXPECT_DOUBLE_EQ(back.fovYDegrees, 55);
+
+    f.move(5, 0, 0);  // forward stays level even when looking down
+    EXPECT_NEAR(f.position.x, 5, 1e-12);
+    EXPECT_NEAR(f.position.z, 10, 1e-12);
+    f.move(0, 2, 0);  // right of +x is -y
+    EXPECT_NEAR(f.position.y, -2, 1e-12);
+    f.move(0, 0, 3);
+    EXPECT_NEAR(f.position.z, 13, 1e-12);
+
+    f.turn(std::numbers::pi / 2, 0);  // a quarter turn left: now along +y
+    f.move(1, 0, 0);
+    EXPECT_NEAR(f.position.y, -1, 1e-12);
+    f.turn(0, 10);  // pitch is held short of straight up
+    EXPECT_NEAR(f.pitch, FlyCamera::kMaxPitch, 1e-12);
+    f.turn(100 * std::numbers::pi + 0.25, 0);  // heading stays a small angle
+    EXPECT_LE(std::fabs(f.heading), std::numbers::pi);
+
+    const auto before = f.position;
+    f.move(std::numeric_limits<double>::quiet_NaN(), 0, 0);  // ignored
+    f.turn(std::numeric_limits<double>::infinity(), 0);
+    EXPECT_DOUBLE_EQ(f.position.x, before.x);
+    EXPECT_TRUE(std::isfinite(f.heading));
+
+    Camera down;  // straight down: no heading to take, but a pitch
+    down.eye = {0, 0, 10};
+    down.target = {0, 0, 0};
+    EXPECT_NEAR(FlyCamera::lookingAlong(down).pitch, -FlyCamera::kMaxPitch, 1e-12);
 }

@@ -1,7 +1,7 @@
 # Running the Viewers on Dad's PC
 
-Step-by-step guide to run `model-viewer`, `sound-player` and `key-tester` on the
-real TS2010 install.
+Step-by-step guide to run `route-viewer`, `model-viewer`, `sound-player` and `key-tester`
+on the real TS2010 install.
 
 ## Prerequisites
 
@@ -33,7 +33,7 @@ cmake --build build
 Check the viewer binaries were created:
 
 ```sh
-ls -l build/model-viewer build/sound-player build/key-tester
+ls -l build/route-viewer build/model-viewer build/sound-player build/key-tester
 ```
 
 If any are missing, CMake will have printed why (e.g. "install libsdl2-dev" or
@@ -52,6 +52,48 @@ Replace this with the actual path on Dad's PC. The main archives are:
 - `Data.ja` – more game data
 - `Builtin/8.ja` – built-in assets (largest)
 - `UserData/settings/keyboard.txt` – key bindings
+
+## Running route-viewer
+
+Fly around a route in a window: terrain with its ground textures, track (curves by the
+port's model), buildings, trees and a session's trains, all from the game files. It is
+drawn by the port's own software renderer, so expect roughly 5–15 frames a second; it is a
+viewer for checking what the port reads, not the game.
+
+### Basic usage
+
+```sh
+# A route and one of its sessions, with every asset of the install (models, textures)
+build/route-viewer /path/to/TS2010/Builtin/7.ja "hash-92/kuid 107727 1019" \
+    --session /path/to/TS2010/Builtin/8.ja "hash-e1/kuid 467400 1035" \
+    --install /path/to/TS2010
+```
+
+Without `--install` objects are dots and the ground is coloured from the route's overview
+maps. `--at X Y` starts somewhere else (world metres), `--radius M` sets how much is loaded
+(50–5000 m, default 600; bigger is slower). It prints what it is reading first; indexing a
+whole install takes a few seconds.
+
+### Controls
+
+| Key | Does |
+|---|---|
+| W / S or Up / Down | forward / back |
+| A / D | sideways |
+| Left / Right | turn |
+| Page Up / Page Down | look up / down |
+| Q / E | down / up |
+| Shift (held) | 5× faster |
+| R | back to the start view |
+| Esc | quit |
+
+The window title shows the camera position and how long the last frame took.
+
+### Finding a route and a session
+
+`route-tool info ARCHIVE ROUTE_FOLDER` checks a route folder; the route and session folders
+used in the pictures in [`docs/screenshots/README.md`](screenshots/README.md) are good
+starting points. A session's config names its route (`map-kuid`, shown by `config-tool`).
 
 ## Running model-viewer
 

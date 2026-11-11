@@ -18,6 +18,8 @@
 #include "content/ObjectContainer.h"
 #include "content/PlacedObject.h"
 #include "content/SessionFile.h"
+#include "common/StrictNumber.h"
+#include "view/RouteLoader.h"
 #include "view/RouteScene.h"
 #include "view/SceneRender.h"
 #include "content/TrackLayout.h"
@@ -41,27 +43,7 @@
 
 namespace fs = std::filesystem;
 
-namespace {
-
-// The whole argument as a finite number, or nullopt ("abc", "10oops", "1e999", "nan", "").
-std::optional<double> strictNumber(const char* text) {
-    const std::string s = text;
-    if (s.empty() || std::isspace(static_cast<unsigned char>(s.front())) != 0) {
-        return std::nullopt;
-    }
-    try {
-        std::size_t used = 0;
-        const double v = std::stod(s, &used);
-        if (used != s.size() || !std::isfinite(v)) {
-            return std::nullopt;
-        }
-        return v;
-    } catch (const std::exception&) {  // invalid_argument, out_of_range
-        return std::nullopt;
-    }
-}
-
-}  // namespace
+using trainz::common::strictNumber;
 using namespace trainz::content;
 
 int main(int argc, char** argv) {
@@ -172,39 +154,7 @@ int main(int argc, char** argv) {
         if (cmd == "view") {
             // A 3D view of part of the route: terrain coloured from its overview maps, track,
             // placed objects and (with --session) trains. Only decoded data; no meshes.
-            TrackLayout track;
-            bool haveTrack = false;
-            if (const JaEntry* te = archive.find(std::string(argv[3]) + "/mapfile.trk")) {
-                track = readTrackLayout(parseRouteObjectFile(archive.readLimited(*te, std::size_t{256} << 20)));
-                haveTrack = true;
-            }
-            std::vector<PlacedObject> objects;
-            if (const JaEntry* oe = archive.find(std::string(argv[3]) + "/mapfile.obs")) {
-                for (const auto& c : parseRouteObjectFile(archive.readLimited(*oe, std::size_t{256} << 20)).containers) {
-                    for (const auto& item : c.items) {
-                        if (auto o = decodePlacedObject(item)) {
-                            objects.push_back(std::move(*o));
-                        }
-                    }
-                }
-            }
-            std::vector<Train> trains;
-            if (!sessionArchive.empty()) {
-                const auto sa = JaArchive::open(sessionArchive);
-                const JaEntry* pe = sa.find(sessionFolder + "/profile.dat");
-                if (pe == nullptr) {
-                    throw ContentError("'" + sessionFolder + "/profile.dat' is not in " + sessionArchive);
-                }
-                for (const auto& blk : parseSessionProfile(sa.readLimited(*pe, std::size_t{256} << 20)).blocks) {
-                    if (blk.container) {
-                        for (const auto& item : blk.container->items) {
-                            if (auto t = decodeTrain(item)) {
-                                trains.push_back(std::move(*t));
-                            }
-                        }
-                    }
-                }
-            }
+            auto extras = trainz::view::loadRouteExtras(archive, argv[3], sessionArchive, sessionFolder);
             if (!(radius >= 50 && radius <= 20000)) {
                 throw ContentError("--radius must be 50..20000 metres");
             }
@@ -223,9 +173,9 @@ int main(int argc, char** argv) {
             in.meshes = meshes ? &*meshes : nullptr;
             in.groundTextures = groundTextures ? &*groundTextures : nullptr;
             in.ground = &g;
-            in.track = haveTrack ? &track : nullptr;
-            in.objects = &objects;
-            in.trains = sessionArchive.empty() ? nullptr : &trains;
+            in.track = extras.track ? &*extras.track : nullptr;
+            in.objects = &extras.objects;
+            in.trains = extras.trains ? &*extras.trains : nullptr;
             auto view = trainz::view::buildRouteView(in, radius, atX, atY);
             if (eye) {
                 const auto& t = view.camera.target;

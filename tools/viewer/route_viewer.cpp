@@ -1,0 +1,188 @@
+// route-viewer: fly around a route in a window, drawn by the port's own software renderer
+// (src/view/SceneRender) from the decoded route, session and assets - the same scene as
+// `route-tool view`. A viewer for checking the decoders, not the game.
+//
+//   route-viewer ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--install DIR]
+//                [--at X Y] [--radius M] [--frames N]
+//
+// --frames N: draw N frames (turning a little each time) and quit, for testing; with
+// SDL_VIDEODRIVER=offscreen no window appears.
+// Keys: W/S or Up/Down forward/back, A/D sideways, Left/Right turn, PgUp/PgDn look up/down,
+// Q/E down/up, Shift = 5x faster, R = back to the start view, Esc = quit.
+// Read-only: it opens the archives for reading and writes nothing.
+
+#include "common/StrictNumber.h"
+#include "content/AssetIndex.h"
+#include "content/ContentError.h"
+#include "content/GroundFile.h"
+#include "content/JaArchive.h"
+#include "view/FlyCamera.h"
+#include "view/RouteLoader.h"
+#include "view/RouteScene.h"
+
+#include <SDL.h>
+
+#include <cstdio>
+#include <exception>
+#include <iostream>
+#include <optional>
+#include <string>
+
+using namespace trainz::content;
+using trainz::common::strictNumber;
+
+int main(int argc, char** argv) {
+    if (argc < 3) {
+        std::cerr << "usage: route-viewer ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--install DIR]\n"
+                     "                    [--at X Y] [--radius M]\n"
+                     "keys: W/S or Up/Down forward/back, A/D sideways, Left/Right turn, PgUp/PgDn look up/down,\n"
+                     "      Q/E down/up, Shift 5x faster, R start view, Esc quit\n";
+        return 2;
+    }
+    std::string sessionArchive, sessionFolder, installDir;
+    std::optional<double> atX, atY;
+    double radius = 600;
+    long frames = -1;  // -1: until Esc
+    for (int i = 3; i < argc; ++i) {
+        const std::string opt = argv[i];
+        if (opt == "--session" && i + 2 < argc) {
+            sessionArchive = argv[++i];
+            sessionFolder = argv[++i];
+        } else if (opt == "--install" && i + 1 < argc) {
+            installDir = argv[++i];
+        } else if (opt == "--at" && i + 2 < argc) {
+            atX = strictNumber(argv[i + 1]), atY = strictNumber(argv[i + 2]);
+            i += 2;
+            if (!atX || !atY) {
+                std::cerr << "--at needs two numbers (world metres)\n";
+                return 2;
+            }
+        } else if (opt == "--frames" && i + 1 < argc) {
+            const auto n = strictNumber(argv[++i]);
+            if (!n || *n < 1 || *n > 100000 || *n != static_cast<double>(static_cast<long>(*n))) {
+                std::cerr << "--frames needs a whole number, 1..100000\n";
+                return 2;
+            }
+            frames = static_cast<long>(*n);
+        } else if (opt == "--radius" && i + 1 < argc) {
+            const auto r = strictNumber(argv[++i]);
+            if (!r || !(*r >= 50 && *r <= 5000)) {
+                std::cerr << "--radius needs a number of metres, 50..5000\n";
+                return 2;
+            }
+            radius = *r;
+        } else {
+            std::cerr << "unexpected argument " << opt << "\n";
+            return 2;
+        }
+    }
+    try {
+        const auto archive = JaArchive::open(argv[1]);
+        const JaEntry* ge = archive.find(std::string(argv[2]) + "/mapfile.gnd");
+        if (ge == nullptr) {
+            std::cerr << "'" << argv[2] << "/mapfile.gnd' is not in " << argv[1] << "\n";
+            return 1;
+        }
+        std::printf("reading the route...\n");
+        const GroundFile ground = parseGround(archive.readLimited(*ge, std::size_t{1} << 30));
+        auto extras = trainz::view::loadRouteExtras(archive, argv[2], sessionArchive, sessionFolder);
+        std::optional<AssetIndex> index;
+        std::optional<trainz::view::AssetMeshes> meshes;
+        std::optional<trainz::view::GroundTextures> groundTextures;
+        if (!installDir.empty()) {
+            std::printf("indexing the assets in %s...\n", installDir.c_str());
+            index = AssetIndex::scanInstall(installDir);
+            meshes.emplace(*index);
+            groundTextures.emplace(*index);
+        }
+        trainz::view::RouteSceneInput in;
+        in.ground = &ground;
+        in.track = extras.track ? &*extras.track : nullptr;
+        in.objects = &extras.objects;
+        in.trains = extras.trains ? &*extras.trains : nullptr;
+        in.meshes = meshes ? &*meshes : nullptr;
+        in.groundTextures = groundTextures ? &*groundTextures : nullptr;
+        std::printf("building the scene (radius %.0f m)...\n", radius);
+        const auto view = trainz::view::buildRouteView(in, radius, atX, atY);
+        std::printf("%zu triangles, %zu sections, %zu objects as models\n", view.scene.triangles.size(), view.sections,
+                    view.objectsAsMeshes);
+
+        if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+            std::cerr << "SDL_Init failed: " << SDL_GetError() << "\n";
+            return 1;
+        }
+        constexpr int kW = 960, kH = 540;
+        SDL_Window* win = SDL_CreateWindow("route-viewer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, kW, kH,
+                                           SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+        SDL_Renderer* ren = win != nullptr ? SDL_CreateRenderer(win, -1, 0) : nullptr;
+        SDL_Texture* tex = ren != nullptr ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, kW, kH)
+                                          : nullptr;
+        if (tex == nullptr) {
+            std::cerr << "could not open a window: " << SDL_GetError() << "\n";
+            SDL_Quit();
+            return 1;
+        }
+        const auto start = trainz::view::FlyCamera::lookingAlong(view.camera);
+        auto cam = start;
+        bool dirty = true, running = true;
+        Uint32 last = SDL_GetTicks();
+        while (running) {
+            SDL_Event ev;
+            while (SDL_PollEvent(&ev)) {
+                if (ev.type == SDL_QUIT || (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE)) {
+                    running = false;
+                } else if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_r) {
+                    cam = start, dirty = true;
+                } else if (ev.type == SDL_WINDOWEVENT) {
+                    dirty = true;
+                }
+            }
+            const Uint32 now = SDL_GetTicks();
+            const double dt = std::min(0.5, (now - last) / 1000.0);
+            last = now;
+            const Uint8* k = SDL_GetKeyboardState(nullptr);
+            const double speed = ((k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT]) ? 150.0 : 30.0) * dt;  // m/s
+            const double fwd = (k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP] ? 1 : 0) - (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN] ? 1 : 0);
+            const double side = (k[SDL_SCANCODE_D] ? 1 : 0) - (k[SDL_SCANCODE_A] ? 1 : 0);
+            const double up = (k[SDL_SCANCODE_E] ? 1 : 0) - (k[SDL_SCANCODE_Q] ? 1 : 0);
+            const double yaw = (k[SDL_SCANCODE_LEFT] ? 1 : 0) - (k[SDL_SCANCODE_RIGHT] ? 1 : 0);
+            const double look = (k[SDL_SCANCODE_PAGEUP] ? 1 : 0) - (k[SDL_SCANCODE_PAGEDOWN] ? 1 : 0);
+            if (frames > 0) {  // test mode: turn a little every frame
+                cam.turn(0.05, 0);
+                dirty = true;
+            }
+            if (fwd != 0 || side != 0 || up != 0 || yaw != 0 || look != 0) {
+                cam.move(fwd * speed, side * speed, up * speed);
+                cam.turn(yaw * 1.2 * dt, look * 0.8 * dt);  // radians per second
+                dirty = true;
+            }
+            if (dirty) {
+                const Uint32 t0 = SDL_GetTicks();
+                const auto rgba = trainz::view::renderScene(view.scene, cam.camera(), kW, kH);
+                SDL_UpdateTexture(tex, nullptr, rgba.data(), kW * 4);
+                SDL_RenderClear(ren);
+                SDL_RenderCopy(ren, tex, nullptr, nullptr);
+                SDL_RenderPresent(ren);
+                char title[160];
+                std::snprintf(title, sizeof title, "route-viewer  x %.0f  y %.0f  z %.0f  (%u ms per frame)", cam.position.x,
+                              cam.position.y, cam.position.z, static_cast<unsigned>(SDL_GetTicks() - t0));
+                SDL_SetWindowTitle(win, title);
+                dirty = false;
+                if (frames > 0 && --frames == 0) {
+                    std::printf("%s\n", title);
+                    running = false;
+                }
+            } else {
+                SDL_Delay(15);
+            }
+        }
+        SDL_DestroyTexture(tex);
+        SDL_DestroyRenderer(ren);
+        SDL_DestroyWindow(win);
+        SDL_Quit();
+        return 0;
+    } catch (const std::exception& err) {
+        std::cerr << "error: " << err.what() << "\n";
+        return 1;
+    }
+}

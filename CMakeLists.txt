@@ -55,8 +55,10 @@ add_library(trainz_content
   src/input/ActionMap.cpp
   src/input/KeyBindings.cpp
   src/view/AssetMeshes.cpp
+  src/view/FlyCamera.cpp
   src/view/GroundTextures.cpp
   src/view/MeshPreview.cpp
+  src/view/RouteLoader.cpp
   src/view/RouteScene.cpp
   src/view/SceneRender.cpp
 )
@@ -139,11 +141,14 @@ if(TRAINZ_BUILD_VIEWER)
     add_library(trainz_input_sdl src/input/SdlKeys.cpp)
     target_link_libraries(trainz_input_sdl PUBLIC trainz_content SDL2::SDL2)
     target_compile_options(trainz_input_sdl PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
+    add_executable(route-viewer tools/viewer/route_viewer.cpp)
+    target_link_libraries(route-viewer PRIVATE trainz_content SDL2::SDL2)
+    target_compile_options(route-viewer PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
     add_executable(key-tester tools/viewer/key_tester.cpp)
     target_link_libraries(key-tester PRIVATE trainz_input_sdl)
     target_compile_options(key-tester PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
   else()
-    message(STATUS "sound-player, key-tester and model-viewer not built: install libsdl2-dev")
+    message(STATUS "sound-player, key-tester, route-viewer and model-viewer not built: install libsdl2-dev")
   endif()
   if(SDL2_FOUND AND OpenGL_FOUND)
     add_executable(model-viewer tools/viewer/model_viewer.cpp)
@@ -169,6 +174,16 @@ if(TRAINZ_BUILD_TESTS)
             "$<TARGET_FILE:route-tool>"
             "${CMAKE_CURRENT_SOURCE_DIR}/testdata/ts2010")
   set_tests_properties(RouteTrack.Cli PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  if(TARGET route-viewer)
+    add_test(NAME RouteViewer.Cli
+      COMMAND "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_route_viewer_cli.py"
+              "$<TARGET_FILE:route-viewer>"
+              "${CMAKE_CURRENT_SOURCE_DIR}/testdata/ts2010")
+    # SDL keeps some memory until exit on purpose; leak reports from it are not ours.
+    set_tests_properties(RouteViewer.Cli PROPERTIES TIMEOUT 600 SKIP_RETURN_CODE 77
+                         ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1")
+  endif()
   add_executable(content_tests
     tests/test_action_map.cpp
     tests/test_animation.cpp
