@@ -72,7 +72,7 @@ class header that is empty for `mobs` and 8 bytes (`u32 3`, `u32 0xff000000`) fo
 ```
 
 `x`/`y` are metres inside the 720 m baseboard and `z` is the height in metres, as for track
-vertices. On all 50 disc routes the block fits **1,760,978 of 1,761,124 objects (99.99%)**.
+vertices. On all 50 disc routes, positions decode for **1,760,978 of 1,761,124 objects**; the other **146 remain unsupported or unexplained** (x/y outside 0..720, or too short).
 Most classes sit on the terrain (bilinear sample; share within 1 m, with the terrain rows
 flipped in brackets as a control):
 
