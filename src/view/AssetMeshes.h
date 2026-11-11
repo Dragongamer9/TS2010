@@ -16,6 +16,8 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -49,6 +51,7 @@ public:
 private:
     const trainz::content::JaArchive* archive(const std::filesystem::path& path);
     std::unique_ptr<PreparedMesh> load(const trainz::content::Kuid& kuid);
+    std::optional<trainz::content::Kuid> reskinBase(const trainz::content::Kuid& kuid);
     // Adds one mesh file's triangles; false (and counted) if it can't be read.
     bool appendMesh(const trainz::content::JaArchive& archive, const std::string& base, std::string mesh,
                     PreparedMesh& out);
@@ -59,6 +62,11 @@ private:
     std::map<std::string, std::size_t> misses_;
     std::map<std::string, std::size_t> parts_;
 };
+
+// The highest-detail mesh named in a .lm.txt level-of-detail list: entries are
+// mesh("<level>") { name="<file>"; } and the largest level is taken as full detail
+// (observed: e.g. 1.0 names the plain .im and 0.2 the "_med" one; not traced). Empty if none.
+std::string highestDetailLodMesh(std::span<const std::uint8_t> text);
 
 // Which mesh files of an asset config the view draws (paths as written, relative to the
 // asset folder), with counts of what was skipped and why added to `parts`. See the

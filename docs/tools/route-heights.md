@@ -105,10 +105,19 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   is turned by the object's yaw (radians, anticlockwise, inferred; which side faces +x at 0
   is not known) and placed at its position. **Each part is one flat colour**, the average of
   its colour texture. `.lm` level-of-detail lists are not read (an `.im` of the same name
-  is used if there is one). Assets without a readable mesh stay dots; the reasons and the
-  skipped parts are printed;
-- with `--session`, every vehicle as an orange dot, drawn at the height of its train's track
-  piece. That height is a **preview approximation, not a decoded vehicle elevation**: a
+  is used if there is one). Two more fallbacks, both observed and not traced:
+  - `.lm`: no `.lm` file exists on the disc; the archives ship `<name>.lm.txt` text lists
+    (`mesh("1.0") { name="body.im"; }`), and the entry with the largest level is used;
+  - reskins: a Paint Shed reskin (`skin.dat`) without a mesh of its own uses the base asset
+    named by the second KUID in its `skin.dat` (25 of the 61 disc reskins with two KUIDs get
+    a model this way). Its own textures are not applied yet.
+
+  Assets without a readable mesh stay dots; the reasons and the skipped parts are printed;
+- with `--session`, every vehicle as its 3D model when `--install` is given and the model
+  can be read (else an orange dot), drawn at the height of its train's track piece and turned
+  to follow its neighbours in the train (a vehicle's own stored yaw is 0 on the disc; front and
+  back are not known; train models are long along their own +y). Bogies are separate assets
+  and are not drawn yet. That height is a **preview approximation, not a decoded vehicle elevation**: a
   vehicle's own stored `z` is often 0.3, and what it means is not known.
 
 No surface textures, track curves, train models or animation yet. `--at X Y` takes world metres (+x east, +y

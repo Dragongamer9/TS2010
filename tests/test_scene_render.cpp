@@ -148,3 +148,18 @@ TEST(SceneRender, MeshSelectionTopLevelAndAssetFilename) {
               std::vector<std::string>{"usa_building_brick_5.im"});
     EXPECT_TRUE(selectAssetMeshes(config("kind \"scenery\"\n"), parts).empty());
 }
+
+TEST(SceneRender, LodTextPicksTheHighestDetailMesh) {
+    // The 70 t ore car's real .lm.txt (CR LF).
+    const std::string ore =
+        "version 1.0\r\noffset = 0.01;\r\ncalcPoint = center;\r\nmultiplier = 1.0;\r\n"
+        "mesh(\"0.2\")\r\n{\r\nname=\"70ton_orecar_body_med.im\";\r\n}\r\n"
+        "mesh(\"1.0\")\r\n{\r\nname=\"70ton_orecar_body.im\";\r\n}";
+    EXPECT_EQ(highestDetailLodMesh(std::vector<std::uint8_t>(ore.begin(), ore.end())), "70ton_orecar_body.im");
+    const std::string reversed = "mesh(\"1.0\") { name=\"hi\\a.im\"; } mesh(\"0.5\") { name=\"lo.im\"; }";
+    EXPECT_EQ(highestDetailLodMesh(std::vector<std::uint8_t>(reversed.begin(), reversed.end())), "hi/a.im");
+    for (const std::string& bad : {std::string(""), std::string("mesh(\"1.0\""), std::string("mesh(\"x\") { name=\"a.im\"; }"),
+                                  std::string("mesh(") }) {
+        (void)highestDetailLodMesh(std::vector<std::uint8_t>(bad.begin(), bad.end()));  // never crashes
+    }
+}

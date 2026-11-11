@@ -6,6 +6,7 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <numbers>
 
 namespace trainz::view {
 
@@ -151,18 +152,41 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
         }
         for (const auto& t : *in.trains) {
             double z = std::numeric_limits<double>::quiet_NaN();
+            double pieceHeading = std::numeric_limits<double>::quiet_NaN();
             if (const auto p = pieces.find(t.trackPiece); p != pieces.end()) {
                 const auto a = in.track->vertices.find(p->second->from), b = in.track->vertices.find(p->second->to);
                 if (a != in.track->vertices.end() && b != in.track->vertices.end()) {
                     z = (a->second.z + b->second.z) / 2.0;
+                    pieceHeading = std::atan2(b->second.worldY() - a->second.worldY(), b->second.worldX() - a->second.worldX());
                 }
             }
-            for (const auto& veh : t.vehicles) {
+            const auto& vs = t.vehicles;
+            for (std::size_t i = 0; i < vs.size(); ++i) {
+                const auto& veh = vs[i];
                 const double x = worldOf(veh.boardX, veh.x), y = worldOf(veh.boardY, veh.y);
                 const double vz = std::isfinite(z) ? z : veh.z;
-                if (near(x, y) && std::isfinite(vz)) {
-                    v.scene.dots.push_back({{x, y, vz + 2.0}, Rgb{255, 140, 0}, 3});
+                if (!near(x, y) || !std::isfinite(vz)) {
+                    continue;
                 }
+                // PREVIEW: a vehicle's stored yaw is 0 on the disc, so its heading is taken
+                // from its neighbours in the train (or the track piece when it is alone);
+                // front and back are not known. Train models are long along their own +y
+                // (e.g. the 70 t ore car: y -3.7..3.7, x -1.6..1.6), so yaw = heading - 90 deg.
+                const auto& prev = vs[i > 0 ? i - 1 : i];
+                const auto& next = vs[i + 1 < vs.size() ? i + 1 : i];
+                double heading = pieceHeading;
+                if (&prev != &next) {
+                    heading = std::atan2(worldOf(next.boardY, next.y) - worldOf(prev.boardY, prev.y),
+                                         worldOf(next.boardX, next.x) - worldOf(prev.boardX, prev.x));
+                }
+                if (in.meshes != nullptr && std::isfinite(heading) && v.scene.triangles.size() < kMaxSceneTriangles) {
+                    if (const PreparedMesh* m = in.meshes->get(veh.kuid)) {
+                        addPlacedMesh(v.scene, *m, x, y, vz, heading - std::numbers::pi / 2);
+                        ++v.vehiclesAsMeshes;
+                        continue;
+                    }
+                }
+                v.scene.dots.push_back({{x, y, vz + 2.0}, Rgb{255, 140, 0}, 3});
             }
         }
     }

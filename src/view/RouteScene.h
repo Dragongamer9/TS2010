@@ -32,6 +32,7 @@ struct RouteView {
     std::size_t sections = 0;
     std::size_t objectsAsMeshes = 0;
     std::size_t objectsAsDots = 0;
+    std::size_t vehiclesAsMeshes = 0;
 };
 
 inline constexpr std::size_t kMaxSceneTriangles = 4'000'000;
