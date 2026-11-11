@@ -106,9 +106,12 @@ int main(int argc, char** argv) {
         const auto w = static_cast<std::uint32_t>(spanX * 64), h = static_cast<std::uint32_t>(spanY * 64);
         std::vector<std::uint8_t> rgba(static_cast<std::size_t>(w) * h * 4, 0);
         if (cmd == "heights") {
-            // Diagnostic sampling only: the grid's border/overlap and world
-            // spacing are not yet confirmed. Use one 64x64 tile per section,
-            // sampling the full stored grid, including its borders.
+            // Grid layout (observed on the disc, not traced): vertex = row * side + column;
+            // columns run toward +x and rows toward +y; a section spans side - 4 cells
+            // (72 or 144), sharing its edge vertices with the next section (column/row
+            // side - 4 equals the neighbour's 0 on 81% of disc edges). The last 3 rows and
+            // columns lie past the edge and are not drawn. One 64x64 tile per section;
+            // the image's top is +y, as in "overview".
             double low = std::numeric_limits<double>::infinity();
             double high = -low;
             std::size_t invalid = 0;
@@ -129,15 +132,16 @@ int main(int argc, char** argv) {
             for (const auto& section : g.sections) {
                 const auto decoded = parseGroundSection(section, g.version);
                 const std::size_t side = groundVertexSide(section.tag);
-                if (side < 2 || decoded.vertices.size() != side * side) {
+                if (side < 8 || decoded.vertices.size() != side * side) {
                     throw ContentError("terrain vertex grid has an unexpected size");
                 }
                 const std::size_t tileX = static_cast<std::size_t>(static_cast<long>(section.x) - minX) * 64;
                 const std::size_t tileY = static_cast<std::size_t>(static_cast<long>(maxY) - section.y) * 64;
                 for (std::size_t y = 0; y < 64; ++y) {
                     for (std::size_t x = 0; x < 64; ++x) {
-                        const std::size_t vx = (x * (side - 1) + 31) / 63;
-                        const std::size_t vy = (y * (side - 1) + 31) / 63;
+                        const std::size_t cells = side - 4;
+                        const std::size_t vx = (x * cells + 31) / 63;
+                        const std::size_t vy = cells - (y * cells + 31) / 63;  // image top = +y
                         const double heightValue = decoded.vertices[vy * side + vx].height;
                         if (!std::isfinite(heightValue)) {
                             continue;  // non-finite samples and missing sections stay transparent
@@ -151,7 +155,7 @@ int main(int argc, char** argv) {
             }
             std::printf("height range: %.9g..%.9g (black..white; flat routes use grey); %zu non-finite vertices\n",
                         low, high, invalid);
-            std::cerr << "note: diagnostic height sampling; grid orientation, borders and spacing are unconfirmed\n";
+            std::cerr << "note: grid orientation and edge sharing are observed, not traced; spacing is unconfirmed\n";
         } else {
             for (std::size_t i = 3; i < rgba.size(); i += 4) {
                 rgba[i] = 255;

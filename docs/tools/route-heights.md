@@ -16,14 +16,16 @@ through `SafeOutputDir`, by default under `~/.local/share/trainz-native/routes/`
 archive is only read; `--out` remains restricted to the port's data folder and
 protected game folders remain excluded.
 
-Each section becomes a 64×64 tile. The command samples the full stored vertex
-grid with nearest-neighbour sampling, including its borders, for either `Secs`
-(76×76) or `Sec5` (148×148). Sections use their index x/y positions: increasing
-x goes right and increasing y goes up; stored vertex rows go down the image.
-This orientation is a diagnostic convention, not confirmed game behavior.
-Grid spacing, overlapping borders and the mapping to world coordinates still
-need research. Seams may therefore be visible; this is not a terrain interchange
-format or a claim of exact reconstruction.
+Each section becomes a 64×64 tile, sampled nearest-neighbour from the section's
+`side − 4` cells (72 for `Secs`, 144 for `Sec5`). Sections use their index x/y
+positions: increasing x goes right and increasing y goes up. Inside a section,
+columns run toward +x and rows toward +y, so the tile's top is the section's last
+row. This layout is observed, not traced: a section's column/row `side − 4` equals the
+neighbour's column/row 0 on 81% of the disc's section edges (see
+[route.md](../formats/route.md)), so most seams vanish; the other edges really differ
+in the data. The 3 rows and columns past the shared edge are not drawn. Grid spacing
+and the mapping to world coordinates are still unconfirmed; this is not a terrain
+interchange format.
 
 All finite vertex heights across the route determine one shared scale: the
 minimum is black and the maximum white. A flat route is mid-grey (128). The

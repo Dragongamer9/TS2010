@@ -5,20 +5,18 @@ real TS2010 install.
 
 ## Prerequisites
 
-The viewers need SDL2 and OpenGL. On Hearth OS (Debian 13):
+The viewers need SDL2 and OpenGL; the build also needs the compiler, CMake, the
+test library and Python. On Hearth OS (Debian 13), this one line installs everything
+(the same packages the CI builds use, see `README.md`):
 
 ```sh
 sudo apt update
-sudo apt install libsdl2-dev libgl-dev
+sudo apt install cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev python3 \
+  pkg-config libmpg123-dev libjpeg62-turbo-dev
 ```
 
-If you want MP3 playback with `sound-player`, also install:
-
-```sh
-sudo apt install libmpg123-dev
-```
-
-These are the same packages that the CI builds use.
+`libmpg123-dev` (MP3 sounds) and `libjpeg62-turbo-dev` (`.jpg` textures) are optional:
+without them the build still works, but those files are refused.
 
 ## Build the Tools
 
@@ -91,11 +89,11 @@ build/model-viewer /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 58422 50128/benthd
 
 ### Finding a mesh to view
 
-Use `asset-tool` to list what's available:
+List the meshes in an archive with `ja-tool`:
 
 ```sh
-# Find all .im and .pm meshes
-build/asset-tool find /path/to/TS2010 --type im --type pm | head -20
+# The first 20 .im and .pm meshes in Builtin/8.ja
+build/ja-tool list /path/to/TS2010/Builtin/8.ja | grep -iE '\.(im|pm)$' | head -20
 ```
 
 Or search for a specific asset:
@@ -122,7 +120,7 @@ Plays a sound from a Trainz archive through the default audio device.
 ### Basic usage
 
 ```sh
-build/sound-player /path/to/TS2010/Base.ja "UI\main menu.wav"
+build/sound-player /path/to/TS2010/Base.ja "trackside/switchlever/points.wav"
 ```
 
 This:
@@ -137,23 +135,23 @@ If the build has `libmpg123` support (you installed `libmpg123-dev` and CMake
 found it), it can play MP3 files directly:
 
 ```sh
-build/sound-player /path/to/TS2010/Data.ja "Sound/ambient.mp3"
+build/sound-player /path/to/TS2010/Base.ja "libraries/commandsounds/squelch_short.mp3"
 ```
 
-It can also play MP3 data wrapped in a WAV container (common in TS2010).
+It can also play the few WAV files that hold MP3 data inside (3 on the whole disc).
 
 ### Finding sounds to play
 
-List sounds with `asset-tool`:
+List sounds with `ja-tool`:
 
 ```sh
-build/asset-tool find /path/to/TS2010 --type wav --type mp3 | head -20
+build/ja-tool list /path/to/TS2010/Base.ja | grep -iE '\.(wav|mp3)$' | head -20
 ```
 
 Or search for a specific sound by name:
 
 ```sh
-build/ja-tool list /path/to/TS2010/Base.ja | grep -i "main menu"
+build/ja-tool list /path/to/TS2010/Base.ja | grep -i "points"
 ```
 
 ### Tips
@@ -216,7 +214,7 @@ This means pressing Ctrl+Shift+D triggers the "next-view" action in the
 
 ## Common Issues
 
-### "Cannot open a window" or "OpenGL 2.1 context"
+### "cannot open a window" or "OpenGL 2.1 context"
 
 Make sure SDL2 and OpenGL drivers are installed:
 
@@ -246,7 +244,7 @@ textures (they'll appear grey).
 The file exists but contains no audio data. This can happen with damaged
 files. Try a different sound.
 
-### "Cannot open audio device"
+### "cannot open an audio device"
 
 SDL2 couldn't open the default audio device. Check your sound system:
 
@@ -263,8 +261,8 @@ installed.
 To confirm everything works, try these three commands in order:
 
 ```sh
-# 1. Play the main menu sound
-build/sound-player /path/to/TS2010/Base.ja "UI\main menu.wav"
+# 1. Play a short sound (switch points)
+build/sound-player /path/to/TS2010/Base.ja "trackside/switchlever/points.wav"
 
 # 2. View a simple mesh
 build/model-viewer /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 58422 50128/benthd.pm"

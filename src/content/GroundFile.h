@@ -128,7 +128,7 @@ struct GroundSectionData {
     std::uint32_t textureSlotCount = 0;  // as stored (250 on the disc); at most 250 slots are read
     std::vector<GroundTextureSlot> textures;
     std::vector<GroundHeightCell> cells;
-    std::vector<GroundVertex> vertices;  // groundVertexSide(tag)^2, row by row (order of rows/columns not checked)
+    std::vector<GroundVertex> vertices;  // groundVertexSide(tag)^2, row by row: i = row * side + column; columns +x, rows +y, side - 4 cells with shared edges (observed; see route.md)
 };
 
 // Decodes one section's data with the rules of the given file version.

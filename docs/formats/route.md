@@ -165,9 +165,16 @@ C++ reader agree:
 - `weight` is the blend weight of a texture layer. The writer leaves out a
   layer whose weight is 0 (`0x6f0bd0`), and the short forms imply 255.
   `extra` is unknown (perhaps rotation or scale).
-- 76 × 76 vertices for a Secs section would mean a 10 m grid on a 720 m
-  baseboard with a 2-vertex border on each side, and Sec5's 148 × 148 a 5 m grid.
-  Neither the spacing nor the border has been traced.
+- **Grid layout (observed, 2026-11-11):** vertex `i = row × side + column`;
+  columns run toward +x and rows toward +y of the section index. A section spans
+  `side − 4` cells (72 for Secs, 144 for Sec5): its column 72 equals column 0 of the
+  section at x+1, and its row 72 equals row 0 of the section at y+1. The last 3 rows
+  and columns (73–75) lie past the shared edge. Checked on all 50 disc routes:
+  21,955 of 27,006 neighbouring edges (81%) match exactly; the rest differ (often by
+  metres; along x and y alike), for reasons not known: perhaps sections edited
+  apart. (This replaces the earlier guess of a 2-vertex border on each side.)
+  72 cells on a 720 m baseboard would be a 10 m grid (144 → 5 m for Sec5);
+  the spacing is still not traced.
 - `cells` (a 36 × 36 grid, one cell per 2 × 2 vertices in the old index form)
   holds one float per cell, possibly a water level. Not traced.
 - The texture-slot weight might be a usage count or scale. The writer leaves
@@ -282,10 +289,11 @@ out, and the C++ reader refuses versions < 12.
    the colour and KUID, the container `word`, `Rule` payloads and the tail
    records. Also the version < 7 environment (`0x463cb0`) and container
    version 2.
-2. The meaning of the vertex `extra` byte and the cell value, and the
-   real-world spacing and orientation of the grid.
+2. The meaning of the vertex `extra` byte and the cell value, the real-world
+   grid spacing, and why 19% of section edges don't match their neighbour.
 3. How the 250 texture slots map to ground-texture assets at draw time.
 4. The overview colour order (whether the TGA loader reorders bytes for
    format 2).
-5. `mapfile.trk` (track splines) and `mapfile.obs` (placed objects). Together
-   with the meshes, they would give a route viewer.
+5. The payloads inside `mapfile.trk` and `mapfile.obs` (the containers are read:
+   see [route-objects.md](route-objects.md)). Together with the meshes, they would
+   give a route viewer.
