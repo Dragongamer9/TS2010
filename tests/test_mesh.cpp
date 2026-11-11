@@ -98,7 +98,7 @@ Bytes matl(std::uint32_t version, const std::string& name, const std::vector<std
     return b;
 }
 
-Bytes mesh(const std::vector<std::pair<Bytes, Bytes>>& parts, bool withInfl = true) {
+Bytes mesh(const std::vector<std::pair<Bytes, Bytes>>& parts, bool withInfl = true, const Bytes& extraChunks = {}) {
     Bytes body;
     putTag(body, "IDXM");
     Bytes info;
@@ -121,12 +121,51 @@ Bytes mesh(const std::vector<std::pair<Bytes, Bytes>>& parts, bool withInfl = tr
         const Bytes infl = chunk("INFL", Bytes{100, 0, 0, 0, 0, 0, 0, 0});
         body.insert(body.end(), infl.begin(), infl.end());
     }
+    body.insert(body.end(), extraChunks.begin(), extraChunks.end());
     Bytes b;
     putTag(b, "JIRF");
     putU32(b, static_cast<std::uint32_t>(body.size()));
     b.insert(b.end(), body.begin(), body.end());
     return b;
 }
+
+// ATCH data: version 100, count, then points (name field as given, 9 + 3 floats).
+struct AtchPoint {
+    Bytes nameField;  // u32 length word + name bytes
+    float values[12];
+};
+Bytes narrowName(const std::string& n, std::size_t padded) {
+    Bytes b;
+    putU32(b, static_cast<std::uint32_t>(padded));
+    b.insert(b.end(), n.begin(), n.end());
+    b.resize(4 + padded, 0);
+    return b;
+}
+Bytes wideName(const std::string& n) {  // UTF-16LE with a NUL, bit 30 set in the length
+    Bytes b;
+    putU32(b, static_cast<std::uint32_t>((n.size() + 1) * 2) | 0x40000000u);
+    for (char c : n) {
+        b.push_back(static_cast<std::uint8_t>(c));
+        b.push_back(0);
+    }
+    b.push_back(0);
+    b.push_back(0);
+    return b;
+}
+Bytes atch(const std::vector<AtchPoint>& points, std::uint32_t version = 100) {
+    Bytes b;
+    putU32(b, version);
+    putU32(b, static_cast<std::uint32_t>(points.size()));
+    for (const auto& p : points) {
+        b.insert(b.end(), p.nameField.begin(), p.nameField.end());
+        for (float f : p.values) {
+            putF(b, f);
+        }
+    }
+    return b;
+}
+const AtchPoint kBog0{narrowName("a.bog0", 8), {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -2.3F, 0.42F}};
+const AtchPoint kTrack{wideName("a.track0a"), {-1, 0, 0, 0, -1, 0, 0, 0, 1, 0, -500, 0.17F}};
 
 }  // namespace
 
@@ -337,4 +376,51 @@ TEST(Preview, HugeAndBrokenCoordinatesAreSafe) {
     f.parts[0].geometry.vertices[1].y = std::numeric_limits<float>::quiet_NaN();
     f.parts[0].geometry.vertices[2].z = -std::numeric_limits<float>::infinity();
     EXPECT_NO_THROW((void)trainz::view::renderMeshPreview(f, 32, 32, trainz::view::PreviewView::Side));
+}
+
+TEST(Mesh, AttachmentPointsNarrowAndWideNames) {
+    const auto pts = parseAttachmentChunk(atch({kBog0, kTrack}));
+    ASSERT_EQ(pts.size(), 2u);
+    EXPECT_EQ(pts[0].name, "a.bog0");
+    EXPECT_FLOAT_EQ(pts[0].position[1], -2.3F);
+    EXPECT_FLOAT_EQ(pts[0].position[2], 0.42F);
+    EXPECT_FLOAT_EQ(pts[0].rotation[4], 1.0F);
+    EXPECT_EQ(pts[1].name, "a.track0a");  // UTF-16 (bit 30), returned as UTF-8
+    EXPECT_FLOAT_EQ(pts[1].rotation[0], -1.0F);
+    EXPECT_FLOAT_EQ(pts[1].position[1], -500.0F);
+    EXPECT_TRUE(parseAttachmentChunk(atch({})).empty());
+}
+
+TEST(Mesh, AttachmentChunkDamageIsRejected) {
+    EXPECT_THROW(parseAttachmentChunk(atch({kBog0}, 101)), ContentError);  // unknown version
+    Bytes extra = atch({kBog0});
+    extra.push_back(0);
+    EXPECT_THROW(parseAttachmentChunk(extra), ContentError);  // bytes after the last point
+    Bytes many = atch({kBog0});
+    many[4] = 0xFF, many[5] = 0xFF, many[6] = 0xFF, many[7] = 0x0F;  // count far beyond the size
+    EXPECT_THROW(parseAttachmentChunk(many), ContentError);
+    AtchPoint flagged = kBog0;
+    flagged.nameField[3] |= 0x80;  // top bit: not a known flag
+    EXPECT_THROW(parseAttachmentChunk(atch({flagged})), ContentError);
+    const Bytes good = atch({kBog0, kTrack});
+    for (std::size_t len = 0; len < good.size(); ++len) {
+        EXPECT_THROW(parseAttachmentChunk(Bytes(good.begin(), good.begin() + static_cast<std::ptrdiff_t>(len))),
+                     ContentError);
+    }
+}
+
+TEST(Mesh, WholeFileReadsAtchAndSurvivesABadOne) {
+    const auto parts = std::vector<std::pair<Bytes, Bytes>>{{matl(102, "a", {}), geom(200)}};
+    const auto f = parseMesh(mesh(parts, true, chunk("ATCH", atch({kBog0}))));
+    ASSERT_EQ(f.attachments.size(), 1u);
+    EXPECT_EQ(f.attachments[0].name, "a.bog0");
+    EXPECT_EQ(f.otherChunks, (std::vector<std::string>{"INFL"}));  // ATCH is read, not listed
+
+    Bytes broken = atch({kBog0});
+    broken.pop_back();
+    const auto g = parseMesh(mesh(parts, true, chunk("ATCH", broken)));
+    EXPECT_TRUE(g.attachments.empty());
+    EXPECT_EQ(g.parts.size(), 1u);  // the geometry still loads
+    ASSERT_FALSE(g.warnings.empty());
+    EXPECT_NE(g.warnings.back().find("ATCH"), std::string::npos);
 }

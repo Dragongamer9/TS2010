@@ -97,9 +97,10 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   - a top-level `mesh`; or every `mesh-table` entry that is the full-detail daytime model at
     the asset's origin; or, with neither, `asset-filename` + `.im`;
   - **skipped and counted**: entries with `lod-level` above 0 (simpler copies for distance),
-    `night-mesh-base` (night variants), `att` (hanging from an attachment point, which is
-    not decoded yet, so attached parts such as doors can be **missing**) and shadow meshes
-    (by name).
+    `night-mesh-base` (night variants) and shadow meshes (by name). Entries with `att` (doors,
+    fans, horns …) are hung on that attachment point (the mesh's `ATCH` chunk) of the entry
+    named by `att-parent`, or of `default` when none is given (837 disc entries; the port's
+    reading, not traced). Chains of attached parts work; a missing parent or point is counted.
 
   These rules are the port's reading of the key names, not traced game behaviour. Each mesh
   is turned by the object's yaw (radians, anticlockwise, inferred; which side faces +x at 0
@@ -110,9 +111,10 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   Direct3D convention; this is assumed from the pictures looking right, not traced. No
   blending, lighting maps or the game's material flags: a texture is drawn as a **cut-out**
   (texels with alpha under 128 left out) only when its alpha looks like a mask, a
-  **heuristic**: at least 5% clear and 5% solid texels, and under a quarter in between.
-  Other textures are drawn solid, since their alpha may mean something else (gloss). So
-  some billboard trees whose alpha is smooth still show as solid squares, and some bushes
+  **heuristic**: at least 5% clear and 1% solid texels, and under half in between (what
+  the rule changes was listed on two views: grass, flowers, trees, lichen, a chain and a
+  window alpha, no vehicle bodies). Other textures are drawn solid, since their alpha may
+  mean something else (gloss), so a few cut-outs may still show as squares, and some bushes
   are dark because their texture is (their solid texels average RGB 43,41,53; how the game
   lights them is not known). A part with no readable texture keeps a flat grey. `.lm`
   level-of-detail lists are not read (an `.im` of the same name is used if there is one). Two more fallbacks, both observed and not traced:
@@ -128,10 +130,18 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
 - with `--session`, every vehicle as its 3D model when `--install` is given and the model
   can be read (else an orange dot), drawn at the height of its train's track piece and turned
   to follow its neighbours in the train (a vehicle's own stored yaw is 0 on the disc; front and
-  back are not known; train models are long along their own +y). Bogies are separate assets
-  and are not drawn yet. That height is a **preview approximation, not a decoded vehicle elevation**: a
+  back are not known; train models are long along their own +y). **Bogies** are drawn on the
+  body's `a.bog<N>` points: a traincar names them as `bogey <kuid>` (827 disc traincars, the
+  same model on every point) or as a `bogeys` group (328 traincars) whose entry N names the
+  model for `a.bog<N>`, with `reversed` read as a 180° turn about z (both matches inferred,
+  not traced). Bare numbers are user −1 (the disc's bogie folders, e.g. `kuid _1 100008`,
+  confirm it). A bogie's `asset-filename` often exists only as a `.pm` (286 disc assets),
+  which is used when there is no `.im`. Bogies don't turn on curves (track curves are not
+  decoded). That height is a **preview approximation, not a decoded vehicle elevation**: a
   vehicle's own stored `z` is often 0.3, and what it means is not known.
 
-No terrain textures (the ground is coloured from the overview maps), track curves or animation yet. `--at X Y` takes world metres (+x east, +y
+`--eye DX DY DZ` puts the camera that many metres from the centre's ground point (for
+close-ups). No terrain textures (the ground is coloured from the overview maps), track
+curves or animation yet. `--at X Y` takes world metres (+x east, +y
 north); without it the view centres on the first train, or else the area with the most
 track junctions. Writes `<route-folder>.view.png` through `SafeOutputDir`.

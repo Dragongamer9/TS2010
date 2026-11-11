@@ -122,7 +122,7 @@ trainz::content::ConfigNode config(const std::string& text) {
 
 }  // namespace
 
-TEST(SceneRender, MeshSelectionSkipsLodsNightAttachmentsAndShadows) {
+TEST(SceneRender, MeshSelectionSkipsLodsNightAndShadowsKeepsAttachedParts) {
     std::map<std::string, std::size_t> parts;
     const auto picked = selectAssetMeshes(config(
         "mesh-table\n{\n"
@@ -132,20 +132,25 @@ TEST(SceneRender, MeshSelectionSkipsLodsNightAttachmentsAndShadows) {
         "  door\n  {\n    mesh \"door.im\"\n    att \"a.door\"\n    att-parent \"lod-0\"\n  }\n"
         "  shadow\n  {\n    mesh \"car_shadow.im\"\n  }\n"
         "  load\n  {\n    mesh \"load/load.im\"\n    auto-create 1\n  }\n"
+        "  horn\n  {\n    mesh \"horn.im\"\n    att \"a.horn\"\n  }\n"
+        "  odd\n  {\n    mesh \"odd.im\"\n    att 3\n  }\n"
         "}\n"),
         parts);
-    EXPECT_EQ(picked, (std::vector<std::string>{"lod0.im", "load/load.im"}));
+    EXPECT_EQ(picked, (std::vector<MeshChoice>{{"lod-0", "lod0.im", "", ""},
+                                               {"door", "door.im", "a.door", "lod-0"},
+                                               {"load", "load/load.im", "", ""},
+                                               {"horn", "horn.im", "a.horn", "default"}}));  // no att-parent: "default"
     EXPECT_EQ(parts["mesh-table entries skipped: lower level of detail"], 1U);
     EXPECT_EQ(parts["mesh-table entries skipped: night variant"], 1U);
-    EXPECT_EQ(parts["mesh-table entries skipped: on an attachment point"], 1U);
     EXPECT_EQ(parts["mesh-table entries skipped: shadow mesh"], 1U);
+    EXPECT_EQ(parts["mesh-table entries skipped: unreadable att"], 1U);
 }
 
 TEST(SceneRender, MeshSelectionTopLevelAndAssetFilename) {
     std::map<std::string, std::size_t> parts;
-    EXPECT_EQ(selectAssetMeshes(config("mesh \"tree.im\"\n"), parts), std::vector<std::string>{"tree.im"});
+    EXPECT_EQ(selectAssetMeshes(config("mesh \"tree.im\"\n"), parts), (std::vector<MeshChoice>{{"", "tree.im", "", ""}}));
     EXPECT_EQ(selectAssetMeshes(config("kind \"scenery\"\nasset-filename \"usa_building_brick_5\"\n"), parts),
-              std::vector<std::string>{"usa_building_brick_5.im"});
+              (std::vector<MeshChoice>{{"", "usa_building_brick_5.im", "", ""}}));
     EXPECT_TRUE(selectAssetMeshes(config("kind \"scenery\"\n"), parts).empty());
 }
 
@@ -289,11 +294,13 @@ TEST(SceneRender, AlphaTestHeuristic) {
         }
         return rgba;
     };
-    EXPECT_TRUE(wantsAlphaTest(image(40, 60, 0)));    // leaves: a clear/solid mix
-    EXPECT_FALSE(wantsAlphaTest(image(0, 100, 0)));   // all solid
-    EXPECT_FALSE(wantsAlphaTest(image(2, 98, 0)));    // a few clear texels only
-    EXPECT_FALSE(wantsAlphaTest(image(98, 2, 0)));    // nearly all clear (e.g. a gloss mask)
-    EXPECT_FALSE(wantsAlphaTest(image(30, 30, 40)));  // smooth alpha: not a cut-out
+    EXPECT_TRUE(wantsAlphaTest(image(40, 60, 0)));     // leaves: a clear/solid mix
+    EXPECT_TRUE(wantsAlphaTest(image(40, 20, 40)));    // grass with soft edges (e.g. "erba 014": 36% between)
+    EXPECT_TRUE(wantsAlphaTest(image(98, 2, 0)));      // thin blades: 2% solid
+    EXPECT_FALSE(wantsAlphaTest(image(0, 100, 0)));    // all solid
+    EXPECT_FALSE(wantsAlphaTest(image(2, 98, 0)));     // a few clear texels only
+    EXPECT_FALSE(wantsAlphaTest(image(995, 5, 0)));    // nearly all clear: under 1% solid
+    EXPECT_FALSE(wantsAlphaTest(image(20, 20, 60)));   // mostly smooth alpha: not a cut-out
     EXPECT_FALSE(wantsAlphaTest({}));
 }
 
@@ -363,4 +370,75 @@ TEST(SceneRender, HugeTextureSidesAreRejectedWithoutOverflow) {
     top.smaller.push_back(huge);
     s.textures[0] = &top;
     EXPECT_NO_THROW(renderScene(s, lookingDown(), 8, 8));
+}
+
+TEST(SceneRender, LocalFrameAppliesAndComposes) {
+    LocalFrame quarter;  // a quarter turn about z (x axis -> +y), then moved to (10, 0, 1)
+    quarter.r[0] = 0, quarter.r[1] = 1, quarter.r[3] = -1, quarter.r[4] = 0;
+    quarter.t[0] = 10, quarter.t[2] = 1;
+    const float p[3] = {2, 0, 0};
+    float q[3];
+    quarter.apply(p, q);
+    EXPECT_FLOAT_EQ(q[0], 10);
+    EXPECT_FLOAT_EQ(q[1], 2);
+    EXPECT_FLOAT_EQ(q[2], 1);
+
+    LocalFrame lift;  // a point 3 m up inside the turned frame
+    lift.t[2] = 3;
+    const LocalFrame both = lift.then(quarter);
+    float r[3];
+    both.apply(p, r);  // (2,0,0) in lift -> (2,0,3) -> turned and moved
+    EXPECT_FLOAT_EQ(r[0], 10);
+    EXPECT_FLOAT_EQ(r[1], 2);
+    EXPECT_FLOAT_EQ(r[2], 4);
+
+    trainz::content::MeshAttachment a;
+    a.position[1] = -2.3F;
+    const LocalFrame f = LocalFrame::of(a);
+    EXPECT_FLOAT_EQ(f.t[1], -2.3F);
+    EXPECT_FLOAT_EQ(f.r[8], 1);
+}
+
+TEST(SceneRender, PlacedMeshWithInnerFrame) {
+    PreparedMesh m;
+    LocalTriangle t{};
+    t.p[0][0] = 1;
+    m.triangles.push_back(t);
+    LocalFrame inner;
+    inner.t[1] = 5;  // e.g. a bogie point 5 m along the body's +y
+    Scene s;
+    addPlacedMesh(s, m, inner, 100, 0, 0, std::numbers::pi / 2);
+    ASSERT_EQ(s.triangles.size(), 1U);
+    EXPECT_NEAR(s.triangles[0].p[0].x, 95, 1e-5);  // (1,5,0) turned a quarter: (-5,1,0)
+    EXPECT_NEAR(s.triangles[0].p[0].y, 1, 1e-5);
+}
+
+TEST(SceneRender, BogieChoiceByPoint) {
+    using trainz::content::Kuid;
+    PreparedMesh car;
+    EXPECT_FALSE(car.bogeyFor("a.bog0"));  // no bogie named
+    car.bogey = Kuid{58422, 50120, std::nullopt};
+    car.bogeys.emplace(1, PreparedMesh::BogeyEntry{Kuid{523, 156565, std::nullopt}, true});
+    const auto b0 = car.bogeyFor("a.bog0");
+    ASSERT_TRUE(b0);
+    EXPECT_EQ(b0->kuid.content, 50120);  // the plain "bogey" for points the group doesn't name
+    EXPECT_FALSE(b0->reversed);
+    const auto b1 = car.bogeyFor("A.BOG1");
+    ASSERT_TRUE(b1);
+    EXPECT_EQ(b1->kuid.content, 156565);
+    EXPECT_TRUE(b1->reversed);
+    for (const char* other : {"a.bog", "a.limfront", "a.bogx", "a.bog0001", "b.bog0"}) {
+        EXPECT_FALSE(car.bogeyFor(other)) << other;
+    }
+}
+
+TEST(SceneRender, ConfigKuidReadsBareNumbers) {
+    const auto root = config("bogey 100008\nother <kuid:58422:50120>\nbad -5\nname \"x\"\n");
+    const auto bare = configKuid(*root.child("bogey"));
+    ASSERT_TRUE(bare);
+    EXPECT_EQ(bare->user, -1);
+    EXPECT_EQ(bare->content, 100008);
+    EXPECT_EQ(configKuid(*root.child("other"))->user, 58422);
+    EXPECT_FALSE(configKuid(*root.child("bad")));
+    EXPECT_FALSE(configKuid(*root.child("name")));
 }

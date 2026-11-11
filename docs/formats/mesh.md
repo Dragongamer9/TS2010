@@ -37,7 +37,8 @@ fits exactly with one header word fewer than version 102.
      "MATL" ...   material, see 3.
      "GEOM" ...   geometry, see 2.
      "NINF" ...   only in .pm (progressive meshes); not parsed
-  "INFL" / "ATCH" / "SKEL" / "PMIN"   optional top-level chunks; not parsed
+  "ATCH"  attachment points, see 4. (read)
+  "INFL" / "SKEL" / "PMIN"   optional top-level chunks; not parsed
 ```
 
 Counts seen in `8.ja` + `Base.ja`:
@@ -45,7 +46,7 @@ Counts seen in `8.ja` + `Base.ja`:
 | Top-level chunk | Count |
 |---|---:|
 | `INFL` | 2,023 |
-| `ATCH` (probably attachment points) | 299 |
+| `ATCH` (attachment points, see 4.) | 299 |
 | `SKEL` (skeleton) | 145 |
 | `PMIN` (`.pm` only) | 26 |
 | `NINF` (inside `.pm` parts) | 106 |
@@ -106,9 +107,36 @@ u32 textureCount
   - **1,371 are nowhere in the asset.** They probably come from another asset
     or are missing. How the game resolves those is **unknown**.
 
-## 4. Not done yet
+## 4. `ATCH` – attachment points (checked on the whole disc)
 
-- `INFO`, `INFL`, `ATCH`, `SKEL`, `PMIN`, `NINF`.
+Named points that other parts hang on: bogies (`a.bog0`, `a.bog1`), couplers
+(`a.limfront`, `a.limback`), loads, lights, effects, passenger and track ends
+(`a.track0a`/`a.track0b`), and so on.
+
+```
+u32 100                version (the only value seen)
+u32 count
+then count times:
+  u32 nameBytes        bit 30 set: the name is UTF-16LE (32 names); the low bits are the byte count
+  name[nameBytes]      NUL-padded (8-bit names: lengths are multiples of 4)
+  float rotation[9]    a 3x3 rotation
+  float position[3]    metres, in the mesh's own space (Z up)
+```
+
+**Whole disc (observed):** all 5,868 `ATCH` chunks in `Base.ja`, `Data.ja` and
+`Builtin\1.ja`–`8.ja` (`.im` and `.pm`) decode exactly to their end: 113,760 points, and
+every rotation has unit-length rows. The 70 t ore car's `a.bog0`/`a.bog1` sit at
+y = ∓2.311 m, z = 0.419 m; a 1 km straight track piece has `a.track0a`/`a.track0b` at
+y = ∓500 m, the `0a` end turned 180° about z. This also shows the position is the last 3 floats.
+
+**Not traced:** the index order of the rotation. 99% of bogie points are the identity or
+180° about z, where the order makes no difference; for the rest the port assumes Direct3D's
+(`rotation[0..2]` is where the point's x axis points, `[3..5]` its y, `[6..8]` its z).
+A damaged `ATCH` is reported as a warning and the mesh still loads.
+
+## 5. Not done yet
+
+- `INFO`, `INFL`, `SKEL`, `PMIN`, `NINF`; the index order of the `ATCH` rotation.
 - What the header float and the v201 extra values mean.
 - Tracing the reader in `Render3DFoundation_7c.dll` to confirm the field names.
 - A real GPU model viewer. `mesh-tool preview` is a small software renderer

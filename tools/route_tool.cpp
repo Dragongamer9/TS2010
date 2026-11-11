@@ -23,6 +23,7 @@
 #include "content/TrackLayout.h"
 #include "content/JaArchive.h"
 
+#include <array>
 #include <algorithm>
 #include <cerrno>
 #include <cmath>
@@ -47,14 +48,16 @@ int main(int argc, char** argv) {
                      "  route-tool heights  ARCHIVE.ja ROUTE_FOLDER [--out DIR]\n"
                      "  route-tool track    ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--out DIR]\n"
                      "  route-tool view     ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--at X Y]\n"
-                     "                      [--radius M] [--install DIR] [--out DIR]   a 3D view of part of the route\n"
-                     "                      (--install: the TS2010 folder, to draw objects' 3D models)\n";
+                     "                      [--radius M] [--install DIR] [--eye DX DY DZ] [--out DIR]   a 3D view of part of the route\n"
+                     "                      (--install: the TS2010 folder, to draw objects' 3D models;\n"
+                     "                       --eye: camera position in metres from the centre's ground point)\n";
         return 2;
     }
     const std::string cmd = argv[1];
     fs::path outDir;
     std::string sessionArchive, sessionFolder;
     std::optional<double> atX, atY;
+    std::optional<std::array<double, 3>> eye;
     double radius = 900.0;
     fs::path installDir;
     for (int i = 4; i < argc; ++i) {
@@ -64,6 +67,9 @@ int main(int argc, char** argv) {
         } else if (opt == "--at" && i + 2 < argc && cmd == "view") {
             atX = std::stod(argv[++i]);
             atY = std::stod(argv[++i]);
+        } else if (opt == "--eye" && i + 3 < argc && cmd == "view") {
+            eye = std::array<double, 3>{std::stod(argv[i + 1]), std::stod(argv[i + 2]), std::stod(argv[i + 3])};
+            i += 3;
         } else if (opt == "--install" && i + 1 < argc && cmd == "view") {
             installDir = argv[++i];
         } else if (opt == "--radius" && i + 1 < argc && cmd == "view") {
@@ -164,6 +170,9 @@ int main(int argc, char** argv) {
             if (!(radius >= 50 && radius <= 20000)) {
                 throw ContentError("--radius must be 50..20000 metres");
             }
+            if (eye && !std::all_of(eye->begin(), eye->end(), [](double d) { return std::isfinite(d) && std::fabs(d) <= 20000; })) {
+                throw ContentError("--eye values must be numbers within 20000 metres");
+            }
             std::optional<AssetIndex> index;
             std::optional<trainz::view::AssetMeshes> meshes;
             if (!installDir.empty()) {
@@ -176,15 +185,22 @@ int main(int argc, char** argv) {
             in.track = haveTrack ? &track : nullptr;
             in.objects = &objects;
             in.trains = sessionArchive.empty() ? nullptr : &trains;
-            const auto view = trainz::view::buildRouteView(in, radius, atX, atY);
+            auto view = trainz::view::buildRouteView(in, radius, atX, atY);
+            if (eye) {
+                const auto& t = view.camera.target;
+                view.camera.eye = {t.x + (*eye)[0], t.y + (*eye)[1], t.z + (*eye)[2]};
+                if ((*eye)[0] == 0 && (*eye)[1] == 0 && (*eye)[2] == 0) {
+                    throw ContentError("--eye must not be the centre itself");
+                }
+            }
             w = 1280, h = 720;
             rgba = trainz::view::renderScene(view.scene, view.camera, w, h);
             std::printf("view: centre %.0f, %.0f, radius %.0f m; %zu sections, %zu triangles, %zu track lines, "
                         "%zu dots (objects green, signals magenta, trains orange); objects as models %zu, as dots %zu; "
-                        "vehicles as models %zu; straight track\n",
+                        "vehicles as models %zu (bogies %zu); straight track\n",
                         view.centreX, view.centreY, radius, view.sections, view.scene.triangles.size(),
                         view.scene.lines.size(), view.scene.dots.size(), view.objectsAsMeshes, view.objectsAsDots,
-                        view.vehiclesAsMeshes);
+                        view.vehiclesAsMeshes, view.bogiesAsMeshes);
             if (meshes) {
                 for (const auto& [why, n] : meshes->misses()) {
                     std::printf("  assets without a model: %zu (%s)\n", n, why.c_str());

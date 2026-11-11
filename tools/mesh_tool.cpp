@@ -148,6 +148,11 @@ int main(int argc, char** argv) {
             for (const auto& c : mesh.otherChunks) {
                 std::printf("  extra chunk %s\n", c.c_str());
             }
+            for (const auto& at : mesh.attachments) {
+                std::printf("  attachment %s at %.3f, %.3f, %.3f\n", at.name.c_str(), static_cast<double>(at.position[0]),
+                            static_cast<double>(at.position[1]), static_cast<double>(at.position[2]));
+            }
+
             for (const auto& p : mesh.parts) {
                 std::printf("  part %u: GEOM v%u, %zu vertices, %zu triangles%s%s, material \"%s\" (%s)\n", p.index,
                             p.geometry.version, p.geometry.vertices.size(), p.geometry.indices.size() / 3,

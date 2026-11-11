@@ -181,8 +181,21 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
                 }
                 if (in.meshes != nullptr && std::isfinite(heading) && v.scene.triangles.size() < kMaxSceneTriangles) {
                     if (const PreparedMesh* m = in.meshes->get(veh.kuid)) {
-                        addPlacedMesh(v.scene, *m, x, y, vz, heading - std::numbers::pi / 2);
+                        const double yaw = heading - std::numbers::pi / 2;
+                        addPlacedMesh(v.scene, *m, x, y, vz, yaw);
                         ++v.vehiclesAsMeshes;
+                        // Bogies on the body's "a.bog<N>" points (see PreparedMesh::bogeyFor).
+                        for (const auto& [name, frame] : m->attachments) {
+                            const auto b = m->bogeyFor(name);
+                            const PreparedMesh* bogie = b ? in.meshes->get(b->kuid) : nullptr;
+                            if (bogie == nullptr) {
+                                continue;
+                            }
+                            LocalFrame turned;  // "reversed": turned 180 degrees about z (inferred)
+                            turned.r[0] = turned.r[4] = b->reversed ? -1.0F : 1.0F;
+                            addPlacedMesh(v.scene, *bogie, turned.then(frame), x, y, vz, yaw);
+                            ++v.bogiesAsMeshes;
+                        }
                         continue;
                     }
                 }

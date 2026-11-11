@@ -54,10 +54,24 @@ struct MeshPart {
     std::vector<std::string> otherChunks;  // e.g. "NINF" in .pm files (kept unparsed)
 };
 
+// A named attachment point ("a.bog0", "a.limfront", ...) from the ATCH chunk.
+// Layout (observed, all 5,868 ATCH chunks on the disc decode exactly to their end):
+//   u32 100, u32 count, then per point: u32 nameBytes (bit 30 set: the name is UTF-16LE),
+//   name[nameBytes] (NUL-padded), 12 floats = a 3x3 rotation then a position.
+// Every rotation on the disc has unit-length rows. Which index order the game uses is not
+// traced; the port assumes Direct3D's: rotation[0..2] is where the point's own x axis
+// points, [3..5] its y, [6..8] its z.
+struct MeshAttachment {
+    std::string name;  // as stored; UTF-16 names (bit 30) are returned as UTF-8
+    float rotation[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    float position[3] = {0, 0, 0};  // metres, in the mesh's own space
+};
+
 struct MeshFile {
     std::vector<std::uint32_t> infoWords;  // INFO; version 102 (44 bytes) or 104 (68 bytes)
     std::vector<MeshPart> parts;
-    std::vector<std::string> otherChunks;  // top level: INFL, ATCH, SKEL, PMIN (kept unparsed)
+    std::vector<MeshAttachment> attachments;  // from ATCH; empty if none or unreadable (see warnings)
+    std::vector<std::string> otherChunks;  // top level: INFL, SKEL, PMIN (kept unparsed)
     std::vector<std::string> warnings;
 };
 
@@ -71,5 +85,7 @@ MeshFile parseMeshOrRepair(std::span<const std::uint8_t> data, bool* repaired = 
 // Parsers for the two chunk types, exposed for tests.
 Material parseMaterialChunk(std::span<const std::uint8_t> data);
 MeshGeometry parseGeometryChunk(std::span<const std::uint8_t> data);
+// Throws ContentError if the chunk does not follow the layout above or does not end exactly.
+std::vector<MeshAttachment> parseAttachmentChunk(std::span<const std::uint8_t> data);
 
 }  // namespace trainz::content

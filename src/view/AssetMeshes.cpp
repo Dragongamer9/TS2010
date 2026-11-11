@@ -6,6 +6,7 @@
 #include "content/MeshFile.h"
 #include "content/TextureFile.h"
 
+#include <algorithm>
 #include <cmath>
 #include <map>
 #include <numbers>
@@ -89,10 +90,20 @@ std::string highestDetailLodMesh(std::span<const std::uint8_t> text) {
 //   "night-mesh-base" (night variants), "att" (hangs from an attachment point, not
 //   decoded yet) and shadow meshes (by name; flat dark planes for the shadow effect);
 // - with neither, "asset-filename" + ".im" (an older convention; observed, not traced).
-std::vector<std::string> selectAssetMeshes(const ConfigNode& root, std::map<std::string, std::size_t>& parts) {
-    std::vector<std::string> out;
+std::optional<Kuid> configKuid(const ConfigNode& value) {
+    if (auto k = value.asKuid()) {
+        return k;
+    }
+    if (value.type == ConfigType::Integers && value.ints.size() == 1 && value.ints[0] >= 0) {
+        return Kuid{-1, value.ints[0], std::nullopt};  // a bare number, as for "kuid 101135"
+    }
+    return std::nullopt;
+}
+
+std::vector<MeshChoice> selectAssetMeshes(const ConfigNode& root, std::map<std::string, std::size_t>& parts) {
+    std::vector<MeshChoice> out;
     if (const auto* m = root.child("mesh"); m != nullptr && m->type == ConfigType::String) {
-        out.push_back(m->text);
+        out.push_back({"", m->text, "", ""});
         return out;
     }
     if (const auto* table = root.child("mesh-table"); table != nullptr) {
@@ -110,20 +121,28 @@ std::vector<std::string> selectAssetMeshes(const ConfigNode& root, std::map<std:
                 ++parts["mesh-table entries skipped: night variant"];
                 continue;
             }
-            if (group.child("att") != nullptr) {
-                ++parts["mesh-table entries skipped: on an attachment point"];
-                continue;
-            }
             if (asciiLower(m->text).find("shadow") != std::string::npos) {
                 ++parts["mesh-table entries skipped: shadow mesh"];
                 continue;
             }
-            out.push_back(m->text);
+            MeshChoice c{group.key, m->text, "", ""};
+            if (const auto* att = group.child("att"); att != nullptr) {
+                if (att->type != ConfigType::String || att->text.empty()) {
+                    ++parts["mesh-table entries skipped: unreadable att"];
+                    continue;
+                }
+                c.att = att->text;
+                const auto* parent = group.child("att-parent");
+                c.attParent = parent != nullptr && parent->type == ConfigType::String && !parent->text.empty()
+                                  ? parent->text
+                                  : "default";  // the port's reading when none is given (837 disc entries)
+            }
+            out.push_back(std::move(c));
         }
         return out;
     }
     if (const auto* f = root.child("asset-filename"); f != nullptr && f->type == ConfigType::String && !f->text.empty()) {
-        out.push_back(f->text + ".im");
+        out.push_back({"", f->text + ".im", "", ""});
         ++parts["models found by asset-filename"];
     }
     return out;
@@ -164,9 +183,28 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
         ++misses_["config missing"];
         return nullptr;
     }
-    std::vector<std::string> meshes;
+    std::vector<MeshChoice> meshes;
+    std::optional<Kuid> bogey;
+    std::map<int, PreparedMesh::BogeyEntry> bogeys;
     try {
-        meshes = selectAssetMeshes(parseAssetConfig(a->readLimited(*ce, std::size_t{16} << 20)).root, parts_);
+        const ConfigNode root = parseAssetConfig(a->readLimited(*ce, std::size_t{16} << 20)).root;
+        meshes = selectAssetMeshes(root, parts_);
+        if (const auto* b = root.child("bogey")) {
+            bogey = configKuid(*b);
+        }
+        if (const auto* group = root.child("bogeys"); group != nullptr && group->type == ConfigType::Group) {
+            for (const auto& e : group->children) {
+                const auto* k = e.child("bogey");
+                const auto named = k != nullptr ? configKuid(*k) : std::nullopt;
+                if (!named || e.key.empty() || e.key.size() > 3 || e.key.find_first_not_of("0123456789") != std::string::npos) {
+                    ++parts_["bogeys entries not understood"];
+                    continue;
+                }
+                const auto* rev = e.child("reversed");
+                const bool reversed = rev != nullptr && rev->type == ConfigType::Integers && !rev->ints.empty() && rev->ints[0] != 0;
+                bogeys.emplace(std::stoi(e.key), PreparedMesh::BogeyEntry{*named, reversed});
+            }
+        }
     } catch (const ContentError&) {
         ++misses_["config unreadable"];
         return nullptr;
@@ -176,23 +214,65 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
         return nullptr;
     }
     auto out = std::make_unique<PreparedMesh>();
+    out->bogey = bogey;
+    out->bogeys = std::move(bogeys);
     bool speedTree = false;
-    for (auto& mesh : meshes) {
-        if (asciiLower(mesh).ends_with(".srt")) {
+    bool overLimit = false;
+    // Each drawn entry's attachment points (model space), for the parts hung on them.
+    std::map<std::string, std::map<std::string, LocalFrame>> pointsOf;
+    auto draw = [&](const MeshChoice& c, const LocalFrame& frame) {
+        if (asciiLower(c.mesh).ends_with(".srt")) {
             // SpeedTree trees ("SRT " files) are not read; seasons are separate entries.
             ++parts_["mesh-table entries skipped: SpeedTree tree (.srt, not read)"];
             speedTree = true;
-            continue;
+            return;
         }
-        if (!appendMesh(*a, base, mesh, *out)) {
-            if (out->triangles.size() >= kMaxTrianglesPerMesh) {
-                ++misses_["over the triangle limit"];
-                return nullptr;
-            }
-            continue;  // that part is counted in parts_; the others may still draw
+        std::map<std::string, LocalFrame> points;
+        if (!appendMesh(*a, base, c.mesh, *out, frame, points)) {
+            overLimit = overLimit || out->triangles.size() >= kMaxTrianglesPerMesh;
+            return;  // that part is counted in parts_; the others may still draw
         }
-        ++parts_["mesh-table entries drawn"];
+        ++parts_[c.att.empty() ? "mesh-table entries drawn" : "mesh-table entries drawn on an attachment point"];
+        if (c.att.empty()) {
+            out->attachments.insert(points.begin(), points.end());  // the first part's point wins
+        }
+        pointsOf.emplace(c.entry, std::move(points));
+    };
+    std::vector<const MeshChoice*> attached;
+    for (const auto& c : meshes) {
+        if (c.att.empty()) {
+            draw(c, LocalFrame{});
+        } else {
+            attached.push_back(&c);
+        }
     }
+    // Attached parts once their parent is drawn (parents can be attached parts themselves).
+    for (bool progress = true; progress && !attached.empty() && !overLimit;) {
+        progress = false;
+        for (auto it = attached.begin(); it != attached.end();) {
+            const MeshChoice& c = **it;
+            const auto parent = std::find_if(pointsOf.begin(), pointsOf.end(),
+                                             [&](const auto& kv) { return asciiLower(kv.first) == asciiLower(c.attParent); });
+            if (parent == pointsOf.end()) {
+                ++it;
+                continue;
+            }
+            const auto point = std::find_if(parent->second.begin(), parent->second.end(),
+                                            [&](const auto& kv) { return asciiLower(kv.first) == asciiLower(c.att); });
+            if (point == parent->second.end()) {
+                ++parts_["mesh-table entries skipped: attachment point not in the parent mesh"];
+            } else {
+                draw(c, point->second);
+            }
+            it = attached.erase(it);
+            progress = true;
+        }
+    }
+    if (overLimit) {
+        ++misses_["over the triangle limit"];
+        return nullptr;
+    }
+    parts_["mesh-table entries skipped: parent part not drawn"] += attached.size();
     if (out->triangles.empty() && speedTree) {
         // A PLACEHOLDER, not the tree: a green cone, 4 m wide and 12 m tall.
         *out = placeholderTree();
@@ -206,7 +286,8 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
     return out;
 }
 
-bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& base, std::string mesh, PreparedMesh& out) {
+bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& base, std::string mesh, PreparedMesh& out,
+                             const LocalFrame& frame, std::map<std::string, LocalFrame>& points) {
     const JaArchive* a = &archiveRef;
     for (char& c : mesh) {
         if (c == '\\') {
@@ -235,6 +316,15 @@ bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& bas
         }
     }
     const JaEntry* me = a->find(meshPath);
+    if (me == nullptr && asciiLower(meshPath).ends_with(".im")) {
+        // Observed: 286 disc assets name an asset-filename that exists only as a .pm
+        // (progressive mesh, same chunks), e.g. bogies.
+        me = a->find(meshPath.substr(0, meshPath.size() - 3) + ".pm");
+        if (me != nullptr) {
+            meshPath = me->name;
+            ++parts_["models found as .pm instead of .im"];
+        }
+    }
     if (me == nullptr) {
         ++parts_["mesh-table entries skipped: mesh file missing"];
         return false;
@@ -247,6 +337,9 @@ bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& bas
         return false;
     }
     out.meshName += (out.meshName.empty() ? "" : ", ") + meshPath;
+    for (const auto& at : m.attachments) {
+        points.emplace(at.name, LocalFrame::of(at).then(frame));
+    }
     const std::string meshDir = folderOf(meshPath);
     std::map<std::string, int> textureByFile;  // one copy per file within this asset
     for (const auto& part : m.parts) {
@@ -310,7 +403,8 @@ bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& bas
                     ok = false;
                     break;
                 }
-                tri.p[k][0] = g.vertices[vi].x, tri.p[k][1] = g.vertices[vi].y, tri.p[k][2] = g.vertices[vi].z;
+                const float local[3] = {g.vertices[vi].x, g.vertices[vi].y, g.vertices[vi].z};
+                frame.apply(local, tri.p[k]);
                 tri.uv[k][0] = g.vertices[vi].u, tri.uv[k][1] = g.vertices[vi].v;
             }
             if (ok) {
@@ -383,20 +477,69 @@ bool wantsAlphaTest(std::span<const std::uint8_t> rgba) {
         (rgba[i] < 128 ? clear : solid) += 1;
     }
     const std::size_t n = clear + solid;
-    // HEURISTIC: a real mix of see-through and solid texels (each at least 5%, and mostly
-    // near 0 or 255) suggests a cut-out map (leaves, fences). Not traced: the game's
-    // material flags for this are not decoded.
-    if (n == 0 || clear * 20 < n || solid * 20 < n) {
+    // HEURISTIC: a real mix of see-through and solid texels (at least 5% clear, 1% solid,
+    // and under half in between) suggests a cut-out map (leaves, grass, fences). Not traced:
+    // the game's material flags for this are not decoded. Checked by listing what the rule
+    // changes in two views: grass, flowers, trees, lichen, a chain and a window alpha.
+    if (n == 0 || clear * 20 < n || solid * 100 < n) {
         return false;
     }
     std::size_t middle = 0;
     for (std::size_t i = 3; i < rgba.size(); i += 4) {
         middle += rgba[i] > 32 && rgba[i] < 224;
     }
-    return middle * 4 < n;
+    return middle * 2 < n;
+}
+
+std::optional<PreparedMesh::BogeyEntry> PreparedMesh::bogeyFor(const std::string& pointName) const {
+    // "a.bog<N>", any case
+    if (pointName.size() < 6 || asciiLower(pointName.substr(0, 5)) != "a.bog") {
+        return std::nullopt;
+    }
+    const std::string digits = pointName.substr(5);
+    if (digits.size() > 3 || digits.find_first_not_of("0123456789") != std::string::npos) {
+        return std::nullopt;
+    }
+    if (const auto it = bogeys.find(std::stoi(digits)); it != bogeys.end()) {
+        return it->second;
+    }
+    if (bogey) {
+        return BogeyEntry{*bogey, false};
+    }
+    return std::nullopt;
+}
+
+LocalFrame LocalFrame::of(const MeshAttachment& a) {
+    LocalFrame f;
+    std::copy(std::begin(a.rotation), std::end(a.rotation), f.r);
+    std::copy(std::begin(a.position), std::end(a.position), f.t);
+    return f;
+}
+
+void LocalFrame::apply(const float in[3], float out[3]) const {
+    const float x = in[0], y = in[1], z = in[2];  // `out` may be `in`
+    for (int i = 0; i < 3; ++i) {
+        out[i] = x * r[i] + y * r[3 + i] + z * r[6 + i] + t[i];
+    }
+}
+
+LocalFrame LocalFrame::then(const LocalFrame& outer) const {
+    LocalFrame f;
+    for (int axis = 0; axis < 3; ++axis) {  // each of this frame's axes, turned by outer
+        for (int i = 0; i < 3; ++i) {
+            f.r[3 * axis + i] = r[3 * axis] * outer.r[i] + r[3 * axis + 1] * outer.r[3 + i] + r[3 * axis + 2] * outer.r[6 + i];
+        }
+    }
+    outer.apply(t, f.t);
+    return f;
 }
 
 void addPlacedMesh(Scene& scene, const PreparedMesh& mesh, double x, double y, double z, double yaw) {
+    addPlacedMesh(scene, mesh, LocalFrame{}, x, y, z, yaw);
+}
+
+void addPlacedMesh(Scene& scene, const PreparedMesh& mesh, const LocalFrame& inner, double x, double y, double z,
+                   double yaw) {
     const double c = std::cos(yaw), s = std::sin(yaw);
     int base = -1;
     if (!mesh.textures.empty()) {
@@ -420,8 +563,10 @@ void addPlacedMesh(Scene& scene, const PreparedMesh& mesh, double x, double y, d
             st.texture = base + t.texture;
         }
         for (int k = 0; k < 3; ++k) {
-            const double lx = t.p[k][0], ly = t.p[k][1];
-            st.p[k] = {x + c * lx - s * ly, y + s * lx + c * ly, z + t.p[k][2]};
+            float q[3];
+            inner.apply(t.p[k], q);
+            const double lx = q[0], ly = q[1];
+            st.p[k] = {x + c * lx - s * ly, y + s * lx + c * ly, z + q[2]};
             st.c[k] = textured ? Rgb{255, 255, 255} : t.colour;
             st.u[k] = t.uv[k][0], st.v[k] = t.uv[k][1];
         }

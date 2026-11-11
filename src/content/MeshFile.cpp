@@ -145,6 +145,39 @@ Material parseMaterialChunk(std::span<const std::uint8_t> data) {
     return m;
 }
 
+std::vector<MeshAttachment> parseAttachmentChunk(std::span<const std::uint8_t> data) {
+    Reader r(data, "ATCH");
+    const std::uint32_t version = r.u32();
+    if (version != 100) {
+        throw ContentError("ATCH version " + std::to_string(version) + " (only 100 is known)");
+    }
+    const std::uint32_t count = r.u32();
+    if (count > r.left() / 52) {  // each point is at least 4 + 48 bytes
+        throw ContentError("ATCH claims " + std::to_string(count) + " points, more than its size allows");
+    }
+    std::vector<MeshAttachment> out;
+    out.reserve(count);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        const std::uint32_t lengthField = r.u32();
+        if ((lengthField & 0x80000000u) != 0) {
+            throw ContentError("ATCH point " + std::to_string(i) + ": unknown flag in its name length");
+        }
+        MeshAttachment a;
+        a.name = r.matlText(lengthField);
+        for (float& f : a.rotation) {
+            f = r.f32();
+        }
+        for (float& f : a.position) {
+            f = r.f32();
+        }
+        out.push_back(std::move(a));
+    }
+    if (r.left() != 0) {
+        throw ContentError("ATCH has " + std::to_string(r.left()) + " bytes after its last point");
+    }
+    return out;
+}
+
 MeshGeometry parseGeometryChunk(std::span<const std::uint8_t> data) {
     Reader r(data, "GEOM");
     MeshGeometry g;
@@ -229,6 +262,14 @@ MeshFile parseMesh(std::span<const std::uint8_t> data) {
         if (c.tag == "INFO") {
             for (std::size_t i = 0; i + 4 <= c.data.size(); i += 4) {
                 mesh.infoWords.push_back(loadU32LE(c.data.data() + i));
+            }
+            continue;
+        }
+        if (c.tag == "ATCH") {
+            try {
+                mesh.attachments = parseAttachmentChunk(c.data);
+            } catch (const ContentError& e) {
+                mesh.warnings.push_back(std::string("ATCH not read: ") + e.what());  // the geometry still loads
             }
             continue;
         }

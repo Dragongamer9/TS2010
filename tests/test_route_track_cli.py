@@ -92,6 +92,16 @@ def main():
         r = subprocess.run([tool, "view", str(archive), ROUTE, "--radius", "5"], env=env, capture_output=True,
                            text=True, timeout=60)
         assert r.returncode != 0 and "radius" in r.stderr, r.stderr
+        # --eye: a camera placed near the centre still renders; bad values are refused.
+        r = subprocess.run([tool, "view", str(archive), ROUTE, "--eye", "-30", "-20", "10", "--radius", "200",
+                            "--out", str(Path(tmp) / "data/trainz-native/routes/eye")],
+                           env=env, capture_output=True, text=True, timeout=300)
+        assert r.returncode == 0, r.stderr
+        assert (Path(tmp) / "data/trainz-native/routes/eye" / (ROUTE.replace("/", "_") + ".view.png")).is_file()
+        for bad in (["0", "0", "0"], ["nan", "1", "1"], ["1", "1e9", "1"]):
+            r = subprocess.run([tool, "view", str(archive), ROUTE, "--eye", *bad], env=env, capture_output=True,
+                               text=True, timeout=60)
+            assert r.returncode != 0 and "--eye" in r.stderr, (bad, r.returncode, r.stderr)
     assert (archive.stat().st_mtime_ns, archive.stat().st_size) == before
     print(f"route track CLI checks passed (red {red}, yellow {yellow}, cyan {cyan}, green {green})")
 
