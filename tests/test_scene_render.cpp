@@ -6,7 +6,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
+#include <cstring>
 #include <map>
 #include <string>
 #include <limits>
@@ -655,4 +657,102 @@ TEST(GroundTextures, BakedSectionsDoNotWrapAtTheirEdges) {
     for (const auto& m : b.smaller) {
         EXPECT_TRUE(m.clampEdges);
     }
+}
+
+namespace {
+
+std::vector<std::uint8_t> srtHeader(const float box[6], const char* magic = "SRT 05.0.1") {
+    std::vector<std::uint8_t> d(120, 0);
+    std::memcpy(d.data(), magic, std::strlen(magic));
+    std::memcpy(d.data() + 36, box, 24);
+    return d;
+}
+
+// A w x h atlas, clear, with solid blocks (x0, y0, x1, y1) in the given colour.
+SceneTexture atlasWith(std::uint32_t w, std::uint32_t h, const std::vector<std::array<std::uint32_t, 4>>& blocks) {
+    SceneTexture t;
+    t.width = w, t.height = h;
+    t.rgba.assign(std::size_t{w} * h * 4, 0);
+    for (const auto& b : blocks) {
+        for (std::uint32_t y = b[1]; y < b[3]; ++y) {
+            for (std::uint32_t x = b[0]; x < b[2]; ++x) {
+                std::uint8_t* p = t.rgba.data() + (std::size_t{y} * w + x) * 4;
+                p[0] = 40, p[1] = 120, p[2] = 40, p[3] = 255;
+            }
+        }
+    }
+    return t;
+}
+
+}  // namespace
+
+TEST(SpeedTree, HeaderBox) {
+    const float box[6] = {-21.4F, -17.7F, -0.5F, 22.8F, 25.4F, 33.0F};  // the acacia's numbers
+    const auto b = readSpeedTreeBox(srtHeader(box));
+    ASSERT_TRUE(b);
+    EXPECT_FLOAT_EQ(b->min[0], -21.4F);
+    EXPECT_FLOAT_EQ(b->max[2], 33.0F);
+    EXPECT_FALSE(readSpeedTreeBox(srtHeader(box, "SRT 04.2.0")));  // only 5.0.1 is known
+    EXPECT_FALSE(readSpeedTreeBox(std::vector<std::uint8_t>(40, 0)));
+    float flat[6] = {0, 0, 5, 1, 1, 5};  // no height
+    EXPECT_FALSE(readSpeedTreeBox(srtHeader(flat)));
+    float bad[6] = {0, 0, 0, 1, 1, std::numeric_limits<float>::quiet_NaN()};
+    EXPECT_FALSE(readSpeedTreeBox(srtHeader(bad)));
+}
+
+TEST(SpeedTree, FirstAtlasCellSkipsSpecks) {
+    // Two tree images side by side in the lower half, and stray specks above them.
+    const SceneTexture a = atlasWith(64, 64, {{20, 3, 21, 4}, {40, 6, 42, 8}, {4, 32, 28, 60}, {36, 30, 60, 62}});
+    const auto c = firstAtlasCell(a);
+    ASSERT_TRUE(c);
+    EXPECT_EQ(c->x0, 4U);
+    EXPECT_EQ(c->x1, 28U);
+    EXPECT_EQ(c->y0, 32U);  // only the rows of the first image, not its neighbour's
+    EXPECT_EQ(c->y1, 60U);
+    EXPECT_FALSE(firstAtlasCell(atlasWith(64, 64, {})));                // nothing solid
+    EXPECT_FALSE(firstAtlasCell(atlasWith(64, 64, {{10, 10, 12, 12}})));  // specks only
+    SceneTexture broken;
+    broken.width = broken.height = 8;
+    EXPECT_FALSE(firstAtlasCell(broken));
+}
+
+TEST(SpeedTree, BillboardShape) {
+    const float boxv[6] = {-10, -6, 0, 10, 14, 40};
+    const auto box = readSpeedTreeBox(srtHeader(boxv));
+    ASSERT_TRUE(box);
+    const SceneTexture a = atlasWith(64, 64, {{0, 0, 32, 32}});
+    const AtlasCell cell{0, 0, 32, 16};  // twice as wide as tall
+    const PreparedMesh m = speedTreeBillboard(*box, a, cell, 0.5);
+    EXPECT_TRUE(m.billboard);
+    EXPECT_FALSE(m.placeholder);
+    ASSERT_EQ(m.triangles.size(), 4U);  // two crossed quads
+    ASSERT_EQ(m.textures.size(), 1U);
+    EXPECT_TRUE(m.textures[0].alphaTest);
+    float zmin = 1e9F, zmax = -1e9F, xmin = 1e9F, xmax = -1e9F;
+    for (const auto& t : m.triangles) {
+        EXPECT_EQ(t.texture, 0);
+        for (int k = 0; k < 3; ++k) {
+            zmin = std::min(zmin, t.p[k][2]), zmax = std::max(zmax, t.p[k][2]);
+            xmin = std::min(xmin, t.p[k][0]), xmax = std::max(xmax, t.p[k][0]);
+            EXPECT_GE(t.uv[k][0], 0.0F);
+            EXPECT_LE(t.uv[k][0], 0.5F);  // inside the cell
+            EXPECT_LE(t.uv[k][1], 0.25F);
+        }
+    }
+    EXPECT_FLOAT_EQ(zmin, 0);
+    EXPECT_FLOAT_EQ(zmax, 20);              // 40 x 0.5
+    EXPECT_FLOAT_EQ(xmax - xmin, 40);       // 2 x the height, from the image's proportions
+    EXPECT_FLOAT_EQ(0.5F * (xmin + xmax), 0);  // centred on the box (x)
+    EXPECT_TRUE(speedTreeBillboard(*box, a, cell, 0).triangles.empty());
+    EXPECT_TRUE(speedTreeBillboard(*box, a, AtlasCell{5, 5, 5, 9}, 1).triangles.empty());
+}
+
+TEST(SpeedTree, MeshScaleIsReadAsTheMean) {
+    std::map<std::string, std::size_t> parts;
+    const auto picked = selectAssetMeshes(config("mesh-table\n{\n  default\n  {\n    mesh \"tree.srt\"\n    mesh-scale 0.4,0.5\n  }\n"
+                                                 "  other\n  {\n    mesh \"x.im\"\n  }\n}\n"),
+                                          parts);
+    ASSERT_EQ(picked.size(), 2U);
+    EXPECT_NEAR(picked[0].scale, 0.45, 1e-6);
+    EXPECT_DOUBLE_EQ(picked[1].scale, 1.0);
 }

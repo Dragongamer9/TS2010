@@ -93,16 +93,27 @@ std::optional<AtlasCell> firstAtlasCell(const SceneTexture& atlas) {
         }
         return false;
     };
-    std::uint32_t y0 = 0;
-    while (y0 < h && !rowHas(y0, 0, w)) {
-        ++y0;
+    // Runs of rows (then columns) holding solid texels; runs shorter than 1/16 of the side
+    // are specks, not a tree (seen on the disc: stray texels above the images).
+    const std::uint32_t minH = std::max<std::uint32_t>(2, h / 16), minW = std::max<std::uint32_t>(2, w / 16);
+    std::uint32_t y0 = 0, y1 = 0;
+    for (std::uint32_t y = 0; y < h;) {
+        if (!rowHas(y, 0, w)) {
+            ++y;
+            continue;
+        }
+        std::uint32_t e = y;
+        while (e < h && rowHas(e, 0, w)) {
+            ++e;
+        }
+        if (e - y >= minH) {
+            y0 = y, y1 = e;
+            break;
+        }
+        y = e;
     }
-    if (y0 == h) {
-        return std::nullopt;  // nothing solid
-    }
-    std::uint32_t y1 = y0;
-    while (y1 < h && rowHas(y1, 0, w)) {
-        ++y1;
+    if (y1 == 0) {
+        return std::nullopt;  // nothing big enough
     }
     auto colHas = [&](std::uint32_t x) {
         for (std::uint32_t y = y0; y < y1; ++y) {
@@ -112,13 +123,24 @@ std::optional<AtlasCell> firstAtlasCell(const SceneTexture& atlas) {
         }
         return false;
     };
-    std::uint32_t x0 = 0;
-    while (x0 < w && !colHas(x0)) {
-        ++x0;
+    std::uint32_t x0 = 0, x1 = 0;
+    for (std::uint32_t x = 0; x < w;) {
+        if (!colHas(x)) {
+            ++x;
+            continue;
+        }
+        std::uint32_t e = x;
+        while (e < w && colHas(e)) {
+            ++e;
+        }
+        if (e - x >= minW) {
+            x0 = x, x1 = e;
+            break;
+        }
+        x = e;
     }
-    std::uint32_t x1 = x0;
-    while (x1 < w && colHas(x1)) {
-        ++x1;
+    if (x1 == 0) {
+        return std::nullopt;
     }
     // Rows of this column run only (the row band may span several images).
     std::uint32_t top = y0, bottom = y1;
@@ -462,23 +484,30 @@ std::optional<PreparedMesh> AssetMeshes::loadSpeedTreeBillboard(const JaArchive&
                                                                const MeshChoice& c) {
     std::string path = base + c.mesh;
     std::replace(path.begin(), path.end(), '\\', '/');
+    auto fail = [&](const char* why) -> std::optional<PreparedMesh> {
+        ++parts_[std::string("SpeedTree billboard not made: ") + why];
+        return std::nullopt;
+    };
     const JaEntry* se = a.find(path);
     if (se == nullptr) {
-        return std::nullopt;
+        return fail(".srt missing");
     }
     const auto box = readSpeedTreeBox(a.readLimited(*se, kMaxFileBytes));
+    if (!box) {
+        return fail("header not understood");
+    }
     // The atlas beside the .srt (all 379 disc trees have one; observed name).
     const JaEntry* ae = a.find(folderOf(path) + "billboardatlas_diffuse.texture");
-    if (!box || ae == nullptr) {
-        return std::nullopt;
+    if (ae == nullptr) {
+        return fail("no billboardatlas_diffuse.texture beside it");
     }
     auto atlas = loadSceneTexture(a, *ae, kAtlasSide);  // several views share it: more texels
     if (!atlas) {
-        return std::nullopt;
+        return fail("atlas unreadable");
     }
     const auto cell = firstAtlasCell(*atlas);
     if (!cell) {
-        return std::nullopt;
+        return fail("no tree image found in the atlas");
     }
     PreparedMesh m = speedTreeBillboard(*box, std::move(*atlas), *cell, c.scale);
     m.meshName = path + " (billboard)";

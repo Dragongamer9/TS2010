@@ -131,8 +131,15 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
     file in a subfolder would match too, which no disc reskin has). `skin.dat`'s decals and `colormap.dat` are not read (the finished texture already
     holds them).
 
-  SpeedTree trees (`.srt` files, a separate format) are not read: they are drawn as a
-  **placeholder** green cone, 4 m wide and 12 m tall, an invented stand-in, not the tree.
+  SpeedTree trees (`.srt`, "SRT 05.0.1", a separate format whose geometry is not read) are
+  drawn as a **billboard**: two crossed upright cut-out quads showing the first tree image in
+  the asset's own `billboardatlas_diffuse.texture`, sized by the bounding box in the `.srt`
+  header (observed: 6 floats at byte 36, all 379 disc files) times the mesh-table entry's
+  `mesh-scale` (every disc tree entry has one, usually two numbers, read as a range whose mean
+  is used: inferred). That gives disc tree heights of 1.5–122 m, median 13.7 m. A flat
+  picture of the tree, not its 3D shape; only the first tree entry is drawn (seasons are
+  separate entries). When no billboard can be made (e.g. `<kuid:523:1150>` ships only its
+  config), the tree is still a **placeholder** green cone, 4 m wide and 12 m tall.
   Assets without a readable mesh stay dots; the reasons and the skipped parts are printed;
 - with `--session`, every vehicle as its 3D model when `--install` is given and the model
   can be read (else an orange dot). Where the modelled track lies within 3 m (99.5% of disc

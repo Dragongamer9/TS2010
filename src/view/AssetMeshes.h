@@ -94,7 +94,8 @@ struct SpeedTreeBox {
 std::optional<SpeedTreeBox> readSpeedTreeBox(std::span<const std::uint8_t> srt);
 
 // The first tree image in a billboard atlas (pixels): the first run of columns holding
-// solid texels (alpha >= 128) within the first run of such rows, from the top. The atlases
+// solid texels (alpha >= 128) within the first run of such rows, from the top; runs
+// shorter than 1/16 of the side are skipped as specks (two disc atlases have stray texels). The atlases
 // on the disc hold several views of the tree side by side (e.g. 2 x 3).
 struct AtlasCell {
     std::uint32_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // x1/y1 exclusive
