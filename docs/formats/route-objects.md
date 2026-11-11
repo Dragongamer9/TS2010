@@ -93,8 +93,15 @@ object is turned. Evidence: taken modulo 90°, the non-zero values
 fall within 1° of a right angle far more often than random angles would (2.2%):
 `mIND` 45.2%, `mobs` 43.7%, `mBUI` 33.4%, `ttOb` 30.8%, `mFXT` 20.4%, `mOBJ` 17.3%,
 `obCr` 13.6%: objects lined up with streets and track. On the grid-street test route,
-91% of buildings sit at 0, 90, 180 or 270°. Which way a positive yaw turns and which
-direction 0 faces are **not known**. Signals and junctions store 0 here (they presumably
+91% of buildings sit at 0, 90, 180 or 270°.
+
+**Direction (observed):** a positive yaw turns **anticlockwise** in the route's x/y plane
+(from +x toward +y, like `atan2`). Test: for 11,376 buildings (`mOBJ`, `mBUI`, `mIND`)
+within 25 m of a track stretch that is *not* axis-aligned (10–80° modulo 90°),
+`(yaw − track heading) mod 90°` puts 23.6% of them in one 2° bin (0–2°), while
+`(−yaw − heading) mod 90°` is nearly flat (3.2% at most; 2.2% by chance).
+**Zero:** at yaw 0 an object's own axes line up with the world axes, **modulo 90°**: which
+of a model's four sides faces +x is **not known** (needs a model with a known front). Signals and junctions store 0 here (they presumably
 take their direction from the track). For `mobs` the next two floats (`rest[0..3]`,
 `rest[4..7]`) are almost always 0 and sometimes small (±1.6): perhaps pitch and roll
 (guess, not decoded). Junction

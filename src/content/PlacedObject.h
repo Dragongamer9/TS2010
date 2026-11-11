@@ -12,8 +12,11 @@
 // 1 (meaning not known). The float after z is a yaw in RADIANS, not wrapped to
 // 0..2pi (-42..154 on the disc): taken mod 90 degrees, 14-45% of non-zero values
 // per class lie within 1 degree of a right angle, against 2.2% for random angles
-// (objects lined up with streets and track). Which way is positive and where 0
-// points are not known. Signals and junctions store 0 (they follow the track).
+// (objects lined up with streets and track). Why it exceeds one turn is a
+// hypothesis only (the editor may keep adding to it). Positive yaw turns
+// anticlockwise in x/y (+x toward +y), checked against buildings beside angled
+// track; at 0 the object's axes line up with the world's, modulo 90 degrees
+// (which side faces +x is not known). Signals and junctions store 0 (they follow the track).
 #pragma once
 
 #include "content/ObjectContainer.h"
@@ -35,7 +38,7 @@ struct PlacedObject {
     float x = 0;  // metres inside the baseboard, toward +x
     float y = 0;  // metres inside the baseboard, toward +y
     float z = 0;  // height in metres
-    float yaw = 0;  // radians, not wrapped; direction and zero axis not known
+    float yaw = 0;  // radians, not wrapped; anticlockwise (+x toward +y); zero axis known only modulo 90 degrees
     std::vector<std::uint8_t> rest;  // everything after the base block (class-specific, not decoded)
 
     double worldX() const;
