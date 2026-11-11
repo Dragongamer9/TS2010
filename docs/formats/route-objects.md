@@ -75,8 +75,17 @@ u32 version (3)   i16 boardX   i16 boardY   f32 x   f32 y   f32 z
 ```
 
 The 4 slots list every track piece (`tkSt` or `tkBr`) that ends at this vertex: on the
-disc, 614,430 of 614,432 links point at a piece that really ends there (2 point at
-pieces missing from the file). Slots used per vertex: 1 (211,040, line ends), 2 (182,491,
+disc, 614,430 of 614,432 links point at a piece that really ends there. The other 2 are
+**unexplained** and left as they are (the reader reports them as warnings and repairs
+nothing). Both are in "ECML Kings Cross - York" (`<kuid:447264:1019>`, `Builtin\5.ja`):
+
+| Vertex | Its slots (piece, flag) | Problem |
+|---:|---|---|
+| 33398 | (33, 0), (41, 1) | no track piece 33 in the file |
+| 33490 | (129, 0), (135, 1) | no track piece 129 in the file |
+
+33 and 129 exist only as vertex numbers in the second container; whether that is a
+coincidence or a different kind of link is not known. Slots used per vertex: 1 (211,040, line ends), 2 (182,491,
 along a line), 3 (12,242; junctions, guess: there are 10,138 `mojunction` objects), 4
 (421), 0 (13). The `flag` is not simply "start" or "end" of the piece; its meaning and
 `last` (0, 1 or 2) are not known.
