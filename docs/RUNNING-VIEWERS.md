@@ -276,3 +276,15 @@ build/key-tester /path/to/TS2010/UserData/settings/keyboard.txt
 ```
 
 If all three work, the viewers are ready to use on Dad's PC.
+
+## What to send back
+
+For each tool Dad tries, copy back:
+- The **exact command** he ran
+- Any **error text** printed in the terminal
+- For `model-viewer`: whether a window opened, and if it showed the model
+- For `sound-player`: whether the sound played
+- For `key-tester`: whether a window opened and if key presses showed up
+- A **screenshot** if something looks wrong (window blank, model missing, etc.)
+
+This lets us diagnose any issues quickly.
