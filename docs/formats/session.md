@@ -85,9 +85,11 @@ record: u32 4 (or 1)   u32 3   u32 colour?   i16 boardX   i16 boardY   f32 x   f
 Nothing gives a record's length, so the reader **finds vehicles by a pattern** (5 zero
 bytes, `u32 4` or `u32 1`, `u32 3` after each KUID). It accepts a train only when the
 number found equals `vehicleCount`, the first one starts at byte 20, every match has a
-valid name, and neighbouring vehicles stand under 50 m apart. (That last rule matches
-the data: in all 655 size-checked version-5 trains and all accepted old trains, the
-largest gap between neighbours is under 50 m.) **627 of the 826** qualify (3,127 vehicles; 156 of them record version 1);
+valid name, and neighbouring vehicles stand under 50 m apart. That last rule is a
+**disc-tested heuristic, not an established format constraint**: no accepted train in the
+surveyed disc data exceeds it (all 655 size-checked version-5 trains and all accepted old
+trains have their largest neighbour gap under 50 m). How many false matches it catches
+is not measured. **627 of the 826** qualify (3,127 vehicles; 156 of them record version 1);
 the other 199 are refused. Record version 5 also occurs (215 vehicles), but 56 of those
 would get implausible board numbers at this offset, so its layout differs and such
 trains are refused. This is a heuristic, not a

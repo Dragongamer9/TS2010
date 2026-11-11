@@ -161,8 +161,8 @@ std::optional<Train> decodeOldTrain(const ObjectItem& item) {
         }
         v.name.assign(reinterpret_cast<const char*>(r.data() + 44), len - 1);
         if (!t.vehicles.empty()) {
-            // Coupled vehicles stand close together: in every accepted disc train (and every
-            // size-checked version-5 train) neighbours are under 50 m apart.
+            // Disc-tested heuristic, not a format rule: no accepted train in the surveyed disc
+            // data (nor any size-checked version-5 train) has neighbours 50 m or more apart.
             const auto& u = t.vehicles.back();
             const double gap = std::hypot((v.boardX - u.boardX) * 720.0 + v.x - u.x, (v.boardY - u.boardY) * 720.0 + v.y - u.y);
             if (!(gap < 50.0)) {
