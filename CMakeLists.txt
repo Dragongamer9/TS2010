@@ -160,6 +160,21 @@ if(TRAINZ_BUILD_VIEWER)
   endif()
 endif()
 
+# `cmake --install build --prefix ~/.local` puts the tools in ~/.local/bin and the menu entry
+# in ~/.local/share/applications (no other files; the game folder is never touched).
+include(GNUInstallDirs)
+install(TARGETS ja-tool config-tool asset-tool texture-tool mesh-tool anim-tool sound-tool input-tool route-tool
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+foreach(viewer route-viewer model-viewer sound-player key-tester)
+  if(TARGET ${viewer})
+    install(TARGETS ${viewer} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  endif()
+endforeach()
+if(TARGET route-viewer)
+  install(PROGRAMS tools/launcher/trainz-route-viewer DESTINATION ${CMAKE_INSTALL_BINDIR})
+  install(FILES tools/launcher/trainz-route-viewer.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+endif()
+
 if(TRAINZ_BUILD_TESTS)
   enable_testing()
   find_package(GTest REQUIRED)
@@ -183,6 +198,14 @@ if(TRAINZ_BUILD_TESTS)
               "${CMAKE_CURRENT_SOURCE_DIR}/testdata/ts2010")
     # SDL keeps some memory until exit on purpose; leak reports from it are not ours.
     set_tests_properties(RouteViewer.Cli PROPERTIES TIMEOUT 600 SKIP_RETURN_CODE 77
+                         ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1")
+    add_test(NAME Launcher.Cli
+      COMMAND "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_launcher_cli.py"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tools/launcher/trainz-route-viewer"
+              "$<TARGET_FILE:route-viewer>"
+              "${CMAKE_CURRENT_SOURCE_DIR}/testdata/ts2010")
+    set_tests_properties(Launcher.Cli PROPERTIES TIMEOUT 600 SKIP_RETURN_CODE 77
                          ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1")
   endif()
   add_executable(content_tests

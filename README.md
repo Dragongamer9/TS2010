@@ -53,7 +53,9 @@ files, and exports plain WAVs (MP3 needs a build with `libmpg123-dev`);
 
 `route-viewer --install DIR --list`, then `route-viewer --install DIR --session NAME` (or `--route NAME`;
 SDL2) opens a window and lets you fly around a route (keys: W/A/S/D, arrows, Page Up/Down, Q/E, Shift, R, Esc), drawn by the port's own
-software renderer; see [`docs/RUNNING-VIEWERS.md`](docs/RUNNING-VIEWERS.md).
+software renderer; see [`docs/RUNNING-VIEWERS.md`](docs/RUNNING-VIEWERS.md). `cmake --install build --prefix ~/.local`
+installs the tools and a menu entry; the `trainz-route-viewer` launcher (after `--set-install /path/to/TS2010`)
+lists the routes and opens one by name.
 
 `src/input/KeyBindings` reads the game's key bindings, following the traced combo parser and key-name table in `trainz.exe` (how the game matches modifiers and converts live key presses is not confirmed) (`UserData/settings/keyboard.txt`;
 [`docs/formats/keyboard.md`](docs/formats/keyboard.md)). `input-tool list / shared / press` shows the bindings,

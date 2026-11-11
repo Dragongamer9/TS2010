@@ -1,10 +1,10 @@
 # Roadmap – Trainz Simulator 2010 on Linux (Hearth OS)
 
-**Overall progress: 35%**
+**Overall progress: 36%**
 
 `[███████░░░░░░░░░░░░░]`
 
-*Last updated: 2026-11-11, after the interactive route-viewer (step 8).*
+*Last updated: 2026-11-11, after the install rules and launcher (step 16).*
 
 This file is updated with every change that moves the project forward. The
 percentage is a **weighted estimate**, not a measurement: see
@@ -49,12 +49,12 @@ percentage is a **weighted estimate**, not a measurement: see
 | 13 | Train simulation: physics, brakes, coupling, signals, AI drivers | 15 | 0% | owner / other | **Not mapped at all yet**; it's in `trainz.exe` with no symbols. |
 | 14 | Game UI (menus, Surveyor, driver HUD) and the in-game HTML pages | 8 | 0% | owner / other | The game uses an embedded Gecko browser for its pages. |
 | 15 | Networking / Download Station / iTrainz chat | 3 | 0% | owner / other | Optional; 2010 servers probably gone (not checked). |
-| 16 | Packaging and launcher for Hearth OS (menu entry, data folder, settings) | 3 | 0% | Claude | Must keep any previous version startable. |
+| 16 | Packaging and launcher for Hearth OS (menu entry, data folder, settings) | 3 | 30% | Claude | `cmake --install` puts the tools in `PREFIX/bin` and a menu entry in `PREFIX/share/applications` (checked in CI). Launcher `trainz-route-viewer`: remembers the TS2010 folder only when told (`--set-install`, written to `~/.local/share/trainz-native/install-dir`), lists routes and sessions, opens one by name (tested). **Missing:** a Debian package, the game itself to launch, an update path that keeps the previous version startable. Must keep any previous version startable. |
 | 17 | Validation on Dad's PC (real-install tests, full archive verify, speed on the hard drive) | 4 | 40% | Claude + owner | **Started:** real game data in the private repo (`testdata/ts2010`), all `RealInstall.*` tests run in CI with a full decode. **Missing:** the same tests on Dad's full install, speed on his hard drive. **Whole disc surveyed** (170,167 Builtin entries plus Base/Data scans; [`docs/DISC-SURVEY.md`](docs/DISC-SURVEY.md)). |
 | | **Total** | **102** | | | |
 
-**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.65 + 4×0.85 + 8×0.65 + 4×0.60 + 10×0.85 + 4×0.50 + 2×0.60 + 4×0.60 + 4×0.40) ÷ 102 =
-35.85 ÷ 102 = 35.15% → **35%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
+**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.65 + 4×0.85 + 8×0.65 + 4×0.60 + 10×0.85 + 4×0.50 + 2×0.60 + 4×0.60 + 3×0.30 + 4×0.40) ÷ 102 =
+36.75 ÷ 102 = 36.03% → **36%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
 102 weight points.
 
 ---
@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-11 | 36% | Step 16 (0% → 30%): install rules (`cmake --install build --prefix ~/.local`; CI installs into a temporary prefix and checks the files), a menu entry and the `trainz-route-viewer` launcher (remembers the TS2010 folder only on `--set-install`, under `~/.local/share/trainz-native/`; lists routes and sessions; opens a session by name, else a route). `route-viewer` exit codes 3 (no match) and 4 (several). Overall 35.85 → 36.75 ÷ 102 = 36.03% → 36%. |
 | 2026-11-11 | 35% | No step change. Review fix (ChatGPT): a name or KUID that matches more than one route or session (on the disc many sessions are called "Intro"; an asset can be installed in several versions) now picks none and lists every candidate with its KUID, instead of opening the first one found. Test for duplicate names and versions. |
 | 2026-11-11 | 35% | No step change. `route-viewer` picks routes and sessions by name: `--list` (52 routes on the disc, each with its sessions), `--route NAME`, `--session NAME` (the session's route is found from its `map-kuid`); part of a name or a KUID works. `RouteCatalog` with unit and CLI tests. |
 | 2026-11-11 | 35% | No step change. Review fix (ChatGPT): the `RouteViewer.Cli` test skips only when SDL has no offscreen video driver ("… not available" from `SDL_Init`); a window, renderer or texture failure now fails it instead of being skipped. |

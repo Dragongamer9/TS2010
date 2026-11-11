@@ -52,7 +52,7 @@ def main():
     assert r.returncode == 0, (r.returncode, r.stderr)
     r = subprocess.run([tool, "--install", str(data), "--route", "no such route"], env=env, capture_output=True, text=True,
                        timeout=300)
-    assert r.returncode == 1 and "no single route" in r.stderr, (r.returncode, r.stderr)
+    assert r.returncode == 3 and "no single route" in r.stderr, (r.returncode, r.stderr)
     for bad in (["--route", "x"], ["--install", str(data)]):
         r = subprocess.run([tool, *bad], env=env, capture_output=True, text=True, timeout=300)
         assert r.returncode == 2, (bad, r.returncode, r.stderr)

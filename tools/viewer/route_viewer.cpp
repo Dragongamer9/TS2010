@@ -8,6 +8,7 @@
 //                [--at X Y] [--radius M] [--frames N]
 //
 // NAME is a route's or session's name (or part of it, if only one matches) or its KUID.
+// Exit codes: 0 done, 1 error, 2 bad arguments, 3 no route/session matches NAME, 4 several do.
 //
 // --frames N: draw N frames (turning a little each time) and quit, for testing; with
 // SDL_VIDEODRIVER=offscreen no window appears.
@@ -142,16 +143,16 @@ int main(int argc, char** argv) {
                     for (const auto& c : candidates) {
                         std::cerr << "  " << c << "\n";
                     }
-                } else {
-                    std::cerr << " (see --list)\n";
+                    return 4;
                 }
+                std::cerr << " (see --list)\n";
+                return 3;
             };
             const trainz::view::CatalogRoute* route = nullptr;
             if (!routeQuery.empty()) {
                 const auto* e = trainz::view::findEntry(routeEntries, routeQuery, candidates);
                 if (e == nullptr) {
-                    complain("route", routeQuery);
-                    return 1;
+                    return complain("route", routeQuery);
                 }
                 for (const auto& r : routes) {
                     route = &r.route == e ? &r : route;
@@ -166,8 +167,7 @@ int main(int argc, char** argv) {
                 }
                 const auto* s = trainz::view::findEntry(pool, sessionQuery, candidates);
                 if (s == nullptr) {
-                    complain("session", sessionQuery);
-                    return 1;
+                    return complain("session", sessionQuery);
                 }
                 route = routeOfSession[s];
                 sessionArchive = s->where.source.string();

@@ -53,6 +53,23 @@ Replace this with the actual path on Dad's PC. The main archives are:
 - `Builtin/8.ja` – built-in assets (largest)
 - `UserData/settings/keyboard.txt` – key bindings
 
+## Install once, then start from the menu
+
+```sh
+cmake --install build --prefix ~/.local          # tools into ~/.local/bin, a menu entry
+trainz-route-viewer --set-install /path/to/TS2010 # remember where the game is (once)
+```
+
+Then **Trainz Route Viewer (TS2010 port)** is in the applications menu (it opens a terminal):
+it lists the routes and their sessions, asks for a name and opens it. From a terminal,
+`trainz-route-viewer "Midday Manifest"` does the same in one go (a session first; a route if
+no session has that name; extra options such as `--radius 900` are passed on).
+
+The launcher writes only `~/.local/share/trainz-native/install-dir`, and only when you run
+`--set-install`; `TRAINZ_INSTALL=/path` overrides it for one run. The game folder is only
+read. To remove the install, delete exactly the files it put there: CMake lists them in
+`build/install_manifest.txt` (`xargs rm -v < build/install_manifest.txt`).
+
 ## Running route-viewer
 
 Fly around a route in a window: terrain with its ground textures, track (curves by the

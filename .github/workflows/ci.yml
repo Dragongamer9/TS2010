@@ -49,7 +49,14 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Check the model viewer was built
-        run: test -x build/model-viewer && test -x build/sound-player && test -x build/key-tester && test -x build/sdl_input_tests
+        run: test -x build/model-viewer && test -x build/sound-player && test -x build/key-tester && test -x build/route-viewer && test -x build/sdl_input_tests
+
+      - name: Install into a temporary prefix
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/inst"
+          for f in bin/route-tool bin/route-viewer bin/model-viewer bin/trainz-route-viewer; do test -x "$RUNNER_TEMP/inst/$f"; done
+          test -f "$RUNNER_TEMP/inst/share/applications/trainz-route-viewer.desktop"
+          sh -n "$RUNNER_TEMP/inst/bin/trainz-route-viewer"
 
       - name: Check MP3 decoding was built in
         run: grep -q TRAINZ_HAVE_MPG123 build/compile_commands.json
