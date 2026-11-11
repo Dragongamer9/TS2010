@@ -2,6 +2,7 @@
 //
 //   route-tool info     ARCHIVE.ja ROUTE_FOLDER          sections, positions, sizes
 //   route-tool overview ARCHIVE.ja ROUTE_FOLDER [--out DIR]
+//   route-tool heights  ARCHIVE.ja ROUTE_FOLDER [--out DIR]
 //
 // ROUTE_FOLDER is the route asset's folder inside the archive, e.g.
 // "hash-fa/kuid 447264 1035". "overview" stitches the 64x64 overview map of
@@ -16,10 +17,12 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -31,7 +34,8 @@ using namespace trainz::content;
 int main(int argc, char** argv) {
     if (argc < 4) {
         std::cerr << "usage:\n  route-tool info     ARCHIVE.ja ROUTE_FOLDER\n"
-                     "  route-tool overview ARCHIVE.ja ROUTE_FOLDER [--out DIR]\n";
+                     "  route-tool overview ARCHIVE.ja ROUTE_FOLDER [--out DIR]\n"
+                     "  route-tool heights  ARCHIVE.ja ROUTE_FOLDER [--out DIR]\n";
         return 2;
     }
     const std::string cmd = argv[1];
@@ -85,7 +89,7 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
-        if (cmd != "overview") {
+        if (cmd != "overview" && cmd != "heights") {
             std::cerr << "unknown command\n";
             return 2;
         }
@@ -101,15 +105,64 @@ int main(int argc, char** argv) {
         }
         const auto w = static_cast<std::uint32_t>(spanX * 64), h = static_cast<std::uint32_t>(spanY * 64);
         std::vector<std::uint8_t> rgba(static_cast<std::size_t>(w) * h * 4, 0);
-        for (std::size_t i = 3; i < rgba.size(); i += 4) {
-            rgba[i] = 255;
-        }
-        for (const auto& s : g.sections) {
-            for (std::size_t j = 0; j < s.overview.size(); ++j) {
-                const std::size_t px = static_cast<std::size_t>(static_cast<long>(s.x) - minX) * 64 + j % 64;
-                const std::size_t py = static_cast<std::size_t>(static_cast<long>(maxY) - s.y) * 64 + j / 64;
-                std::uint8_t* d = rgba.data() + (py * w + px) * 4;
-                overviewToRgb(s.overview[j], d[0], d[1], d[2]);
+        if (cmd == "heights") {
+            // Diagnostic sampling only: the grid's border/overlap and world
+            // spacing are not yet confirmed. Use one 64x64 tile per section,
+            // sampling the full stored grid, including its borders.
+            double low = std::numeric_limits<double>::infinity();
+            double high = -low;
+            std::size_t invalid = 0;
+            for (const auto& section : g.sections) {
+                const auto decoded = parseGroundSection(section, g.version);
+                for (const auto& vertex : decoded.vertices) {
+                    if (!std::isfinite(vertex.height)) {
+                        ++invalid;
+                        continue;
+                    }
+                    low = std::min(low, static_cast<double>(vertex.height));
+                    high = std::max(high, static_cast<double>(vertex.height));
+                }
+            }
+            if (!std::isfinite(low)) {
+                throw ContentError("route has no finite terrain heights");
+            }
+            for (const auto& section : g.sections) {
+                const auto decoded = parseGroundSection(section, g.version);
+                const std::size_t side = groundVertexSide(section.tag);
+                if (side < 2 || decoded.vertices.size() != side * side) {
+                    throw ContentError("terrain vertex grid has an unexpected size");
+                }
+                const std::size_t tileX = static_cast<std::size_t>(static_cast<long>(section.x) - minX) * 64;
+                const std::size_t tileY = static_cast<std::size_t>(static_cast<long>(maxY) - section.y) * 64;
+                for (std::size_t y = 0; y < 64; ++y) {
+                    for (std::size_t x = 0; x < 64; ++x) {
+                        const std::size_t vx = (x * (side - 1) + 31) / 63;
+                        const std::size_t vy = (y * (side - 1) + 31) / 63;
+                        const double heightValue = decoded.vertices[vy * side + vx].height;
+                        if (!std::isfinite(heightValue)) {
+                            continue;  // non-finite samples and missing sections stay transparent
+                        }
+                        const double scaled = high > low ? (heightValue - low) / (high - low) : 0.5;
+                        const auto grey = static_cast<std::uint8_t>(std::clamp(scaled, 0.0, 1.0) * 255.0 + 0.5);
+                        auto* pixel = rgba.data() + ((tileY + y) * w + tileX + x) * 4;
+                        pixel[0] = grey, pixel[1] = grey, pixel[2] = grey, pixel[3] = 255;
+                    }
+                }
+            }
+            std::printf("height range: %.9g..%.9g (black..white; flat routes use grey); %zu non-finite vertices\n",
+                        low, high, invalid);
+            std::cerr << "note: diagnostic height sampling; grid orientation, borders and spacing are unconfirmed\n";
+        } else {
+            for (std::size_t i = 3; i < rgba.size(); i += 4) {
+                rgba[i] = 255;
+            }
+            for (const auto& section : g.sections) {
+                for (std::size_t j = 0; j < section.overview.size(); ++j) {
+                    const std::size_t px = static_cast<std::size_t>(static_cast<long>(section.x) - minX) * 64 + j % 64;
+                    const std::size_t py = static_cast<std::size_t>(static_cast<long>(maxY) - section.y) * 64 + j / 64;
+                    auto* pixel = rgba.data() + (py * w + px) * 4;
+                    overviewToRgb(section.overview[j], pixel[0], pixel[1], pixel[2]);
+                }
             }
         }
         const auto png = trainz::common::encodePngRgba(w, h, rgba);
@@ -123,16 +176,17 @@ int main(int argc, char** argv) {
                 c = '_';
             }
         }
-        file += ".overview.png";
+        file += (cmd == "heights" ? ".heights.png" : ".overview.png");
         out.createFile(file, [&](int fd) {
             std::size_t done = 0;
             while (done < png.size()) {
                 const ssize_t n = ::write(fd, png.data() + done, png.size() - done);
-                if (n < 0) {
-                    if (errno == EINTR) {
+                if (n <= 0) {
+                    if (n < 0 && errno == EINTR) {
                         continue;
                     }
-                    throw std::runtime_error(std::string("write failed: ") + std::strerror(errno));
+                    throw std::runtime_error(n == 0 ? "write made no progress"
+                                                    : std::string("write failed: ") + std::strerror(errno));
                 }
                 done += static_cast<std::size_t>(n);
             }
