@@ -45,7 +45,7 @@ model-viewer      /path/to/TS2010/Builtin/8.ja "hash-c1/kuid 58422 50128/benthd.
 shows a mesh in that pose.
 
 `route-tool info / overview / heights / track` decodes a route's terrain sections (texture slots, vertices with heights) and stitches their overview maps
-into one PNG ([`docs/formats/route.md`](docs/formats/route.md)); `track` draws the route's track network over the height map (with `--session`, a session's trains too) ([`docs/tools/route-heights.md`](docs/tools/route-heights.md)). The world data block after the index (lighting keys, version extras, `Rule` objects) is decoded too; what several of its values mean is still a guess.
+into one PNG ([`docs/formats/route.md`](docs/formats/route.md)); `track` draws the route's track network over the height map (with `--session`, a session's trains too), and `view` renders a 3D picture of part of a route from the decoded data ([`docs/tools/route-heights.md`](docs/tools/route-heights.md)). The world data block after the index (lighting keys, version extras, `Rule` objects) is decoded too; what several of its values mean is still a guess.
 
 `sound-tool info / export` reads `.wav` sounds (PCM, MS ADPCM, MP3 inside a WAV) and `.mp3`
 files, and exports plain WAVs (MP3 needs a build with `libmpg123-dev`);

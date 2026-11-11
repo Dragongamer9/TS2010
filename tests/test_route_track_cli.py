@@ -70,6 +70,20 @@ def main():
         r = subprocess.run([tool, "track", str(archive), ROUTE, "--session", str(archive), "no/such/session"],
                            env=env, capture_output=True, text=True, timeout=120)
         assert r.returncode != 0 and "profile.dat" in r.stderr, (r.returncode, r.stderr)
+        # route-tool view: a 3D picture of part of the route.
+        r = subprocess.run([tool, "view", str(archive), ROUTE], env=env, capture_output=True, text=True, timeout=300)
+        assert r.returncode == 0, r.stderr
+        assert "terrain triangles" in r.stdout, r.stdout
+        view = Path(tmp) / "data/trainz-native/routes" / (ROUTE.replace("/", "_") + ".view.png")
+        rows = list(rgba_rows(view.read_bytes()))
+        assert len(rows) == 720 and len(rows[0]) == 1280 * 4
+        sky = tuple(rows[0][0:4])
+        assert sky[2] > 200 and sky[3] == 255, sky  # sky at the top
+        track = sum(1 for row in rows[300:] for i in range(0, len(row), 4) if tuple(row[i:i + 3]) == (200, 30, 30))
+        assert track > 50, track  # track drawn on the terrain
+        r = subprocess.run([tool, "view", str(archive), ROUTE, "--radius", "5"], env=env, capture_output=True,
+                           text=True, timeout=60)
+        assert r.returncode != 0 and "radius" in r.stderr, r.stderr
     assert (archive.stat().st_mtime_ns, archive.stat().st_size) == before
     print(f"route track CLI checks passed (red {red}, yellow {yellow}, cyan {cyan}, green {green})")
 

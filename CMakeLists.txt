@@ -55,6 +55,8 @@ add_library(trainz_content
   src/input/ActionMap.cpp
   src/input/KeyBindings.cpp
   src/view/MeshPreview.cpp
+  src/view/RouteScene.cpp
+  src/view/SceneRender.cpp
 )
 target_include_directories(trainz_content PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(trainz_content PRIVATE ${TRAINZ_WARNINGS})
@@ -182,6 +184,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_real_install.cpp
     tests/test_route_objects.cpp
     tests/test_safe_output.cpp
+    tests/test_scene_render.cpp
     tests/test_session.cpp
     tests/test_sound.cpp
     tests/test_texture.cpp

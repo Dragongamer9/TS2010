@@ -75,3 +75,25 @@ Regression check (uses the real test route; skips if it is missing):
 ```
 python3 tests/test_route_track_cli.py ./build/route-tool testdata/ts2010
 ```
+
+## 3D view: `route-tool view`
+
+```
+./build/route-tool view ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--at X Y] [--radius M] [--out DIR]
+```
+
+Renders a 1280×720 perspective picture of the area within `--radius` metres (default 900,
+allowed 50…20,000) of a point, seen from the south-west and above, with the small software
+renderer in `src/view/SceneRender` (no GPU). It shows only what the port has decoded:
+
+- terrain from the height grid (10 m cells, observed layout), each vertex coloured from the
+  section's own 64×64 overview map, shaded by a fixed sun;
+- track as straight red lines between vertices, 0.5 m above them (yellow: `tkBr`); only
+  pieces with both ends inside the area;
+- placed objects as dark green dots (signals magenta) at their stored height;
+- with `--session`, every vehicle as an orange dot, at the height of its train's track piece
+  (a vehicle's own stored `z` is often 0.3, not a height on the route).
+
+No meshes, textures, curves or rotation yet. `--at X Y` takes world metres (+x east, +y
+north); without it the view centres on the first train, or else the area with the most
+track junctions. Writes `<route-folder>.view.png` through `SafeOutputDir`.

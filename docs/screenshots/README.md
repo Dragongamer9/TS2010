@@ -13,6 +13,8 @@ port can already read and draw.
 | ![](benthd-preview.png) | `benthd.pm`, an older `.pm` mesh (a bogie) | `mesh-tool preview … --view 3q` |
 | ![](grass-texture.png) | `grass_15.texture` (`MMTF` → RGBA) | `texture-tool png` |
 | ![](crate-descriptor.png) | A crate built from a `.texture.txt` descriptor: colour TGA + separate grey alpha mask (see-through slats) | `texture-tool png` |
+| ![](sample-view.png) | **3D view** of the test route: terrain coloured from its overview maps (the grey strip is the airport runway), track, signals (magenta) and trees (green). Rendered by the port's own software renderer from decoded data; no models or textures yet | `route-tool view` |
+| ![](midday-view.png) | **3D view** of "Midday Manifest": one of its trains (orange) on its track through a town | `route-tool view … --session … --radius 500` |
 | ![](thueringen-overview.png) | "Thüringen Romantik Strecke": every terrain section's built-in 64×64 overview map, stitched | `route-tool overview` |
 | ![](thueringen-track.png) | The same route: terrain heights (black low, white high), placed objects (green) and the track network on top | `route-tool track` |
 | ![](sample-route-objects.png) | The test route with its 10,201 placed objects (dark green dots; signals magenta) under the track | `route-tool track` |

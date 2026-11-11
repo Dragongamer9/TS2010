@@ -17,6 +17,8 @@
 #include "content/ObjectContainer.h"
 #include "content/PlacedObject.h"
 #include "content/SessionFile.h"
+#include "view/RouteScene.h"
+#include "view/SceneRender.h"
 #include "content/TrackLayout.h"
 #include "content/JaArchive.h"
 
@@ -28,6 +30,7 @@
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -41,17 +44,26 @@ int main(int argc, char** argv) {
         std::cerr << "usage:\n  route-tool info     ARCHIVE.ja ROUTE_FOLDER\n"
                      "  route-tool overview ARCHIVE.ja ROUTE_FOLDER [--out DIR]\n"
                      "  route-tool heights  ARCHIVE.ja ROUTE_FOLDER [--out DIR]\n"
-                     "  route-tool track    ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--out DIR]\n";
+                     "  route-tool track    ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--out DIR]\n"
+                     "  route-tool view     ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--at X Y]\n"
+                     "                      [--radius M] [--out DIR]   a 3D view of part of the route\n";
         return 2;
     }
     const std::string cmd = argv[1];
     fs::path outDir;
     std::string sessionArchive, sessionFolder;
+    std::optional<double> atX, atY;
+    double radius = 900.0;
     for (int i = 4; i < argc; ++i) {
         const std::string opt = argv[i];
         if (opt == "--out" && i + 1 < argc) {
             outDir = argv[++i];
-        } else if (opt == "--session" && i + 2 < argc && cmd == "track") {
+        } else if (opt == "--at" && i + 2 < argc && cmd == "view") {
+            atX = std::stod(argv[++i]);
+            atY = std::stod(argv[++i]);
+        } else if (opt == "--radius" && i + 1 < argc && cmd == "view") {
+            radius = std::stod(argv[++i]);
+        } else if (opt == "--session" && i + 2 < argc && (cmd == "track" || cmd == "view")) {
             sessionArchive = argv[++i];
             sessionFolder = argv[++i];
         } else {
@@ -102,10 +114,64 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
-        if (cmd != "overview" && cmd != "heights" && cmd != "track") {
+        if (cmd != "overview" && cmd != "heights" && cmd != "track" && cmd != "view") {
             std::cerr << "unknown command\n";
             return 2;
         }
+        std::uint32_t w = 0, h = 0;
+        std::vector<std::uint8_t> rgba;
+        if (cmd == "view") {
+            // A 3D view of part of the route: terrain coloured from its overview maps, track,
+            // placed objects and (with --session) trains. Only decoded data; no meshes.
+            TrackLayout track;
+            bool haveTrack = false;
+            if (const JaEntry* te = archive.find(std::string(argv[3]) + "/mapfile.trk")) {
+                track = readTrackLayout(parseRouteObjectFile(archive.readLimited(*te, std::size_t{256} << 20)));
+                haveTrack = true;
+            }
+            std::vector<PlacedObject> objects;
+            if (const JaEntry* oe = archive.find(std::string(argv[3]) + "/mapfile.obs")) {
+                for (const auto& c : parseRouteObjectFile(archive.readLimited(*oe, std::size_t{256} << 20)).containers) {
+                    for (const auto& item : c.items) {
+                        if (auto o = decodePlacedObject(item)) {
+                            objects.push_back(std::move(*o));
+                        }
+                    }
+                }
+            }
+            std::vector<Train> trains;
+            if (!sessionArchive.empty()) {
+                const auto sa = JaArchive::open(sessionArchive);
+                const JaEntry* pe = sa.find(sessionFolder + "/profile.dat");
+                if (pe == nullptr) {
+                    throw ContentError("'" + sessionFolder + "/profile.dat' is not in " + sessionArchive);
+                }
+                for (const auto& blk : parseSessionProfile(sa.readLimited(*pe, std::size_t{256} << 20)).blocks) {
+                    if (blk.container) {
+                        for (const auto& item : blk.container->items) {
+                            if (auto t = decodeTrain(item)) {
+                                trains.push_back(std::move(*t));
+                            }
+                        }
+                    }
+                }
+            }
+            if (!(radius >= 50 && radius <= 20000)) {
+                throw ContentError("--radius must be 50..20000 metres");
+            }
+            trainz::view::RouteSceneInput in;
+            in.ground = &g;
+            in.track = haveTrack ? &track : nullptr;
+            in.objects = &objects;
+            in.trains = sessionArchive.empty() ? nullptr : &trains;
+            const auto view = trainz::view::buildRouteView(in, radius, atX, atY);
+            w = 1280, h = 720;
+            rgba = trainz::view::renderScene(view.scene, view.camera, w, h);
+            std::printf("view: centre %.0f, %.0f, radius %.0f m; %zu sections, %zu terrain triangles, %zu track lines, "
+                        "%zu dots (objects green, signals magenta, trains orange); straight track, no meshes\n",
+                        view.centreX, view.centreY, radius, view.sections, view.scene.triangles.size(),
+                        view.scene.lines.size(), view.scene.dots.size());
+        } else {
         int minX = g.sections[0].x, maxX = minX, minY = g.sections[0].y, maxY = minY;
         for (const auto& s : g.sections) {
             minX = std::min(minX, s.x), maxX = std::max(maxX, s.x);
@@ -116,8 +182,8 @@ int main(int argc, char** argv) {
             std::cerr << "route is too large for one overview image\n";
             return 1;
         }
-        const auto w = static_cast<std::uint32_t>(spanX * 64), h = static_cast<std::uint32_t>(spanY * 64);
-        std::vector<std::uint8_t> rgba(static_cast<std::size_t>(w) * h * 4, 0);
+        w = static_cast<std::uint32_t>(spanX * 64), h = static_cast<std::uint32_t>(spanY * 64);
+        rgba.assign(static_cast<std::size_t>(w) * h * 4, 0);
         if (cmd == "heights" || cmd == "track") {
             // Grid layout (observed on the disc, not traced): vertex = row * side + column;
             // columns run toward +x and rows toward +y; a section spans side - 4 cells
@@ -304,6 +370,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        }  // map commands
         const auto png = trainz::common::encodePngRgba(w, h, rgba);
         if (outDir.empty()) {
             outDir = trainz::common::portDataDir() / "routes";
@@ -315,7 +382,7 @@ int main(int argc, char** argv) {
                 c = '_';
             }
         }
-        file += (cmd == "heights" ? ".heights.png" : cmd == "track" ? ".track.png" : ".overview.png");
+        file += (cmd == "heights" ? ".heights.png" : cmd == "track" ? ".track.png" : cmd == "view" ? ".view.png" : ".overview.png");
         out.createFile(file, [&](int fd) {
             std::size_t done = 0;
             while (done < png.size()) {
