@@ -13,6 +13,7 @@
 #include "common/PngWriter.h"
 #include "common/SafeOutput.h"
 #include "content/ContentError.h"
+#include "content/AssetIndex.h"
 #include "content/GroundFile.h"
 #include "content/ObjectContainer.h"
 #include "content/PlacedObject.h"
@@ -46,7 +47,8 @@ int main(int argc, char** argv) {
                      "  route-tool heights  ARCHIVE.ja ROUTE_FOLDER [--out DIR]\n"
                      "  route-tool track    ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--out DIR]\n"
                      "  route-tool view     ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--at X Y]\n"
-                     "                      [--radius M] [--out DIR]   a 3D view of part of the route\n";
+                     "                      [--radius M] [--install DIR] [--out DIR]   a 3D view of part of the route\n"
+                     "                      (--install: the TS2010 folder, to draw objects' 3D models)\n";
         return 2;
     }
     const std::string cmd = argv[1];
@@ -54,6 +56,7 @@ int main(int argc, char** argv) {
     std::string sessionArchive, sessionFolder;
     std::optional<double> atX, atY;
     double radius = 900.0;
+    fs::path installDir;
     for (int i = 4; i < argc; ++i) {
         const std::string opt = argv[i];
         if (opt == "--out" && i + 1 < argc) {
@@ -61,6 +64,8 @@ int main(int argc, char** argv) {
         } else if (opt == "--at" && i + 2 < argc && cmd == "view") {
             atX = std::stod(argv[++i]);
             atY = std::stod(argv[++i]);
+        } else if (opt == "--install" && i + 1 < argc && cmd == "view") {
+            installDir = argv[++i];
         } else if (opt == "--radius" && i + 1 < argc && cmd == "view") {
             radius = std::stod(argv[++i]);
         } else if (opt == "--session" && i + 2 < argc && (cmd == "track" || cmd == "view")) {
@@ -159,7 +164,14 @@ int main(int argc, char** argv) {
             if (!(radius >= 50 && radius <= 20000)) {
                 throw ContentError("--radius must be 50..20000 metres");
             }
+            std::optional<AssetIndex> index;
+            std::optional<trainz::view::AssetMeshes> meshes;
+            if (!installDir.empty()) {
+                index = AssetIndex::scanInstall(installDir);
+                meshes.emplace(*index);
+            }
             trainz::view::RouteSceneInput in;
+            in.meshes = meshes ? &*meshes : nullptr;
             in.ground = &g;
             in.track = haveTrack ? &track : nullptr;
             in.objects = &objects;
@@ -167,10 +179,16 @@ int main(int argc, char** argv) {
             const auto view = trainz::view::buildRouteView(in, radius, atX, atY);
             w = 1280, h = 720;
             rgba = trainz::view::renderScene(view.scene, view.camera, w, h);
-            std::printf("view: centre %.0f, %.0f, radius %.0f m; %zu sections, %zu terrain triangles, %zu track lines, "
-                        "%zu dots (objects green, signals magenta, trains orange); straight track, no meshes\n",
+            std::printf("view: centre %.0f, %.0f, radius %.0f m; %zu sections, %zu triangles, %zu track lines, "
+                        "%zu dots (objects green, signals magenta, trains orange); objects as models %zu, as dots %zu; "
+                        "straight track\n",
                         view.centreX, view.centreY, radius, view.sections, view.scene.triangles.size(),
-                        view.scene.lines.size(), view.scene.dots.size());
+                        view.scene.lines.size(), view.scene.dots.size(), view.objectsAsMeshes, view.objectsAsDots);
+            if (meshes) {
+                for (const auto& [why, n] : meshes->misses()) {
+                    std::printf("  assets without a model: %zu (%s)\n", n, why.c_str());
+                }
+            }
         } else {
         int minX = g.sections[0].x, maxX = minX, minY = g.sections[0].y, maxY = minY;
         for (const auto& s : g.sections) {

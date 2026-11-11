@@ -15,6 +15,8 @@ port can already read and draw.
 | ![](crate-descriptor.png) | A crate built from a `.texture.txt` descriptor: colour TGA + separate grey alpha mask (see-through slats) | `texture-tool png` |
 | ![](sample-view.png) | **3D view** of the test route: terrain coloured from its overview maps (the grey strip is the airport runway), track, signals (magenta) and trees (green). Rendered by the port's own software renderer from decoded data; no models or textures yet | `route-tool view` |
 | ![](midday-view.png) | **3D view** of "Midday Manifest": one of its trains (orange) on its track through a town. Vehicles are drawn at their track piece's height, a preview approximation, not a decoded vehicle elevation | `route-tool view … --session … --radius 500` |
+| ![](sample-view-models.png) | **3D view with models** (`--install`): the test route's houses, yard turntable and buildings drawn as their real 3D models from the disc, one flat colour per part (the average of its texture) | `route-tool view … --install …` |
+| ![](midday-view-models.png) | "Midday Manifest" with models: bushes, poles and an industrial structure along the line, the train in orange | `route-tool view … --session … --install …` |
 | ![](thueringen-overview.png) | "Thüringen Romantik Strecke": every terrain section's built-in 64×64 overview map, stitched | `route-tool overview` |
 | ![](thueringen-track.png) | The same route: terrain heights (black low, white high), placed objects (green) and the track network on top | `route-tool track` |
 | ![](sample-route-objects.png) | The test route with its 10,201 placed objects (dark green dots; signals magenta) under the track | `route-tool track` |

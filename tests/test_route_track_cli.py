@@ -5,6 +5,7 @@ Skips (exit code 77, which CTest reports as "Skipped") when the test route is no
 test data: output goes to a temporary XDG data folder.
 """
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -73,7 +74,7 @@ def main():
         # route-tool view: a 3D picture of part of the route.
         r = subprocess.run([tool, "view", str(archive), ROUTE], env=env, capture_output=True, text=True, timeout=300)
         assert r.returncode == 0, r.stderr
-        assert "terrain triangles" in r.stdout, r.stdout
+        assert " triangles," in r.stdout and "objects as models 0" in r.stdout, r.stdout  # no --install: dots only
         view = Path(tmp) / "data/trainz-native/routes" / (ROUTE.replace("/", "_") + ".view.png")
         rows = list(rgba_rows(view.read_bytes()))
         assert len(rows) == 720 and len(rows[0]) == 1280 * 4
@@ -81,6 +82,13 @@ def main():
         assert sky[2] > 200 and sky[3] == 255, sky  # sky at the top
         track = sum(1 for row in rows[300:] for i in range(0, len(row), 4) if tuple(row[i:i + 3]) == (200, 30, 30))
         assert track > 50, track  # track drawn on the terrain
+        # --install: placed objects drawn as their 3D models (the test data has only a few assets).
+        r = subprocess.run([tool, "view", str(archive), ROUTE, "--install", str(Path(sys.argv[2])), "--radius", "500",
+                            "--out", str(Path(tmp) / "data/trainz-native/routes/models")],
+                           env=env, capture_output=True, text=True, timeout=300)
+        assert r.returncode == 0, r.stderr
+        m = re.search(r"objects as models (\d+)", r.stdout)
+        assert m and int(m.group(1)) > 0, r.stdout
         r = subprocess.run([tool, "view", str(archive), ROUTE, "--radius", "5"], env=env, capture_output=True,
                            text=True, timeout=60)
         assert r.returncode != 0 and "radius" in r.stderr, r.stderr

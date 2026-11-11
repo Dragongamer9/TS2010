@@ -1,8 +1,11 @@
+#include "view/AssetMeshes.h"
 #include "view/SceneRender.h"
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <limits>
+#include <numbers>
 #include <stdexcept>
 
 using namespace trainz::view;
@@ -86,4 +89,24 @@ TEST(SceneRender, BehindTheCameraAndBadInputAreSafe) {
     EXPECT_GT(px(img, 32, 16, 16)[2], 200);  // nothing drawn: sky
     EXPECT_THROW(renderScene(s, lookingDown(), 0, 10), std::invalid_argument);
     EXPECT_THROW(renderScene(s, lookingDown(), 9000, 10), std::invalid_argument);
+}
+
+TEST(SceneRender, PlacedMeshIsRotatedAnticlockwiseThenMoved) {
+    PreparedMesh m;
+    LocalTriangle t{};
+    t.p[0][0] = 1;  // (1, 0, 0)
+    t.p[1][1] = 2;  // (0, 2, 0)
+    t.p[2][2] = 3;  // (0, 0, 3)
+    t.colour = {10, 20, 30};
+    m.triangles.push_back(t);
+    Scene s;
+    addPlacedMesh(s, m, 100, 200, 5, std::numbers::pi / 2);  // a quarter turn
+    ASSERT_EQ(s.triangles.size(), 1U);
+    const auto& p = s.triangles[0].p;
+    EXPECT_NEAR(p[0].x, 100, 1e-9);  // +x turned to +y
+    EXPECT_NEAR(p[0].y, 201, 1e-9);
+    EXPECT_NEAR(p[1].x, 98, 1e-9);  // +y turned to -x
+    EXPECT_NEAR(p[1].y, 200, 1e-9);
+    EXPECT_NEAR(p[2].z, 8, 1e-9);  // height kept, moved up by 5
+    EXPECT_EQ(s.triangles[0].c[0].g, 20);
 }

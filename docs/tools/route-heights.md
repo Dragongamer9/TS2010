@@ -79,7 +79,8 @@ python3 tests/test_route_track_cli.py ./build/route-tool testdata/ts2010
 ## 3D view: `route-tool view`
 
 ```
-./build/route-tool view ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--at X Y] [--radius M] [--out DIR]
+./build/route-tool view ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--at X Y] [--radius M]
+                        [--install TS2010_FOLDER] [--out DIR]
 ```
 
 Renders a 1280×720 perspective picture of the area within `--radius` metres (default 900,
@@ -90,11 +91,18 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   section's own 64×64 overview map, shaded by a fixed sun;
 - track as straight red lines between vertices, 0.5 m above them (yellow: `tkBr`); only
   pieces with both ends inside the area;
-- placed objects as dark green dots (signals magenta) at their stored height;
+- placed objects as dark green dots (signals magenta) at their stored height, or, with
+  `--install`, as **their 3D models**: the install is indexed (`AssetIndex`), each object's
+  asset config gives its first mesh (`mesh`, or the first `mesh` in `mesh-table`), and the
+  mesh is drawn turned by the object's yaw (radians, anticlockwise, inferred; which side
+  faces +x at 0 is not known) at its position. Each part is one flat colour: the average of
+  its colour texture. `.lm` level-of-detail files are not read yet (an `.im` of the same
+  name is used if there is one); assets without a readable mesh stay dots, and the reasons
+  are printed;
 - with `--session`, every vehicle as an orange dot, drawn at the height of its train's track
   piece. That height is a **preview approximation, not a decoded vehicle elevation**: a
   vehicle's own stored `z` is often 0.3, and what it means is not known.
 
-No meshes, textures, curves or rotation yet. `--at X Y` takes world metres (+x east, +y
+No surface textures, track curves, train models or animation yet. `--at X Y` takes world metres (+x east, +y
 north); without it the view centres on the first train, or else the area with the most
 track junctions. Writes `<route-folder>.view.png` through `SafeOutputDir`.

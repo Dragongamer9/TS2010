@@ -113,8 +113,17 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
         for (const auto& o : *in.objects) {
             const double x = o.worldX(), y = o.worldY();
             if (near(x, y) && std::isfinite(o.z)) {
+                if (in.meshes != nullptr && v.scene.triangles.size() < kMaxSceneTriangles) {
+                    if (const PreparedMesh* m = in.meshes->get(o.kuid)) {
+                        // Yaw: radians, anticlockwise (inferred); which side faces +x at 0 is not known.
+                        addPlacedMesh(v.scene, *m, x, y, o.z, o.yaw);
+                        ++v.objectsAsMeshes;
+                        continue;
+                    }
+                }
                 const Rgb c = o.tag == "sgOb" ? Rgb{230, 40, 230} : Rgb{25, 85, 35};
                 v.scene.dots.push_back({{x, y, o.z + 1.0}, c, o.tag == "sgOb" ? 2 : 1});
+                ++v.objectsAsDots;
             }
         }
     }
