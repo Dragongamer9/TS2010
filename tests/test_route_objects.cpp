@@ -2,8 +2,12 @@
 
 #include "content/ContentError.h"
 #include "content/ObjectContainer.h"
+#include "content/TrackLayout.h"
 
 #include <gtest/gtest.h>
+
+#include <cstring>
+#include <limits>
 
 using namespace trainz::content;
 using namespace trainz::test;
@@ -137,4 +141,91 @@ TEST(RouteObjects, GameStopsAtUnknownVersionsInsideTheGround) {
     EXPECT_EQ(c.version, 77U);
     EXPECT_TRUE(c.items.empty());
     EXPECT_EQ(pos, 4U);
+}
+
+namespace {
+
+void putF32(Bytes& b, float f) {
+    std::uint32_t u;
+    std::memcpy(&u, &f, 4);
+    putU32(b, u);
+}
+
+Bytes vertexPayload(std::int16_t bx, std::int16_t by, float x, float y, float z) {
+    Bytes p;
+    putU32(p, 3);
+    putU16(p, static_cast<std::uint16_t>(bx));
+    putU16(p, static_cast<std::uint16_t>(by));
+    putF32(p, x);
+    putF32(p, y);
+    putF32(p, z);
+    p.resize(41, 0);  // the 21 bytes not decoded
+    return p;
+}
+
+Bytes stretchPayload(std::int32_t from, std::int32_t to) {
+    Bytes p;
+    putU32(p, 6);
+    putU32(p, static_cast<std::uint32_t>(from));
+    putU32(p, static_cast<std::uint32_t>(to));
+    putU32(p, 1116);  // track KUID: content, then packed user
+    putU32(p, 523);
+    p.resize(30, 0);
+    return p;
+}
+
+}  // namespace
+
+TEST(TrackLayout, DecodesVerticesAndStretches) {
+    Bytes b;
+    putU32(b, 2);
+    putU32(b, 5);
+    putU32(b, 2);
+    item(b, 0, "tSkt", 1116, 523, stretchPayload(10, 11));
+    item(b, 1, "tSkt", 1116, 523, stretchPayload(11, 99));  // vertex 99 does not exist
+    endContainer(b, 5, 2);
+    putU32(b, 5);
+    putU32(b, 2);
+    item(b, 10, "xVkt", -1, 0x1FFFFFFu, vertexPayload(-1, 3, 600.0F, 237.5F, 30.0F));
+    item(b, 11, "xVkt", -1, 0x1FFFFFFu, vertexPayload(0, 3, 10.0F, 240.0F, 30.5F));
+    endContainer(b, 5, 2);
+
+    const auto t = readTrackLayout(parseRouteObjectFile(b));
+    ASSERT_EQ(t.vertices.size(), 2U);
+    const auto& v = t.vertices.at(10);
+    EXPECT_EQ(v.boardX, -1);
+    EXPECT_EQ(v.boardY, 3);
+    EXPECT_FLOAT_EQ(v.z, 30.0F);
+    EXPECT_DOUBLE_EQ(v.worldX(), -720.0 + 600.0);
+    EXPECT_DOUBLE_EQ(v.worldY(), 3 * 720.0 + 237.5);
+    ASSERT_EQ(t.stretches.size(), 2U);
+    EXPECT_EQ(t.stretches[0].from, 10);
+    EXPECT_EQ(t.stretches[0].to, 11);
+    EXPECT_EQ(t.stretches[0].track.user, 523);
+    EXPECT_EQ(t.stretches[0].track.content, 1116);
+    EXPECT_EQ(t.stretches[0].rest.size(), 10U);
+    ASSERT_EQ(t.warnings.size(), 1U);  // the stretch to the missing vertex 99
+    EXPECT_NE(t.warnings[0].find("missing"), std::string::npos);
+}
+
+TEST(TrackLayout, ShortOrOddItemsWarn) {
+    ObjectItem shortVertex;
+    shortVertex.tag = "tkVx";
+    shortVertex.payload = Bytes(10, 0);
+    EXPECT_FALSE(decodeTrackVertex(shortVertex).has_value());
+    ObjectItem other;
+    other.tag = "mOBJ";
+    other.payload = Bytes(40, 0);
+    EXPECT_FALSE(decodeTrackStretch(other).has_value());
+
+    RouteObjectFile f;
+    f.containers.emplace_back();
+    ObjectItem nanVertex;
+    nanVertex.tag = "tkVx";
+    nanVertex.payload = vertexPayload(0, 0, std::numeric_limits<float>::quiet_NaN(), 1.0F, 1.0F);
+    f.containers[0].items = {shortVertex, nanVertex, other};
+    const auto t = readTrackLayout(f);
+    EXPECT_TRUE(t.vertices.empty());
+    EXPECT_EQ(t.otherItems, 1U);
+    EXPECT_EQ(t.warnings.size(), 2U);
 }

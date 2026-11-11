@@ -173,8 +173,9 @@ C++ reader agree:
   21,955 of 27,006 neighbouring edges (81%) match exactly. The other 19% differ,
   often by metres and along x and y alike; this is **unexplained** (one untested idea:
   sections edited apart). (This replaces the earlier guess of a 2-vertex border on each side.)
-  72 cells on a 720 m baseboard would be a 10 m grid (144 → 5 m for Sec5);
-  the spacing is still not traced.
+  The spacing is **10 m** for Secs (720 m ÷ 72 cells; 5 m for Sec5): track vertices,
+  stored as metres inside a 720 m baseboard, sit on this terrain (see
+  [route-objects.md](route-objects.md)). Observed, not traced.
 - `cells` (a 36 × 36 grid, one cell per 2 × 2 vertices in the old index form)
   holds one float per cell, possibly a water level. Not traced.
 - The texture-slot weight might be a usage count or scale. The writer leaves
@@ -289,8 +290,8 @@ out, and the C++ reader refuses versions < 12.
    the colour and KUID, the container `word`, `Rule` payloads and the tail
    records. Also the version < 7 environment (`0x463cb0`) and container
    version 2.
-2. The meaning of the vertex `extra` byte and the cell value, the real-world
-   grid spacing, and why 19% of section edges don't match their neighbour.
+2. The meaning of the vertex `extra` byte and the cell value, and why 19% of
+   section edges don't match their neighbour.
 3. How the 250 texture slots map to ground-texture assets at draw time.
 4. The overview colour order (whether the TGA loader reorders bytes for
    format 2).

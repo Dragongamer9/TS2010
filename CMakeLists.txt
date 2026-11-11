@@ -49,6 +49,7 @@ add_library(trainz_content
   src/content/SoundFile.cpp
   src/content/TextureDescriptor.cpp
   src/content/TextureFile.cpp
+  src/content/TrackLayout.cpp
   src/input/ActionMap.cpp
   src/input/KeyBindings.cpp
   src/view/MeshPreview.cpp

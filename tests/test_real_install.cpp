@@ -18,6 +18,7 @@
 #include "content/ReadOnlyFile.h"
 #include "content/SoundFile.h"
 #include "content/TextureDescriptor.h"
+#include "content/TrackLayout.h"
 #include "content/TextureFile.h"
 #include "input/KeyBindings.h"
 
@@ -25,6 +26,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -628,4 +630,70 @@ TEST_F(RealInstall, RouteObjectFilesRead) {
     std::cout << "  route object files: " << files << ", objects: " << objects
               << ", old container v2 refused: " << refusedOld << "\n";
     EXPECT_EQ(failures, 0u);
+}
+
+TEST_F(RealInstall, TrackSitsOnTheTerrain) {
+    // Every stretch joins existing vertices, and track vertices lie on the ground:
+    // checks the observed vertex layout and the terrain grid layout together.
+    std::size_t routes = 0, vertices = 0, onSection = 0, within1m = 0, badStretches = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        for (const auto& e : a.entries()) {
+            if (e.name.size() < 12 || e.name.compare(e.name.size() - 12, 12, "/mapfile.gnd") != 0 || !a.isLookupWinner(e)) {
+                continue;
+            }
+            const std::string folder = e.name.substr(0, e.name.size() - 12);
+            const JaEntry* te = a.find(folder + "/mapfile.trk");
+            if (te == nullptr) {
+                continue;
+            }
+            GroundFile g;
+            TrackLayout t;
+            try {
+                g = parseGround(a.read(e));
+                t = readTrackLayout(parseRouteObjectFile(a.read(*te)));
+            } catch (const ContentError&) {
+                continue;  // the old robescenario route
+            }
+            ++routes;
+            for (const auto& w : t.warnings) {
+                if (w.find("missing") != std::string::npos) {
+                    ++badStretches;
+                }
+            }
+            std::map<std::pair<long, long>, const GroundSection*> byPos;
+            for (const auto& s : g.sections) {
+                byPos[{s.x, s.y}] = &s;
+            }
+            std::map<const GroundSection*, GroundSectionData> decoded;
+            for (const auto& [index, v] : t.vertices) {
+                ++vertices;
+                const auto it = byPos.find({v.boardX, v.boardY});
+                if (it == byPos.end() || !(v.x >= 0 && v.x < kBaseboardSize && v.y >= 0 && v.y < kBaseboardSize)) {
+                    continue;
+                }
+                auto d = decoded.find(it->second);
+                if (d == decoded.end()) {
+                    d = decoded.emplace(it->second, parseGroundSection(*it->second, g.version)).first;
+                }
+                const std::size_t side = groundVertexSide(it->second->tag);
+                const std::size_t cells = side - 4;
+                const double spacing = kBaseboardSize / static_cast<double>(cells);
+                const auto col = static_cast<std::size_t>(std::lround(v.x / spacing));
+                const auto row = static_cast<std::size_t>(std::lround(v.y / spacing));
+                ++onSection;
+                if (std::fabs(d->second.vertices[row * side + col].height - v.z) < 1.0F) {
+                    ++within1m;
+                }
+            }
+        }
+    }
+    if (routes == 0) {
+        GTEST_SKIP() << "no route with mapfile.gnd and mapfile.trk";
+    }
+    std::cout << "  routes " << routes << ", track vertices " << vertices << ", on a section " << onSection
+              << ", within 1 m of the ground " << within1m << "\n";
+    EXPECT_EQ(badStretches, 0u);
+    EXPECT_GT(onSection * 100, vertices * 95);  // 99.5% on the disc
+    EXPECT_GT(within1m * 100, onSection * 50);  // 66% on the disc (nearest vertex here); rows flipped: 39%
 }

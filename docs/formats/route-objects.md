@@ -62,6 +62,36 @@ floatscenery, `mkOb` motrackmark, `tgOb` motrigger, `spOb` mospeedboard, `mPAS`
 passenger-station, `DvrS` driver-character, `gslb` library, `BHVR` behavior (the `RVHB`
 bytes in `profile.dat`), `Rule` (the `.gnd` world items), `trCt`.
 
+## Track vertices and stretches (observed; reader `src/content/TrackLayout`)
+
+The track classes' own readers are not traced; these layouts come from the data and
+are checked against all 50 disc routes.
+
+**`tkVx` (track vertex), 41 bytes, version 3 on all 406,207 disc vertices:**
+
+```
+u32 version (3)   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   u8 rest[21] (not decoded)
+```
+
+`boardX/boardY` name the terrain section (baseboard) the vertex lies on; `x`/`y` are
+metres inside it (0..720, toward +x and +y); `z` is the height in metres. Evidence: 99.5%
+of disc vertices fall inside a terrain section, and there `z` matches the terrain height
+(sampled with the grid layout in [route.md](route.md), 10 m cells) within 1 m for 66%
+(mean difference 2.07 m; track also runs on embankments and bridges). With the rows
+flipped the same test gives 39% (mean 11.84 m), and with x/y swapped similarly poor, so
+the layout and the terrain grid orientation confirm each other.
+
+**`tkSt` (track stretch), versions 6 (30 or 29 bytes) and 4 (24 bytes):**
+
+```
+u32 version   i32 from   i32 to   u32 content   u32 packed user/version   u8 rest[] (not decoded)
+```
+
+`from`/`to` are vertex indices: both exist for all 293,750 disc stretches; the KUID
+always equals the item's own KUID (the track asset). Median length between the two
+ends: 52 m (99th percentile 661 m). How a stretch curves between its ends (the `rest`
+bytes, or the vertices' own undecoded bytes) is not known.
+
 In `.trk` the first container holds the stretches (`tkSt`, plus `tkBr` in most) and the
 second the vertices (`tkVx`) in every non-empty disc file; 33 `.trk` files hold two empty
 containers (observed). The first `tkSt` payloads begin with
@@ -70,6 +100,7 @@ pairs of small increasing numbers (0, 1), (1, 2), … that look like vertex indi
 ## Not known yet
 
 - Every class's payload layout: each class has its own serializer, none traced yet.
+  `tkVx` and `tkSt` are partly decoded from the data (above); the rest is not.
 - `fileWord` and the container `word`; the meaning of `index` for `.obs` (not 0..n−1).
 - Container version 2 (items without sizes), used by one old route.
 - The names behind `tkSt`, `tkVx`, `tkBr`, `tsO2`, `cmOb`, `trCt`.

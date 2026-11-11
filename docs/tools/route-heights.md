@@ -23,8 +23,8 @@ columns run toward +x and rows toward +y, so the tile's top is the section's las
 row. This layout is observed, not traced: a section's column/row `side − 4` equals the
 neighbour's column/row 0 on 81% of the disc's section edges (see
 [route.md](../formats/route.md)). The other 19% of edges don't match and are
-**unexplained**, so seams still show there; this is not a seamless reconstruction. The 3 rows and columns past the shared edge are not drawn. Grid spacing
-and the mapping to world coordinates are still unconfirmed; this is not a terrain
+**unexplained**, so seams still show there; this is not a seamless reconstruction. The 3 rows and columns past the shared edge are not drawn. The 10 m spacing
+is observed (track vertices sit on this terrain), not traced; this is not a terrain
 interchange format.
 
 All finite vertex heights across the route determine one shared scale: the
