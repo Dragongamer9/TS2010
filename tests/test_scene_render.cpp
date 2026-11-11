@@ -3,6 +3,7 @@
 #include "view/RouteScene.h"
 #include "view/GroundTextures.h"
 #include "view/FlyCamera.h"
+#include "view/RouteCatalog.h"
 #include "view/SceneRender.h"
 
 #include <gtest/gtest.h>
@@ -797,4 +798,27 @@ TEST(FlyCamera, TakesOverAViewAndMovesLevel) {
     down.eye = {0, 0, 10};
     down.target = {0, 0, 0};
     EXPECT_NEAR(FlyCamera::lookingAlong(down).pitch, -FlyCamera::kMaxPitch, 1e-12);
+}
+
+TEST(RouteCatalog, FindByNameOrKuid) {
+    using trainz::content::Kuid;
+    const CatalogEntry a{Kuid{107727, 1019, std::nullopt}, "CN Holly Subdivision", {}};
+    const CatalogEntry b{Kuid{143919, 27565, 1}, "Winter in Germany", {}};
+    const CatalogEntry c{Kuid{-1, 100858, std::nullopt}, "Winter in the Alps", {}};
+    const CatalogEntry d{Kuid{5, 6, std::nullopt}, "Winter", {}};
+    const std::vector<const CatalogEntry*> all = {&a, &b, &c};
+    std::vector<std::string> cand;
+    EXPECT_EQ(findEntry(all, "holly", cand), &a);  // part of one name
+    EXPECT_TRUE(cand.empty());
+    EXPECT_EQ(findEntry(all, "WINTER IN THE ALPS", cand), &c);  // exact, any case
+    EXPECT_EQ(findEntry(all, "winter", cand), nullptr);  // two match
+    EXPECT_EQ(cand, (std::vector<std::string>{"Winter in Germany", "Winter in the Alps"}));
+    const std::vector<const CatalogEntry*> withExact = {&b, &c, &d};
+    EXPECT_EQ(findEntry(withExact, "winter", cand), &d);  // an exact name wins over parts
+    EXPECT_EQ(findEntry(all, "<kuid:107727:1019>", cand), &a);
+    EXPECT_EQ(findEntry(all, "<kuid2:143919:27565:9>", cand), &b);  // any version
+    EXPECT_EQ(findEntry(all, "<kuid:1:2>", cand), nullptr);
+    EXPECT_EQ(findEntry(all, "zzz", cand), nullptr);
+    EXPECT_TRUE(cand.empty());
+    EXPECT_EQ(findEntry(all, "", cand), nullptr);
 }

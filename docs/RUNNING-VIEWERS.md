@@ -63,14 +63,21 @@ viewer for checking what the port reads, not the game.
 ### Basic usage
 
 ```sh
-# A route and one of its sessions, with every asset of the install (models, textures)
-build/route-viewer /path/to/TS2010/Builtin/7.ja "hash-92/kuid 107727 1019" \
-    --session /path/to/TS2010/Builtin/8.ja "hash-e1/kuid 467400 1035" \
-    --install /path/to/TS2010
+# Every route of the install and its sessions, by name
+build/route-viewer --install /path/to/TS2010 --list
+
+# A session by (part of) its name: its route is found for you
+build/route-viewer --install /path/to/TS2010 --session "Midday Manifest"
+
+# Or a route by name, with no trains
+build/route-viewer --install /path/to/TS2010 --route "Holly"
 ```
 
-Without `--install` objects are dots and the ground is coloured from the route's overview
-maps. `--at X Y` starts somewhere else (world metres), `--radius M` sets how much is loaded
+A name can be part of a name if only one matches (otherwise it lists the matches), or a
+KUID such as `"<kuid:107727:1019>"`. The older form with archive and folder still works:
+`build/route-viewer /path/to/TS2010/Builtin/7.ja "hash-92/kuid 107727 1019" --session
+/path/to/TS2010/Builtin/8.ja "hash-e1/kuid 467400 1035" --install /path/to/TS2010`; without
+`--install` there, objects are dots and the ground is coloured from the overview maps. `--at X Y` starts somewhere else (world metres), `--radius M` sets how much is loaded
 (50–5000 m, default 600; bigger is slower). It prints what it is reading first; indexing a
 whole install takes a few seconds.
 
@@ -91,9 +98,8 @@ The window title shows the camera position and how long the last frame took.
 
 ### Finding a route and a session
 
-`route-tool info ARCHIVE ROUTE_FOLDER` checks a route folder; the route and session folders
-used in the pictures in [`docs/screenshots/README.md`](screenshots/README.md) are good
-starting points. A session's config names its route (`map-kuid`, shown by `config-tool`).
+`--list` prints every route (assets of kind `map`) with its sessions (kind `profile`,
+which name their route with `map-kuid`). On Dad's disc that is 52 routes.
 
 ## Running model-viewer
 

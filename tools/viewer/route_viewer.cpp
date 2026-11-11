@@ -2,8 +2,12 @@
 // (src/view/SceneRender) from the decoded route, session and assets - the same scene as
 // `route-tool view`. A viewer for checking the decoders, not the game.
 //
+//   route-viewer --install DIR --list                     the routes and their sessions, by name
+//   route-viewer --install DIR --route NAME [--session NAME] [--at X Y] [--radius M] [--frames N]
 //   route-viewer ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--install DIR]
 //                [--at X Y] [--radius M] [--frames N]
+//
+// NAME is a route's or session's name (or part of it, if only one matches) or its KUID.
 //
 // --frames N: draw N frames (turning a little each time) and quit, for testing; with
 // SDL_VIDEODRIVER=offscreen no window appears.
@@ -17,6 +21,7 @@
 #include "content/GroundFile.h"
 #include "content/JaArchive.h"
 #include "view/FlyCamera.h"
+#include "view/RouteCatalog.h"
 #include "view/RouteLoader.h"
 #include "view/RouteScene.h"
 
@@ -25,29 +30,41 @@
 #include <cstdio>
 #include <exception>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 using namespace trainz::content;
 using trainz::common::strictNumber;
 
 int main(int argc, char** argv) {
+    const bool byName = argc >= 2 && std::string(argv[1]).rfind("--", 0) == 0;
     if (argc < 3) {
-        std::cerr << "usage: route-viewer ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--install DIR]\n"
+        std::cerr << "usage: route-viewer --install DIR --list\n"
+                     "       route-viewer --install DIR --route NAME [--session NAME] [--at X Y] [--radius M]\n"
+                     "       route-viewer ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--install DIR]\n"
                      "                    [--at X Y] [--radius M]\n"
                      "keys: W/S or Up/Down forward/back, A/D sideways, Left/Right turn, PgUp/PgDn look up/down,\n"
                      "      Q/E down/up, Shift 5x faster, R start view, Esc quit\n";
         return 2;
     }
-    std::string sessionArchive, sessionFolder, installDir;
+    std::string sessionArchive, sessionFolder, installDir, routeQuery, sessionQuery;
+    bool list = false;
     std::optional<double> atX, atY;
     double radius = 600;
     long frames = -1;  // -1: until Esc
-    for (int i = 3; i < argc; ++i) {
+    for (int i = byName ? 1 : 3; i < argc; ++i) {
         const std::string opt = argv[i];
-        if (opt == "--session" && i + 2 < argc) {
+        if (opt == "--session" && !byName && i + 2 < argc) {
             sessionArchive = argv[++i];
             sessionFolder = argv[++i];
+        } else if (opt == "--session" && byName && i + 1 < argc) {
+            sessionQuery = argv[++i];
+        } else if (opt == "--route" && byName && i + 1 < argc) {
+            routeQuery = argv[++i];
+        } else if (opt == "--list" && byName) {
+            list = true;
         } else if (opt == "--install" && i + 1 < argc) {
             installDir = argv[++i];
         } else if (opt == "--at" && i + 2 < argc) {
@@ -76,16 +93,15 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
+    if (byName && installDir.empty()) {
+        std::cerr << "--list, --route and --session NAME need --install DIR (the TS2010 folder)\n";
+        return 2;
+    }
+    if (byName && !list && routeQuery.empty() && sessionQuery.empty()) {
+        std::cerr << "give --list, --route NAME or --session NAME\n";
+        return 2;
+    }
     try {
-        const auto archive = JaArchive::open(argv[1]);
-        const JaEntry* ge = archive.find(std::string(argv[2]) + "/mapfile.gnd");
-        if (ge == nullptr) {
-            std::cerr << "'" << argv[2] << "/mapfile.gnd' is not in " << argv[1] << "\n";
-            return 1;
-        }
-        std::printf("reading the route...\n");
-        const GroundFile ground = parseGround(archive.readLimited(*ge, std::size_t{1} << 30));
-        auto extras = trainz::view::loadRouteExtras(archive, argv[2], sessionArchive, sessionFolder);
         std::optional<AssetIndex> index;
         std::optional<trainz::view::AssetMeshes> meshes;
         std::optional<trainz::view::GroundTextures> groundTextures;
@@ -95,6 +111,82 @@ int main(int argc, char** argv) {
             meshes.emplace(*index);
             groundTextures.emplace(*index);
         }
+        std::string archivePath = byName ? std::string() : std::string(argv[1]);
+        std::string routeFolder = byName ? std::string() : std::string(argv[2]);
+        if (byName) {
+            const auto routes = trainz::view::listRoutes(*index);
+            if (list) {
+                for (const auto& r : routes) {
+                    std::printf("%s  %s\n", r.route.name.c_str(), formatKuid(r.route.kuid).c_str());
+                    for (const auto& s : r.sessions) {
+                        std::printf("    session: %s  %s\n", s.name.c_str(), formatKuid(s.kuid).c_str());
+                    }
+                }
+                std::printf("%zu routes\n", routes.size());
+                return 0;
+            }
+            std::vector<const trainz::view::CatalogEntry*> routeEntries, sessionEntries;
+            std::map<const trainz::view::CatalogEntry*, const trainz::view::CatalogRoute*> routeOfSession;
+            for (const auto& r : routes) {
+                routeEntries.push_back(&r.route);
+                for (const auto& s : r.sessions) {
+                    sessionEntries.push_back(&s);
+                    routeOfSession[&s] = &r;
+                }
+            }
+            std::vector<std::string> candidates;
+            auto complain = [&](const char* what, const std::string& q) {
+                std::cerr << "no single " << what << " matches '" << q << "'";
+                if (!candidates.empty()) {
+                    std::cerr << "; it could be:\n";
+                    for (const auto& c : candidates) {
+                        std::cerr << "  " << c << "\n";
+                    }
+                } else {
+                    std::cerr << " (see --list)\n";
+                }
+            };
+            const trainz::view::CatalogRoute* route = nullptr;
+            if (!routeQuery.empty()) {
+                const auto* e = trainz::view::findEntry(routeEntries, routeQuery, candidates);
+                if (e == nullptr) {
+                    complain("route", routeQuery);
+                    return 1;
+                }
+                for (const auto& r : routes) {
+                    route = &r.route == e ? &r : route;
+                }
+            }
+            if (!sessionQuery.empty()) {
+                std::vector<const trainz::view::CatalogEntry*> pool;
+                for (const auto* s : sessionEntries) {
+                    if (route == nullptr || routeOfSession[s] == route) {
+                        pool.push_back(s);  // only the chosen route's sessions
+                    }
+                }
+                const auto* s = trainz::view::findEntry(pool, sessionQuery, candidates);
+                if (s == nullptr) {
+                    complain("session", sessionQuery);
+                    return 1;
+                }
+                route = routeOfSession[s];
+                sessionArchive = s->where.source.string();
+                sessionFolder = s->where.folder;
+                std::printf("session: %s\n", s->name.c_str());
+            }
+            archivePath = route->route.where.source.string();
+            routeFolder = route->route.where.folder;
+            std::printf("route: %s\n", route->route.name.c_str());
+        }
+        const auto archive = JaArchive::open(archivePath);
+        const JaEntry* ge = archive.find(routeFolder + "/mapfile.gnd");
+        if (ge == nullptr) {
+            std::cerr << "'" << routeFolder << "/mapfile.gnd' is not in " << archivePath << "\n";
+            return 1;
+        }
+        std::printf("reading the route...\n");
+        const GroundFile ground = parseGround(archive.readLimited(*ge, std::size_t{1} << 30));
+        auto extras = trainz::view::loadRouteExtras(archive, routeFolder, sessionArchive, sessionFolder);
         trainz::view::RouteSceneInput in;
         in.ground = &ground;
         in.track = extras.track ? &*extras.track : nullptr;

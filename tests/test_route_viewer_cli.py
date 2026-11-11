@@ -39,6 +39,23 @@ def main():
         assert r.returncode == 2, (bad, r.returncode, r.stderr)
     r = subprocess.run([tool], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 2 and "usage" in r.stderr, r.stderr
+    # By name: list, pick a route by part of its name, refuse unknown or missing --install.
+    r = subprocess.run([tool, "--install", str(data), "--list"], env=env, capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0 and "Springfield Industrial District  <kuid:447264:1035>" in r.stdout, (r.returncode, r.stdout)
+    assert "1 routes" in r.stdout, r.stdout
+    r = subprocess.run([tool, "--install", str(data), "--route", "springfield", "--radius", "200", "--frames", "2"],
+                       env=env, capture_output=True, text=True, timeout=600)
+    assert r.returncode == 0 and "route: Springfield Industrial District" in r.stdout and "ms per frame" in r.stdout, \
+        (r.returncode, r.stdout, r.stderr)
+    r = subprocess.run([tool, "--install", str(data), "--route", "<kuid:447264:1035>", "--frames", "1", "--radius", "100"],
+                       env=env, capture_output=True, text=True, timeout=600)
+    assert r.returncode == 0, (r.returncode, r.stderr)
+    r = subprocess.run([tool, "--install", str(data), "--route", "no such route"], env=env, capture_output=True, text=True,
+                       timeout=300)
+    assert r.returncode == 1 and "no single route" in r.stderr, (r.returncode, r.stderr)
+    for bad in (["--route", "x"], ["--install", str(data)]):
+        r = subprocess.run([tool, *bad], env=env, capture_output=True, text=True, timeout=300)
+        assert r.returncode == 2, (bad, r.returncode, r.stderr)
     assert (archive.stat().st_mtime_ns, archive.stat().st_size) == before
     print("route-viewer checks passed")
     return 0

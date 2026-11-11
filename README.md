@@ -51,8 +51,8 @@ into one PNG ([`docs/formats/route.md`](docs/formats/route.md)); `track` draws t
 files, and exports plain WAVs (MP3 needs a build with `libmpg123-dev`);
 `sound-player ARCHIVE NAME` plays one through SDL2 ([`docs/formats/sound.md`](docs/formats/sound.md)).
 
-`route-viewer ARCHIVE ROUTE_FOLDER [--session …] [--install DIR]` (SDL2) opens a window and lets you fly
-around a route (keys: W/A/S/D, arrows, Page Up/Down, Q/E, Shift, R, Esc), drawn by the port's own
+`route-viewer --install DIR --list`, then `route-viewer --install DIR --session NAME` (or `--route NAME`;
+SDL2) opens a window and lets you fly around a route (keys: W/A/S/D, arrows, Page Up/Down, Q/E, Shift, R, Esc), drawn by the port's own
 software renderer; see [`docs/RUNNING-VIEWERS.md`](docs/RUNNING-VIEWERS.md).
 
 `src/input/KeyBindings` reads the game's key bindings, following the traced combo parser and key-name table in `trainz.exe` (how the game matches modifiers and converts live key presses is not confirmed) (`UserData/settings/keyboard.txt`;
