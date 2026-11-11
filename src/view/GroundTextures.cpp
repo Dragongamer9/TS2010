@@ -38,6 +38,7 @@ SceneTexture withMips(SceneTexture t, std::uint32_t side) {
 SceneTexture halveTexture(const SceneTexture& t) {
     SceneTexture out;
     out.alphaTest = t.alphaTest;
+    out.clampEdges = t.clampEdges;
     out.width = std::max<std::uint32_t>(1, t.width / 2);
     out.height = std::max<std::uint32_t>(1, t.height / 2);
     if (t.width == 0 || t.height == 0 || t.rgba.size() < std::size_t{t.width} * t.height * 4) {
@@ -90,6 +91,7 @@ SceneTexture bakeGroundSection(const GroundSectionData& data, std::size_t side,
     }
     SceneTexture out;
     out.width = out.height = size;
+    out.clampEdges = true;  // one section, not a repeating pattern
     out.rgba.resize(std::size_t{size} * size * 4);
     for (std::uint32_t py = 0; py < size; ++py) {
         for (std::uint32_t px = 0; px < size; ++px) {

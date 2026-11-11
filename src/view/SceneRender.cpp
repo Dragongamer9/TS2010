@@ -75,13 +75,25 @@ std::uint8_t clamp8(double v) { return static_cast<std::uint8_t>(std::clamp(v, 0
 
 // Bilinear colour at (u, v) in 0..1, wrapping at the edges (textures repeat).
 void sampleTextureBilinear(const SceneTexture& t, double u, double v, double out[3]) {
+    auto unit = [&](double a) {
+        if (!std::isfinite(a)) {
+            return 0.0;
+        }
+        return t.clampEdges ? std::clamp(a, 0.0, 1.0) : a - std::floor(a);
+    };
+    u = unit(u), v = unit(v);
     const double x = u * t.width - 0.5, y = v * t.height - 0.5;
     const double fx = std::floor(x), fy = std::floor(y);
     const double ax = x - fx, ay = y - fy;
-    auto wrap = [](double i, std::uint32_t n) {
+    const bool clampEdges = t.clampEdges;
+    auto wrap = [clampEdges](double i, std::uint32_t n) {
         const auto m = static_cast<std::int64_t>(n);
-        const auto k = static_cast<std::int64_t>(i) % m;  // i is within -1..n, so the cast is safe
-        return static_cast<std::size_t>(k < 0 ? k + m : k);
+        const auto k = static_cast<std::int64_t>(i);  // i is within -1..n, so the cast is safe
+        if (clampEdges) {
+            return static_cast<std::size_t>(std::clamp<std::int64_t>(k, 0, m - 1));
+        }
+        const auto w = k % m;
+        return static_cast<std::size_t>(w < 0 ? w + m : w);
     };
     const std::size_t x0 = wrap(fx, t.width), x1 = wrap(fx + 1, t.width), y0 = wrap(fy, t.height), y1 = wrap(fy + 1, t.height);
     const std::uint8_t* p00 = t.rgba.data() + (y0 * t.width + x0) * 4;
@@ -190,15 +202,19 @@ std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, 
                 // A damaged mesh can hold NaN or infinite UVs: such pixels keep the base colour
                 // (casting a non-finite value to an integer is undefined).
                 if (tex != nullptr && std::isfinite(uu) && std::isfinite(vv)) {
-                    const double fu = uu - std::floor(uu), fv = vv - std::floor(vv);  // wrap
+                    // Repeat, or clamp for images that cover one area (baked terrain).
+                    const double fu = tex->clampEdges ? std::clamp(uu, 0.0, 1.0) : uu - std::floor(uu);
+                    const double fv = tex->clampEdges ? std::clamp(vv, 0.0, 1.0) : vv - std::floor(vv);
                     const auto tx = std::min<std::uint32_t>(tex->width - 1, static_cast<std::uint32_t>(std::clamp(fu, 0.0, 1.0) * tex->width));
                     const auto ty = std::min<std::uint32_t>(tex->height - 1, static_cast<std::uint32_t>(std::clamp(fv, 0.0, 1.0) * tex->height));
                     const std::uint8_t* texel = tex->rgba.data() + (static_cast<std::size_t>(ty) * tex->width + tx) * 4;
                     if (alphaTest && texel[3] < 128) {
                         continue;  // cut-outs use the nearest texel, so their edges stay sharp
                     }
-                    double rgb[3];
-                    sampleTextureBilinear(*tex, fu, fv, rgb);
+                    double rgb[3] = {static_cast<double>(texel[0]), static_cast<double>(texel[1]), static_cast<double>(texel[2])};
+                    if (!alphaTest) {  // cut-outs keep the nearest texel's colour too (no bleed from clear texels)
+                        sampleTextureBilinear(*tex, fu, fv, rgb);
+                    }
                     r = r * rgb[0] / 255.0, gg = gg * rgb[1] / 255.0, b = b * rgb[2] / 255.0;
                 }
                 put(x, y, z, clamp8(light * r), clamp8(light * gg), clamp8(light * b));

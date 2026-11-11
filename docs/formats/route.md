@@ -164,7 +164,15 @@ C++ reader agree:
   constants (`0x82c323`..`0x82c353`).
 - `weight` is the blend weight of a texture layer. The writer leaves out a
   layer whose weight is 0 (`0x6f0bd0`), and the short forms imply 255.
-  `extra` is unknown (perhaps rotation or scale).
+  `extra` is unknown. **Leads (not proof):** forum posts found only as search-index
+  snippets (author and date not recovered) say TS2010's paint tool has 16 texture
+  directions of about 22.5°, and that each texture at a vertex "has its own weight,
+  rotation and scale values"; the official (TRS19) help documents paint-time Scale and
+  Direction dials. **On the disc** (134,772,031 layers in the 50 version-13 routes): all 256
+  values occur; the high nibble is almost only 0 (42.3%), 7 (26.9%) or 14 (21.9%), the low
+  nibble takes all 16 values with even ones far more common (0: 15.6%, 6: 18.3%, 8: 14.0%,
+  12: 17.3%; odd ones 1.5–1.9% each). A split into a direction (16 steps) and a scale would
+  fit, but nothing here shows it; the view ignores the byte.
 - **Grid layout (observed, 2026-11-11):** vertex `i = row × side + column`;
   columns run toward +x and rows toward +y of the section index. A section spans
   `side − 4` cells (72 for Secs, 144 for Sec5): its column 72 equals column 0 of the

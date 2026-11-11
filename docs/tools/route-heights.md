@@ -154,9 +154,11 @@ weight byte, decoded and traced, see [route.md](../formats/route.md)); a slot na
 a descriptor naming a `.bmp`/`.tga`; observed). For each section one image (1024 px for a
 radius up to 300 m, else 512) is baked: every pixel blends the textures of the four nearest
 vertices' layers by distance and weight byte (bilinear, in the game's reading of the weight
-as a blend weight, not traced). **Assumed:** one texture repeat per 10 m cell (not traced;
-how the game scales and turns ground textures, possibly the per-layer `extra` byte, is not
-known). Version 12 files (which remap texture numbers through a world table) keep the
+as a blend weight, not traced). **Assumed:** one texture repeat per 10 m cell. A Trainz forum
+tutorial for TS2009 and later says a ground texture "will cover a 10m x 10m square in
+Trainz" (see [route.md](../formats/route.md) for the sources and the leads on scale and
+direction); it is not traced, and painted layers can be scaled and turned in the game,
+which the view ignores (the per-layer `extra` byte is not decoded). Version 12 files (which remap texture numbers through a world table) keep the
 overview colours. Textures are sampled bilinearly (cut-outs keep the nearest texel). No
 animation yet. `--at X Y` takes world metres (+x east, +y
 north); without it the view centres on the first train, or else the area with the most

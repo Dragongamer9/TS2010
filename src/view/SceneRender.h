@@ -21,7 +21,8 @@ struct ScenePoint {
 struct SceneTexture {
     std::uint32_t width = 0, height = 0;
     std::vector<std::uint8_t> rgba;
-    bool alphaTest = false;  // drop texels with alpha < 128 (cut-out leaves, fences)
+    bool alphaTest = false;  // drop texels with alpha < 128 (cut-out leaves, fences); drawn nearest-texel
+    bool clampEdges = false;  // true: the edges do not wrap (a baked image covering one area, e.g. a terrain section)
     // Smaller versions, largest first (e.g. the file's own mips). For each triangle the
     // renderer takes the first whose texels are not smaller than the screen pixels, so
     // far surfaces don't shimmer. The top level's alphaTest applies to all of them.
@@ -59,8 +60,9 @@ struct Camera {
     double fovYDegrees = 50;
 };
 
-// Bilinear R, G, B (0..255) of a usable texture at (u, v) in 0..1, wrapping at the edges.
-// The texture must have width x height x 4 bytes (as renderScene checks).
+// Bilinear R, G, B (0..255) of a usable texture at (u, v): wrapped into 0..1 (repeating), or
+// clamped to it when t.clampEdges; non-finite u or v count as 0. The texture must have
+// width x height x 4 bytes (as renderScene checks).
 void sampleTextureBilinear(const SceneTexture& t, double u, double v, double out[3]);
 
 // Renders the scene into width x height RGBA (sky gradient behind). Lines and dots get

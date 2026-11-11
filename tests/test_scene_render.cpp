@@ -608,3 +608,51 @@ TEST(GroundTextures, BakeBlendsLayersAndFallsBack) {
     EXPECT_THROW(bakeGroundSection(groundGrid(0), 8, slots, 0, fallback), std::invalid_argument);
     EXPECT_THROW(bakeGroundSection(groundGrid(0), 8, slots, 8, fallback, 0.0), std::invalid_argument);
 }
+
+TEST(SceneRender, CutOutColourIsNotBlendedWithClearTexels) {
+    // Left column solid green, right column clear black. A pixel nearest the green texel but
+    // close to the boundary must stay fully green (bilinear would mix in the black).
+    SceneTexture tex;
+    tex.width = tex.height = 2;
+    tex.rgba = {0, 250, 0, 255, 0, 0, 0, 0, 0, 250, 0, 255, 0, 0, 0, 0};
+    tex.alphaTest = true;
+    Scene s;
+    s.textures.push_back(&tex);
+    texturedSquare(s, 0);
+    const auto img = renderScene(s, lookingDown(), 64, 64);
+    const int inside = px(img, 64, 25, 32)[1];  // u ~ 0.25: the green texel's centre
+    const int nearEdge = px(img, 64, 30, 32)[1];  // u ~ 0.43: still nearest the green texel
+    EXPECT_GT(inside, 150);
+    EXPECT_NEAR(nearEdge, inside, 2);
+    // Without the cut-out flag the colour is filtered (the dark neighbour mixes in).
+    tex.alphaTest = false;
+    const auto soft = renderScene(s, lookingDown(), 64, 64);
+    EXPECT_LT(px(soft, 64, 30, 32)[1], inside - 30);
+}
+
+TEST(GroundTextures, BakedSectionsDoNotWrapAtTheirEdges) {
+    SceneTexture t;
+    t.width = t.height = 2;
+    t.rgba = {200, 0, 0, 255, 0, 0, 200, 255, 200, 0, 0, 255, 0, 0, 200, 255};  // red left, blue right
+    double c[3];
+    sampleTextureBilinear(t, 0.0, 0.5, c);  // repeating: the left edge mixes in the right column
+    EXPECT_NEAR(c[0], 100, 1e-9);
+    t.clampEdges = true;
+    sampleTextureBilinear(t, 0.0, 0.5, c);  // clamped: the left column only
+    EXPECT_NEAR(c[0], 200, 1e-9);
+    EXPECT_NEAR(c[2], 0, 1e-9);
+    sampleTextureBilinear(t, 1.0, 0.5, c);  // and the right edge stays right (u = 1 does not wrap to 0)
+    EXPECT_NEAR(c[2], 200, 1e-9);
+    sampleTextureBilinear(t, std::numeric_limits<double>::quiet_NaN(), 1e300, c);  // safe on bad input
+    EXPECT_TRUE(std::isfinite(c[0]));
+
+    // The bake marks its image and every mip as clamped.
+    const SceneTexture red = solidTexture(16, {200, 0, 0});
+    const std::vector<const SceneTexture*> slots = {&red};
+    const SceneTexture b = bakeGroundSection(groundGrid(0), 8, slots, 16, [](double, double) { return Rgb{}; });
+    EXPECT_TRUE(b.clampEdges);
+    ASSERT_FALSE(b.smaller.empty());
+    for (const auto& m : b.smaller) {
+        EXPECT_TRUE(m.clampEdges);
+    }
+}
