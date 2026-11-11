@@ -324,3 +324,43 @@ TEST(SceneRender, DistantSurfacesUseASmallerMip) {
     EXPECT_GT(px(img, 64, 32, 32)[0], 100);
     EXPECT_LT(px(img, 64, 32, 32)[1], 20);
 }
+
+TEST(SceneRender, NonFiniteUvsDrawTheBaseColour) {
+    const SceneTexture tex = checker(255);
+    for (const float bad : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
+                            -std::numeric_limits<float>::infinity(), std::numeric_limits<float>::max()}) {
+        Scene s;
+        s.textures.push_back(&tex);
+        texturedSquare(s, 0);
+        for (auto& t : s.triangles) {
+            t.u[1] = bad, t.v[2] = bad;
+        }
+        const auto img = renderScene(s, lookingDown(), 64, 64);  // UBSan: no bad casts
+        const auto* c = px(img, 64, 32, 32);
+        if (std::isfinite(bad)) {
+            EXPECT_GT(int{c[0]} + c[1] + c[2], 100);  // huge but finite: sampled (wrapped), drawn
+        } else {
+            EXPECT_GT(c[0], 100);  // not sampled: the white base colour, shaded
+            EXPECT_GT(c[1], 100);
+            EXPECT_GT(c[2], 100);
+        }
+    }
+}
+
+TEST(SceneRender, HugeTextureSidesAreRejectedWithoutOverflow) {
+    SceneTexture huge;
+    huge.width = huge.height = 0x80000000U;  // width * height * 4 wraps to 0 in 64 bits
+    Scene s;
+    s.textures.push_back(&huge);
+    texturedSquare(s, 0);
+    const auto img = renderScene(s, lookingDown(), 64, 64);  // ASan: no read past the empty data
+    const auto* c = px(img, 64, 32, 32);
+    EXPECT_GT(c[0], 100);  // drawn untextured: the white base colour, shaded
+    EXPECT_GT(c[1], 100);
+    EXPECT_GT(c[2], 100);
+
+    SceneTexture top = checker(255);  // a bad smaller level is not used either
+    top.smaller.push_back(huge);
+    s.textures[0] = &top;
+    EXPECT_NO_THROW(renderScene(s, lookingDown(), 8, 8));
+}

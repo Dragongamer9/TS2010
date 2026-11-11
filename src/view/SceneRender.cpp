@@ -61,8 +61,12 @@ private:
     double f_ = 1;
 };
 
+constexpr std::uint32_t kMaxSceneTextureSide = 8192;  // as the texture reader's limit
+
+// Sides are bounded first, so width * height * 4 cannot overflow.
 bool usable(const SceneTexture& t) {
-    return t.width > 0 && t.height > 0 && t.rgba.size() >= static_cast<std::size_t>(t.width) * t.height * 4;
+    return t.width > 0 && t.height > 0 && t.width <= kMaxSceneTextureSide && t.height <= kMaxSceneTextureSide &&
+           t.rgba.size() >= static_cast<std::size_t>(t.width) * t.height * 4;
 }
 
 std::uint8_t clamp8(double v) { return static_cast<std::uint8_t>(std::clamp(v, 0.0, 255.0)); }
@@ -159,14 +163,16 @@ std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, 
                 double r = w0 * t.c[0].r + w1 * t.c[1].r + w2 * t.c[2].r;
                 double gg = w0 * t.c[0].g + w1 * t.c[1].g + w2 * t.c[2].g;
                 double b = w0 * t.c[0].b + w1 * t.c[1].b + w2 * t.c[2].b;
-                if (tex != nullptr) {
-                    // Perspective-correct: interpolate u/z, v/z and 1/z across the screen.
-                    const double iz = w0 / q[0].depth + w1 / q[1].depth + w2 / q[2].depth;
-                    const double uu = (w0 * t.u[0] / q[0].depth + w1 * t.u[1] / q[1].depth + w2 * t.u[2] / q[2].depth) / iz;
-                    const double vv = (w0 * t.v[0] / q[0].depth + w1 * t.v[1] / q[1].depth + w2 * t.v[2] / q[2].depth) / iz;
+                // Perspective-correct: interpolate u/z, v/z and 1/z across the screen.
+                const double iz = w0 / q[0].depth + w1 / q[1].depth + w2 / q[2].depth;
+                const double uu = (w0 * t.u[0] / q[0].depth + w1 * t.u[1] / q[1].depth + w2 * t.u[2] / q[2].depth) / iz;
+                const double vv = (w0 * t.v[0] / q[0].depth + w1 * t.v[1] / q[1].depth + w2 * t.v[2] / q[2].depth) / iz;
+                // A damaged mesh can hold NaN or infinite UVs: such pixels keep the base colour
+                // (casting a non-finite value to an integer is undefined).
+                if (tex != nullptr && std::isfinite(uu) && std::isfinite(vv)) {
                     const double fu = uu - std::floor(uu), fv = vv - std::floor(vv);  // wrap
-                    const auto tx = std::min<std::uint32_t>(tex->width - 1, static_cast<std::uint32_t>(fu * tex->width));
-                    const auto ty = std::min<std::uint32_t>(tex->height - 1, static_cast<std::uint32_t>(fv * tex->height));
+                    const auto tx = std::min<std::uint32_t>(tex->width - 1, static_cast<std::uint32_t>(std::clamp(fu, 0.0, 1.0) * tex->width));
+                    const auto ty = std::min<std::uint32_t>(tex->height - 1, static_cast<std::uint32_t>(std::clamp(fv, 0.0, 1.0) * tex->height));
                     const std::uint8_t* texel = tex->rgba.data() + (static_cast<std::size_t>(ty) * tex->width + tx) * 4;
                     if (alphaTest && texel[3] < 128) {
                         continue;

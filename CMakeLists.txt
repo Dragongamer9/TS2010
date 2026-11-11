@@ -24,8 +24,8 @@ if(TRAINZ_WERROR)
 endif()
 
 if(TRAINZ_SANITIZE)
-  add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g)
-  add_link_options(-fsanitize=address,undefined)
+  add_compile_options(-fsanitize=address,undefined,float-cast-overflow -fno-sanitize-recover=all -fno-omit-frame-pointer -g)
+  add_link_options(-fsanitize=address,undefined,float-cast-overflow)
 endif()
 
 add_library(trainz_content
