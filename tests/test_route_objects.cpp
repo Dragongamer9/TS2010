@@ -473,3 +473,21 @@ TEST(TrackCurve, FindStretchWithAndWithoutTheIndex) {
     b.t.stretchAt[9] = 0;                    // a stale entry is not trusted
     EXPECT_EQ(b.t.findStretch(9), nullptr);
 }
+
+TEST(TrackCurve, LinksToPiecesNotEndingThereAreIgnored) {
+    // Vertex 1 also links (on the other side) to piece 62, which really exists but joins
+    // vertices 3 and 4 far away. It must neither bend piece 61 nor make it "carry straight on".
+    for (const std::uint8_t unrelatedFlags : {std::uint8_t{0}, std::uint8_t{0x20}}) {
+        Builder b;
+        b.vertex(0, 0, 0, {{61, 0}});
+        b.vertex(1, 100, 0, {{61, 1}, {62, 0}});
+        b.vertex(3, 100, 300, {{62, 0}});
+        b.vertex(4, 400, 300, {{62, 0}});
+        b.piece(61, 0, 1);
+        b.piece(62, 3, 4, unrelatedFlags);
+        const auto c = trackCurve(b.t, b.t.stretches[0]);
+        ASSERT_TRUE(c);
+        EXPECT_NEAR(c->bulge(), 0, 1e-9) << int{unrelatedFlags};  // both ends use the chord: straight
+        EXPECT_NEAR(std::atan2(c->t1[1], c->t1[0]), 0, 1e-9);
+    }
+}

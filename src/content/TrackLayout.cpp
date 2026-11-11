@@ -137,11 +137,15 @@ const TrackStretch* TrackLayout::findStretch(std::int32_t index) const {
 
 namespace {
 
-// Unit x/y direction from vertex v along the piece `item`, or nullopt.
+// Unit x/y direction from vertex v along the piece `item`, or nullopt (also when the piece
+// does not end at v: such links are kept by readTrackLayout as warnings, not used here).
 std::optional<std::pair<double, double>> towardOtherEnd(const TrackLayout& layout, const TrackVertex& v,
                                                         std::int32_t item) {
     if (const TrackStretch* found = layout.findStretch(item)) {
         const TrackStretch& st = *found;
+        if (st.from != v.index && st.to != v.index) {
+            return std::nullopt;
+        }
         const std::int32_t otherIndex = st.from == v.index ? st.to : st.from;
         const auto o = layout.vertices.find(otherIndex);
         if (o == layout.vertices.end()) {
