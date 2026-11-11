@@ -63,22 +63,25 @@ std::optional<Behaviour> decodeBehaviour(const ObjectItem& item);
 //
 // Older trains (826 on the disc, from version-1 sessions) have no magic and no record
 // sizes: u32 vehicleCount, u32 0, i32 trackPiece, f32 distance, u32 direction, then
-// vehicles of { u32 content, u32 packed user, u32 0, u8 0, record } where the record is
+// vehicles of { u32 content, u32 packed user, u32 word (0 or 1), u8 0, record } where the record is
 // u32 4 (or 1 or 5), u32 3, u32 colour?, i16 boardX, i16 boardY, f32 x, f32 y, f32 z, f32 yaw,
 // …, u32 nameLength (at record offset 40), name. Since nothing gives a record's length,
-// vehicles are FOUND BY A PATTERN (5 zero bytes + u32 4, 1 or 5 + u32 3 after the KUID), and
+// vehicles are FOUND BY A PATTERN (u32 0 or 1, a zero byte, u32 4, 1 or 5, u32 3 after the KUID), and
 // a train is decoded only if the number of matches equals vehicleCount, the first starts
 // at byte 20, every match has a valid name and a position inside its baseboard, and neighbouring vehicles stand under 50 m
 // apart (a disc-tested heuristic: no accepted or size-checked version-5 train on the disc
-// exceeds it; not a format rule, and how much it catches is not measured): 666 of the 826 qualify
-// (3,266 vehicles). A stray match with a plausible name AND a plausible position would
-// still be accepted; that residual risk is not ruled out. The other 160 are refused.
+// exceeds it; not a format rule, and how much it catches is not measured): 823 of the 826 qualify
+// (4,500 vehicles). A stray match with a plausible name AND a plausible position would
+// still be accepted; that residual risk is not ruled out. The other 3 are refused.
 // A heuristic, not a traced layout.
 struct Vehicle {
     Kuid kuid;
     std::string name;  // e.g. "CN SD40-2 1"
     std::uint32_t recordVersion = 0;
     std::uint8_t flag = 0;
+    // The u32 between the KUID and the record (both layouts): 0 or 1 on the disc; meaning
+    // not known (see docs/formats/session.md).
+    std::uint32_t wordAfterKuid = 0;
     std::int16_t boardX = 0;
     std::int16_t boardY = 0;
     float x = 0;

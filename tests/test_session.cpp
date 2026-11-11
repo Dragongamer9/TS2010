@@ -197,7 +197,7 @@ TEST(Session, TrainsAndVehicles) {
                                         std::pair<std::string, std::int32_t>{"CN 40 FT Box 2", 100077}}) {
         putU32(p, static_cast<std::uint32_t>(content));
         putU32(p, 37187);
-        putU32(p, 0);
+        putU32(p, content == 100077 ? 1 : 0);  // the word after the KUID
         p.push_back(0);
         const Bytes r = vehicleRecord(name, 0, -5, 354.4F, 453.9F);
         putU32(p, static_cast<std::uint32_t>(r.size()));
@@ -218,6 +218,8 @@ TEST(Session, TrainsAndVehicles) {
     EXPECT_EQ(t->vehicles[1].kuid.content, 100077);
     EXPECT_EQ(t->vehicles[1].boardY, -5);
     EXPECT_FLOAT_EQ(t->vehicles[1].x, 354.4F);
+    EXPECT_EQ(t->vehicles[0].wordAfterKuid, 0U);
+    EXPECT_EQ(t->vehicles[1].wordAfterKuid, 1U);
     EXPECT_EQ(t->tail, tail);
 
     // Truncated anywhere inside the vehicles: refused, never read past the end.
@@ -289,10 +291,10 @@ TEST(Session, OldTrainsFoundByPattern) {
 namespace {
 
 // One old-layout vehicle; `extra` goes after the name (the undecoded rest).
-void oldVehicle(Bytes& p, std::int32_t content, const std::string& name, const Bytes& extra) {
+void oldVehicle(Bytes& p, std::int32_t content, const std::string& name, const Bytes& extra, std::uint32_t word = 0) {
     putU32(p, static_cast<std::uint32_t>(content));
     putU32(p, 0x14011C1Au);
-    putU32(p, 0);
+    putU32(p, word);  // the word between the KUID and the record (0 or 1 on the disc)
     p.push_back(0);
     Bytes r;
     putU32(r, 4);
@@ -444,4 +446,33 @@ TEST(Session, OldTrainRecordVersionsAndRange) {
     const float bad = 900.0F;  // record offset 16
     std::memcpy(q.data() + 20 + 13 + 16, &bad, 4);
     EXPECT_FALSE(decodeOld(q).has_value());
+}
+
+TEST(Session, OldTrainVehicleWordAfterKuid) {
+    // 160 disc trains were refused because one vehicle had 1 here (e.g. a Maglev's end car);
+    // 0 and 1 are both accepted and kept; other values do not match the pattern.
+    Bytes p = oldHeader(3);
+    oldVehicle(p, 1, "Maglev A", {});
+    oldVehicle(p, 2, "Maglev car 1", {});
+    oldVehicle(p, 3, "Maglev B", {}, 1);
+    const auto t = decodeOld(p);
+    ASSERT_TRUE(t.has_value());
+    ASSERT_EQ(t->vehicles.size(), 3U);
+    EXPECT_EQ(t->vehicles[0].wordAfterKuid, 0U);
+    EXPECT_EQ(t->vehicles[2].wordAfterKuid, 1U);
+    EXPECT_EQ(t->vehicles[2].name, "Maglev B");
+
+    Bytes q = oldHeader(2);
+    oldVehicle(q, 1, "Wagon A", {});
+    oldVehicle(q, 2, "Wagon B", {}, 2);  // not seen on the disc: no match, count short
+    EXPECT_FALSE(decodeOld(q).has_value());
+
+    // The pattern with a 1 inside a vehicle's undecoded data is still caught by the count
+    // and name checks.
+    Bytes f = fakeVehicleStart();
+    f[8] = 1;
+    Bytes r = oldHeader(2);
+    oldVehicle(r, 1, "Wagon A", f);
+    oldVehicle(r, 2, "Wagon B", Bytes(20, 0x33));
+    EXPECT_FALSE(decodeOld(r).has_value());
 }

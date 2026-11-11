@@ -77,13 +77,17 @@ Checked:
 
 ```
 u32 vehicleCount   u32 0   i32 trackPiece   f32 distance   u32 direction
-vehicles: { u32 content, u32 packed user, u32 0, u8 0, record }
+vehicles: { u32 content, u32 packed user, u32 word (0 or 1), u8 0, record }
 record: u32 4 (or 1 or 5)   u32 3   u32 colour?   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   f32 yaw   …
         u32 nameLength (record offset 40)   name   … (more, not decoded)
 ```
 
-Nothing gives a record's length, so the reader **finds vehicles by a pattern** (5 zero
-bytes, `u32 4`, `1` or `5`, `u32 3` after each KUID). It accepts a train only when the
+Nothing gives a record's length, so the reader **finds vehicles by a pattern** (`u32 0`
+or `1`, a zero byte, `u32 4`, `1` or `5`, `u32 3` after each KUID). **The word after the
+KUID** is 0 or 1 in both layouts (old: 3,979 vehicles 0, 521 vehicles 1; version 5: 2,897 and
+466); its meaning is not known (a vehicle's facing in the train is a guess; 1 occurs at the
+front, in the middle and at the end of trains). Until 2026-11-11 the pattern required 0
+there, which refused 157 trains. It accepts a train only when the
 number found equals `vehicleCount`, the first one starts at byte 20, every match has a
 valid name and a position inside its baseboard (x and y in 0…720), and neighbouring
 vehicles stand under 50 m apart. Both position rules are **disc-tested heuristics, not
@@ -93,8 +97,11 @@ established format constraints**. The baseboard rule rests on the size-checked d
 **disc-tested heuristic, not an established format constraint**: no accepted train in the
 surveyed disc data exceeds it (all 655 size-checked version-5 trains and all accepted old
 trains have their largest neighbour gap under 50 m). How many false matches it catches
-is not measured. **666 of the 826** qualify (3,266 vehicles; 156 with record version 1, 169 with 5); the
-other 160 are refused. (An earlier note here said version-5 records had a different
+is not measured. **823 of the 826** qualify (4,500 vehicles); the other 3 are refused (2 with more matches
+than `vehicleCount`, 1 failing a vehicle check). **Check of the 157 added trains:** on the
+125 disc sessions whose route the index finds, 98.2% of the vehicles of trains holding a
+word-1 vehicle lie within 1 m of the route's modelled track (99.4% within 3 m, worst 3.6 m),
+as do 97.6% of the trains accepted before (99.6%, worst 6.7 m). (An earlier note here said version-5 records had a different
 position layout; that was a misreading: their board numbers looked implausible only
 because big routes use boards beyond ±50. They use the version-4 layout.) This is a heuristic, not a
 traced layout. False matches are the main risk (the pattern could appear inside a
@@ -113,7 +120,7 @@ Record version 5: one session (`<kuid:-12:111224>` on `<kuid:-12:1002>`): 15 of 
 
 ## Not known
 
-- The 160 old trains the checks refuse; the real length of an old vehicle
+- The 3 old trains the checks refuse; what the word after the KUID means; the real length of an old vehicle
   record; most of each vehicle record, the train tail; the non-container blocks; the
   version-3 trailer.
 - The 3 behaviours that fit neither layout.

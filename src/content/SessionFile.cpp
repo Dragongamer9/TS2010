@@ -119,12 +119,14 @@ std::optional<Train> decodeOldTrain(const ObjectItem& item) {
     if (count == 0 || count > d.size() / 61) {
         return std::nullopt;
     }
-    // 5 zero bytes, then the record's u32 version (4; 1 or 5 in a few) and u32 3.
+    // After the KUID: u32 0 or 1 (wordAfterKuid), a zero byte, then the record's u32 version
+    // (4; 1 or 5 in a few) and u32 3.
     static constexpr std::uint8_t kMark[13] = {0, 0, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0};
     std::vector<std::size_t> starts;
     for (std::size_t i = 8; i + sizeof kMark <= d.size(); ++i) {
         const std::uint8_t ver = d[i + 5];
-        if ((ver == 1 || ver == 4 || ver == 5) && std::memcmp(d.data() + i, kMark, 5) == 0 &&
+        const std::uint32_t flag = loadU32LE(d.data() + i);
+        if ((ver == 1 || ver == 4 || ver == 5) && (flag == 0 || flag == 1) && d[i + 4] == 0 &&
             std::memcmp(d.data() + i + 6, kMark + 6, sizeof kMark - 6) == 0) {
             starts.push_back(i - 8);
         }
@@ -146,6 +148,7 @@ std::optional<Train> decodeOldTrain(const ObjectItem& item) {
         }
         Vehicle v;
         v.kuid = unpackChumpKuid(loadU32LE(d.data() + s + 4), static_cast<std::int32_t>(loadU32LE(d.data() + s)));
+        v.wordAfterKuid = loadU32LE(d.data() + s + 8);
         v.record.assign(d.begin() + static_cast<std::ptrdiff_t>(s + 13), d.begin() + static_cast<std::ptrdiff_t>(end));
         const auto& r = v.record;
         v.recordVersion = loadU32LE(r.data());
@@ -208,6 +211,7 @@ std::optional<Train> decodeTrain(const ObjectItem& item) {
         }
         Vehicle v;
         v.kuid = unpackChumpKuid(loadU32LE(d.data() + pos + 4), static_cast<std::int32_t>(loadU32LE(d.data() + pos)));
+        v.wordAfterKuid = loadU32LE(d.data() + pos + 8);
         const std::uint32_t size = loadU32LE(d.data() + pos + 13);
         pos += 17;
         if (size > d.size() - pos) {
