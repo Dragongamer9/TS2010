@@ -150,6 +150,12 @@ endif()
 if(TRAINZ_BUILD_TESTS)
   enable_testing()
   find_package(GTest REQUIRED)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME RouteHeights.Cli
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_route_heights_cli.py"
+            "$<TARGET_FILE:route-tool>")
+  set_tests_properties(RouteHeights.Cli PROPERTIES TIMEOUT 120)
   add_executable(content_tests
     tests/test_action_map.cpp
     tests/test_animation.cpp
