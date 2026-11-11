@@ -27,9 +27,10 @@ struct CatalogRoute {
 // can't be read are skipped.
 std::vector<CatalogRoute> listRoutes(const trainz::content::AssetIndex& index);
 
-// Finds one entry by KUID (any form parseKuidLoose reads; any version) or by name: an exact
-// name (ignoring case) wins, else the only name containing the query. Returns nullptr and
-// fills `candidates` (names) when nothing or more than one matches.
+// Finds one entry by KUID (any form parseKuidLoose reads: that exact version, else the only
+// other installed version) or by name (ignoring case: the only exact name, else the only name
+// containing the query). Returns nullptr when nothing or more than one matches; for several,
+// `candidates` lists them as "name  <kuid>" (two sessions can share a name, e.g. "Intro").
 const CatalogEntry* findEntry(const std::vector<const CatalogEntry*>& entries, const std::string& query,
                               std::vector<std::string>& candidates);
 

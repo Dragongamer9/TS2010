@@ -812,7 +812,7 @@ TEST(RouteCatalog, FindByNameOrKuid) {
     EXPECT_TRUE(cand.empty());
     EXPECT_EQ(findEntry(all, "WINTER IN THE ALPS", cand), &c);  // exact, any case
     EXPECT_EQ(findEntry(all, "winter", cand), nullptr);  // two match
-    EXPECT_EQ(cand, (std::vector<std::string>{"Winter in Germany", "Winter in the Alps"}));
+    EXPECT_EQ(cand, (std::vector<std::string>{"Winter in Germany  <kuid2:143919:27565:1>", "Winter in the Alps  <kuid:-1:100858>"}));
     const std::vector<const CatalogEntry*> withExact = {&b, &c, &d};
     EXPECT_EQ(findEntry(withExact, "winter", cand), &d);  // an exact name wins over parts
     EXPECT_EQ(findEntry(all, "<kuid:107727:1019>", cand), &a);
@@ -821,4 +821,23 @@ TEST(RouteCatalog, FindByNameOrKuid) {
     EXPECT_EQ(findEntry(all, "zzz", cand), nullptr);
     EXPECT_TRUE(cand.empty());
     EXPECT_EQ(findEntry(all, "", cand), nullptr);
+
+    // Two sessions with the same name (on the disc several are called "Intro"): neither is
+    // picked; both are listed with their KUIDs, which then pick one.
+    const CatalogEntry i1{Kuid{523, 1022, 1}, "Intro", {}};
+    const CatalogEntry i2{Kuid{523, 1015, 1}, "Intro", {}};
+    const std::vector<const CatalogEntry*> intros = {&i1, &i2, &a};
+    EXPECT_EQ(findEntry(intros, "intro", cand), nullptr);
+    EXPECT_EQ(cand, (std::vector<std::string>{"Intro  <kuid2:523:1022:1>", "Intro  <kuid2:523:1015:1>"}));
+    EXPECT_EQ(findEntry(intros, "<kuid2:523:1015:1>", cand), &i2);
+    // Two installed versions of one KUID: the exact version picks; another version alone
+    // does not when both exist.
+    const CatalogEntry v1{Kuid{9, 9, 1}, "Route v1", {}};
+    const CatalogEntry v2{Kuid{9, 9, 2}, "Route v2", {}};
+    const std::vector<const CatalogEntry*> versions = {&v1, &v2};
+    EXPECT_EQ(findEntry(versions, "<kuid2:9:9:2>", cand), &v2);
+    EXPECT_EQ(findEntry(versions, "<kuid2:9:9:7>", cand), nullptr);
+    EXPECT_EQ(cand.size(), 2U);
+    const std::vector<const CatalogEntry*> one = {&v1};
+    EXPECT_EQ(findEntry(one, "<kuid2:9:9:7>", cand), &v1);  // the only installed version
 }

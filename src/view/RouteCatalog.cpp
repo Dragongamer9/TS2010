@@ -86,33 +86,41 @@ std::vector<CatalogRoute> listRoutes(const AssetIndex& index) {
 const CatalogEntry* findEntry(const std::vector<const CatalogEntry*>& entries, const std::string& query,
                               std::vector<std::string>& candidates) {
     candidates.clear();
-    if (const auto k = parseKuidLoose(query)) {
-        for (const CatalogEntry* e : entries) {
-            if (e->kuid.user == k->user && e->kuid.content == k->content) {
-                return e;  // any version
-            }
+    // One match: it. Several: none, with every candidate (name and KUID) listed.
+    auto pick = [&](const std::vector<const CatalogEntry*>& found) -> const CatalogEntry* {
+        if (found.size() == 1) {
+            return found.front();
+        }
+        for (const CatalogEntry* e : found) {
+            candidates.push_back(e->name + "  " + formatKuid(e->kuid));
         }
         return nullptr;
+    };
+    if (const auto k = parseKuidLoose(query)) {
+        std::vector<const CatalogEntry*> exact, anyVersion;
+        for (const CatalogEntry* e : entries) {
+            if (e->kuid.normalized() == k->normalized()) {
+                exact.push_back(e);
+            } else if (e->kuid.user == k->user && e->kuid.content == k->content) {
+                anyVersion.push_back(e);
+            }
+        }
+        return exact.empty() ? pick(anyVersion) : pick(exact);
     }
     const std::string q = lower(query);
-    const CatalogEntry* only = nullptr;
-    std::size_t matches = 0;
+    if (q.empty()) {
+        return nullptr;
+    }
+    std::vector<const CatalogEntry*> exact, partial;
     for (const CatalogEntry* e : entries) {
         const std::string n = lower(e->name);
         if (n == q) {
-            return e;
-        }
-        if (!q.empty() && n.find(q) != std::string::npos) {
-            only = e;
-            ++matches;
-            candidates.push_back(e->name);
+            exact.push_back(e);
+        } else if (n.find(q) != std::string::npos) {
+            partial.push_back(e);
         }
     }
-    if (matches == 1) {
-        candidates.clear();
-        return only;
-    }
-    return nullptr;
+    return exact.empty() ? pick(partial) : pick(exact);
 }
 
 }  // namespace trainz::view
