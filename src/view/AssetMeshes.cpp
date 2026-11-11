@@ -7,6 +7,8 @@
 #include "content/TextureFile.h"
 
 #include <algorithm>
+#include <array>
+#include <cstring>
 #include <cmath>
 #include <map>
 #include <numbers>
@@ -26,7 +28,147 @@ std::string folderOf(const std::string& path) {
     return slash == std::string::npos ? std::string() : path.substr(0, slash + 1);
 }
 
+// A .texture as a SceneTexture: the largest mip no bigger than `side` plus the
+// smaller ones, alphaTest by wantsAlphaTest. nullopt if it has no usable mip. Throws
+// ContentError for damaged files.
+std::optional<SceneTexture> loadSceneTexture(const JaArchive& a, const JaEntry& e, std::uint32_t side = kTextureSide) {
+    const TextureFile tex = parseTexture(a.readLimited(e, kMaxFileBytes));
+    if (tex.mips.empty()) {
+        return std::nullopt;
+    }
+    // mips are largest first: take the first that fits kTextureSide.
+    const MipLevel* pick = &tex.mips.back();
+    for (const auto& mip : tex.mips) {
+        if (mip.width <= side && mip.height <= side) {
+            pick = &mip;
+            break;
+        }
+    }
+    SceneTexture st;
+    st.width = pick->width, st.height = pick->height;
+    st.rgba = decodeToRgba8(*pick, tex.info.format);
+    st.alphaTest = wantsAlphaTest(st.rgba);
+    for (const MipLevel* lower = pick + 1; lower < tex.mips.data() + tex.mips.size(); ++lower) {
+        SceneTexture smaller;  // the file's own smaller mips, for distant surfaces
+        smaller.width = lower->width, smaller.height = lower->height;
+        smaller.rgba = decodeToRgba8(*lower, tex.info.format);
+        st.smaller.push_back(std::move(smaller));
+    }
+    if (st.width == 0 || st.height == 0 || st.rgba.size() != std::size_t{st.width} * st.height * 4) {
+        return std::nullopt;
+    }
+    return st;
+}
+
 }  // namespace
+
+std::optional<SpeedTreeBox> readSpeedTreeBox(std::span<const std::uint8_t> srt) {
+    static constexpr char kMagic[] = "SRT 05.0.1";
+    if (srt.size() < 60 || std::memcmp(srt.data(), kMagic, sizeof kMagic - 1) != 0) {
+        return std::nullopt;
+    }
+    SpeedTreeBox b;
+    std::memcpy(b.min, srt.data() + 36, 12);
+    std::memcpy(b.max, srt.data() + 48, 12);
+    for (int i = 0; i < 3; ++i) {
+        if (!std::isfinite(b.min[i]) || !std::isfinite(b.max[i]) || !(b.max[i] > b.min[i]) || std::fabs(b.min[i]) > 1e4F ||
+            std::fabs(b.max[i]) > 1e4F) {
+            return std::nullopt;
+        }
+    }
+    return b;
+}
+
+std::optional<AtlasCell> firstAtlasCell(const SceneTexture& atlas) {
+    const std::uint32_t w = atlas.width, h = atlas.height;
+    if (w == 0 || h == 0 || atlas.rgba.size() < std::size_t{w} * h * 4) {
+        return std::nullopt;
+    }
+    auto solid = [&](std::uint32_t x, std::uint32_t y) { return atlas.rgba[(std::size_t{y} * w + x) * 4 + 3] >= 128; };
+    auto rowHas = [&](std::uint32_t y, std::uint32_t x0, std::uint32_t x1) {
+        for (std::uint32_t x = x0; x < x1; ++x) {
+            if (solid(x, y)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::uint32_t y0 = 0;
+    while (y0 < h && !rowHas(y0, 0, w)) {
+        ++y0;
+    }
+    if (y0 == h) {
+        return std::nullopt;  // nothing solid
+    }
+    std::uint32_t y1 = y0;
+    while (y1 < h && rowHas(y1, 0, w)) {
+        ++y1;
+    }
+    auto colHas = [&](std::uint32_t x) {
+        for (std::uint32_t y = y0; y < y1; ++y) {
+            if (solid(x, y)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::uint32_t x0 = 0;
+    while (x0 < w && !colHas(x0)) {
+        ++x0;
+    }
+    std::uint32_t x1 = x0;
+    while (x1 < w && colHas(x1)) {
+        ++x1;
+    }
+    // Rows of this column run only (the row band may span several images).
+    std::uint32_t top = y0, bottom = y1;
+    while (top < bottom && !rowHas(top, x0, x1)) {
+        ++top;
+    }
+    while (bottom > top && !rowHas(bottom - 1, x0, x1)) {
+        --bottom;
+    }
+    return AtlasCell{x0, top, x1, bottom};
+}
+
+PreparedMesh speedTreeBillboard(const SpeedTreeBox& box, SceneTexture atlas, const AtlasCell& cell, double scale) {
+    PreparedMesh m;
+    m.billboard = true;
+    if (!(scale > 0) || !std::isfinite(scale) || cell.x1 <= cell.x0 || cell.y1 <= cell.y0 || atlas.width == 0 || atlas.height == 0) {
+        return m;
+    }
+    atlas.alphaTest = true;  // the billboard is a cut-out
+    const float s = static_cast<float>(scale);
+    const float z0 = box.min[2] * s, z1 = box.max[2] * s;
+    const float aspect = static_cast<float>(cell.x1 - cell.x0) / static_cast<float>(cell.y1 - cell.y0);
+    const float half = 0.5F * aspect * (z1 - z0);
+    const float cx = 0.5F * (box.min[0] + box.max[0]) * s, cy = 0.5F * (box.min[1] + box.max[1]) * s;
+    const float u0 = static_cast<float>(cell.x0) / static_cast<float>(atlas.width);
+    const float u1 = static_cast<float>(cell.x1) / static_cast<float>(atlas.width);
+    const float vTop = static_cast<float>(cell.y0) / static_cast<float>(atlas.height);
+    const float vBottom = static_cast<float>(cell.y1) / static_cast<float>(atlas.height);
+    m.textures.push_back(std::move(atlas));
+    // Two upright quads: along x, and along y.
+    for (int q = 0; q < 2; ++q) {
+        const float dx = q == 0 ? half : 0, dy = q == 0 ? 0 : half;
+        const float p[4][3] = {{cx - dx, cy - dy, z0}, {cx + dx, cy + dy, z0}, {cx + dx, cy + dy, z1}, {cx - dx, cy - dy, z1}};
+        const float uv[4][2] = {{u0, vBottom}, {u1, vBottom}, {u1, vTop}, {u0, vTop}};
+        for (const auto& tri : {std::array<int, 3>{0, 1, 2}, std::array<int, 3>{0, 2, 3}}) {
+            LocalTriangle t{};
+            for (int k = 0; k < 3; ++k) {
+                for (int i = 0; i < 3; ++i) {
+                    t.p[k][i] = p[tri[static_cast<std::size_t>(k)]][i];
+                }
+                t.uv[k][0] = uv[tri[static_cast<std::size_t>(k)]][0];
+                t.uv[k][1] = uv[tri[static_cast<std::size_t>(k)]][1];
+            }
+            t.colour = {60, 110, 60};
+            t.texture = 0;
+            m.triangles.push_back(t);
+        }
+    }
+    return m;
+}
 
 PreparedMesh placeholderTree() {
     PreparedMesh m;
@@ -103,7 +245,7 @@ std::optional<Kuid> configKuid(const ConfigNode& value) {
 std::vector<MeshChoice> selectAssetMeshes(const ConfigNode& root, std::map<std::string, std::size_t>& parts) {
     std::vector<MeshChoice> out;
     if (const auto* m = root.child("mesh"); m != nullptr && m->type == ConfigType::String) {
-        out.push_back({"", m->text, "", ""});
+        out.push_back({"", m->text, "", "", 1.0});
         return out;
     }
     if (const auto* table = root.child("mesh-table"); table != nullptr) {
@@ -125,7 +267,17 @@ std::vector<MeshChoice> selectAssetMeshes(const ConfigNode& root, std::map<std::
                 ++parts["mesh-table entries skipped: shadow mesh"];
                 continue;
             }
-            MeshChoice c{group.key, m->text, "", ""};
+            MeshChoice c{group.key, m->text, "", "", 1.0};
+            if (const auto* sc = group.child("mesh-scale"); sc != nullptr && sc->type == ConfigType::Floats && !sc->floats.empty()) {
+                double sum = 0;
+                for (const float f : sc->floats) {
+                    sum += f;
+                }
+                const double mean = sum / static_cast<double>(sc->floats.size());
+                if (std::isfinite(mean) && mean > 0 && mean < 1000) {
+                    c.scale = mean;  // two values: a range (inferred); the mean is used
+                }
+            }
             if (const auto* att = group.child("att"); att != nullptr) {
                 if (att->type != ConfigType::String || att->text.empty()) {
                     ++parts["mesh-table entries skipped: unreadable att"];
@@ -142,7 +294,7 @@ std::vector<MeshChoice> selectAssetMeshes(const ConfigNode& root, std::map<std::
         return out;
     }
     if (const auto* f = root.child("asset-filename"); f != nullptr && f->type == ConfigType::String && !f->text.empty()) {
-        out.push_back({"", f->text + ".im", "", ""});
+        out.push_back({"", f->text + ".im", "", "", 1.0});
         ++parts["models found by asset-filename"];
     }
     return out;
@@ -217,14 +369,34 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid, const TextureO
     out->bogey = bogey;
     out->bogeys = std::move(bogeys);
     bool speedTree = false;
+    bool billboardDone = false;
     bool overLimit = false;
     // Each drawn entry's attachment points (model space), for the parts hung on them.
     std::map<std::string, std::map<std::string, LocalFrame>> pointsOf;
     auto draw = [&](const MeshChoice& c, const LocalFrame& frame) {
         if (asciiLower(c.mesh).ends_with(".srt")) {
-            // SpeedTree trees ("SRT " files) are not read; seasons are separate entries.
-            ++parts_["mesh-table entries skipped: SpeedTree tree (.srt, not read)"];
+            // SpeedTree trees ("SRT " files): their geometry is not read; drawn as a billboard
+            // of their own atlas image when possible. Seasons are separate entries: only the
+            // first tree entry is drawn.
             speedTree = true;
+            if (!billboardDone && c.att.empty()) {
+                if (auto bb = loadSpeedTreeBillboard(*a, base, c)) {
+                    const int offset = static_cast<int>(out->textures.size());
+                    for (auto& t : bb->triangles) {
+                        t.texture = t.texture >= 0 ? t.texture + offset : -1;
+                        out->triangles.push_back(t);
+                    }
+                    for (auto& t : bb->textures) {
+                        out->textures.push_back(std::move(t));
+                    }
+                    out->meshName += (out->meshName.empty() ? "" : ", ") + bb->meshName;
+                    out->billboard = true;
+                    billboardDone = true;
+                    ++parts_["SpeedTree trees drawn as billboards of their own atlas image"];
+                    return;
+                }
+            }
+            ++parts_["mesh-table entries skipped: SpeedTree tree (.srt, not read)"];
             return;
         }
         std::map<std::string, LocalFrame> points;
@@ -284,6 +456,33 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid, const TextureO
         return nullptr;
     }
     return out;
+}
+
+std::optional<PreparedMesh> AssetMeshes::loadSpeedTreeBillboard(const JaArchive& a, const std::string& base,
+                                                               const MeshChoice& c) {
+    std::string path = base + c.mesh;
+    std::replace(path.begin(), path.end(), '\\', '/');
+    const JaEntry* se = a.find(path);
+    if (se == nullptr) {
+        return std::nullopt;
+    }
+    const auto box = readSpeedTreeBox(a.readLimited(*se, kMaxFileBytes));
+    // The atlas beside the .srt (all 379 disc trees have one; observed name).
+    const JaEntry* ae = a.find(folderOf(path) + "billboardatlas_diffuse.texture");
+    if (!box || ae == nullptr) {
+        return std::nullopt;
+    }
+    auto atlas = loadSceneTexture(a, *ae, kAtlasSide);  // several views share it: more texels
+    if (!atlas) {
+        return std::nullopt;
+    }
+    const auto cell = firstAtlasCell(*atlas);
+    if (!cell) {
+        return std::nullopt;
+    }
+    PreparedMesh m = speedTreeBillboard(*box, std::move(*atlas), *cell, c.scale);
+    m.meshName = path + " (billboard)";
+    return m;
 }
 
 bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& base, std::string mesh, PreparedMesh& out,
@@ -370,31 +569,10 @@ bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& bas
                 break;
             }
             try {
-                const TextureFile tex = parseTexture(from->readLimited(*te, kMaxFileBytes));
-                if (!tex.mips.empty()) {
-                    // mips are largest first: take the first that fits kTextureSide.
-                    const MipLevel* pick = &tex.mips.back();
-                    for (const auto& mip : tex.mips) {
-                        if (mip.width <= kTextureSide && mip.height <= kTextureSide) {
-                            pick = &mip;
-                            break;
-                        }
-                    }
-                    SceneTexture st;
-                    st.width = pick->width, st.height = pick->height;
-                    st.rgba = decodeToRgba8(*pick, tex.info.format);
-                    st.alphaTest = wantsAlphaTest(st.rgba);
-                    for (const MipLevel* lower = pick + 1; lower < tex.mips.data() + tex.mips.size(); ++lower) {
-                        SceneTexture smaller;  // the file's own smaller mips, for distant surfaces
-                        smaller.width = lower->width, smaller.height = lower->height;
-                        smaller.rgba = decodeToRgba8(*lower, tex.info.format);
-                        st.smaller.push_back(std::move(smaller));
-                    }
-                    if (st.width > 0 && st.height > 0 && st.rgba.size() == std::size_t{st.width} * st.height * 4) {
-                        texture = static_cast<int>(out.textures.size());
-                        out.textures.push_back(std::move(st));
-                        textureByFile.emplace(file, texture);
-                    }
+                if (auto st = loadSceneTexture(*from, *te)) {
+                    texture = static_cast<int>(out.textures.size());
+                    out.textures.push_back(std::move(*st));
+                    textureByFile.emplace(file, texture);
                 }
             } catch (const ContentError&) {
                 // keep the flat colour

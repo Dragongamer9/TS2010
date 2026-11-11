@@ -57,6 +57,7 @@ struct PreparedMesh {
     // kTextureSide). Not changed after loading, so Scene may point at them.
     std::vector<SceneTexture> textures;
     bool placeholder = false;  // an invented stand-in shape, not the asset's model
+    bool billboard = false;    // a flat picture of the asset (its own image), not its 3D model
     // The model's attachment points by name, in model space (first part's wins on a repeat).
     std::map<std::string, LocalFrame> attachments;
     // A traincar's bogies, drawn on its "a.bog<N>" points (bare numbers read as user -1; the
@@ -77,10 +78,35 @@ struct PreparedMesh {
 };
 
 inline constexpr std::uint32_t kTextureSide = 128;
+inline constexpr std::uint32_t kAtlasSide = 512;  // SpeedTree billboard atlases (one view is a part of it)
 
-// The stand-in for a SpeedTree tree (.srt is not read): a green 8-sided cone, 4 m wide and
-// 12 m tall, starting 1.5 m up. An invented shape, clearly not the real tree.
+// The stand-in for a SpeedTree tree when its billboard can't be made: a green 8-sided cone,
+// 4 m wide and 12 m tall, starting 1.5 m up. An invented shape, clearly not the real tree.
 PreparedMesh placeholderTree();
+
+// The bounding box in a SpeedTree file's header (OBSERVED, not traced; all 379 disc .srt
+// files are "SRT 05.0.1" with 6 floats at byte 36: min x, y, z, max x, y, z). The box's
+// proportions match the tree in its billboard images, and multiplied by the config's
+// mesh-scale it gives tree heights of 1.5-122 m on the disc (median 13.7 m).
+struct SpeedTreeBox {
+    float min[3] = {0, 0, 0}, max[3] = {0, 0, 0};
+};
+std::optional<SpeedTreeBox> readSpeedTreeBox(std::span<const std::uint8_t> srt);
+
+// The first tree image in a billboard atlas (pixels): the first run of columns holding
+// solid texels (alpha >= 128) within the first run of such rows, from the top. The atlases
+// on the disc hold several views of the tree side by side (e.g. 2 x 3).
+struct AtlasCell {
+    std::uint32_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // x1/y1 exclusive
+};
+std::optional<AtlasCell> firstAtlasCell(const SceneTexture& atlas);
+
+// A SpeedTree tree as a BILLBOARD from its own atlas image: two crossed upright quads
+// (cut-out) as wide as the image's proportions at the box's height, both scaled by `scale`.
+// Not the tree's real 3D shape (the .srt geometry is not read).
+PreparedMesh speedTreeBillboard(const SpeedTreeBox& box, SceneTexture atlas, const AtlasCell& cell, double scale);
+
+struct MeshChoice;
 
 class AssetMeshes {
 public:
@@ -110,6 +136,8 @@ private:
     std::unique_ptr<PreparedMesh> load(const trainz::content::Kuid& kuid, const TextureOverride* reskin = nullptr);
     std::optional<TextureOverride> reskinFiles(const trainz::content::Kuid& reskin);
     std::optional<trainz::content::Kuid> reskinBase(const trainz::content::Kuid& kuid);
+    std::optional<PreparedMesh> loadSpeedTreeBillboard(const trainz::content::JaArchive& archive, const std::string& base,
+                                                       const MeshChoice& choice);
     // Adds one mesh file's triangles; false (and counted) if it can't be read.
     // The triangles are placed by `frame`; the mesh's own attachment points, placed the same
     // way, are added to `points`.
@@ -134,6 +162,7 @@ std::string highestDetailLodMesh(std::span<const std::uint8_t> text);
 // part, the point ("att") on the parent entry ("att-parent", "default" when not given).
 struct MeshChoice {
     std::string entry, mesh, att, attParent;
+    double scale = 1.0;  // mesh-scale (the mean when it gives a range); used for SpeedTree billboards
     bool operator==(const MeshChoice&) const = default;
 };
 
