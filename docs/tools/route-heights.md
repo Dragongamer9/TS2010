@@ -57,6 +57,7 @@ top, and writes `<route-folder>.track.png` the same protected way:
 
 - red: track stretches (`tkSt`); yellow: wrapped stretches (`tkBr`);
 - cyan dots: vertices with 3 or more track pieces (junctions, probably);
+- under the track, placed objects from `mapfile.obs` as dark green dots (signals magenta);
 - each piece is a **straight line** between its two vertices: how track curves is not
   decoded, so tight curves look faceted where vertices are far apart.
 

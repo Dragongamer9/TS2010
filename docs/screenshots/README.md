@@ -14,7 +14,8 @@ port can already read and draw.
 | ![](grass-texture.png) | `grass_15.texture` (`MMTF` → RGBA) | `texture-tool png` |
 | ![](crate-descriptor.png) | A crate built from a `.texture.txt` descriptor: colour TGA + separate grey alpha mask (see-through slats) | `texture-tool png` |
 | ![](thueringen-overview.png) | "Thüringen Romantik Strecke": every terrain section's built-in 64×64 overview map, stitched | `route-tool overview` |
-| ![](thueringen-track.png) | The same route: terrain heights (black low, white high) with the track network on top | `route-tool track` |
+| ![](thueringen-track.png) | The same route: terrain heights (black low, white high), placed objects (green) and the track network on top | `route-tool track` |
+| ![](sample-route-objects.png) | The test route with its 10,201 placed objects (dark green dots; signals magenta) under the track | `route-tool track` |
 | ![](avery-drexel-track.png) | "Avery – Drexel", the disc's largest route that fits one image (30,169 spline pieces) | `route-tool track` |
 
 In the track maps, **red** is every `tkSt` spline piece, which seems to include roads

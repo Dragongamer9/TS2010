@@ -62,6 +62,33 @@ floatscenery, `mkOb` motrackmark, `tgOb` motrigger, `spOb` mospeedboard, `mPAS`
 passenger-station, `DvrS` driver-character, `gslb` library, `BHVR` behavior (the `RVHB`
 bytes in `profile.dat`), `Rule` (the `.gnd` world items), `trCt`.
 
+## Where placed objects stand (observed; reader `src/content/PlacedObject`)
+
+Every `.obs` class seen on the disc starts its payload with the same base block, after a
+class header that is empty for `mobs` and 8 bytes (`u32 3`, `u32 0xff000000`) for the others:
+
+```
+[class header]   u8 flag (0 or 1)   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   f32 unknown   ...class-specific
+```
+
+`x`/`y` are metres inside the 720 m baseboard and `z` is the height in metres, as for track
+vertices. On all 50 disc routes the block fits **1,760,978 of 1,761,124 objects (99.99%)**.
+Most classes sit on the terrain (bilinear sample; share within 1 m, with the terrain rows
+flipped in brackets as a control):
+
+| Class | Objects | Within 1 m of the ground |
+|---|---:|---|
+| `sgOb` mosignal | 12,232 | 75–82% (46–53%) |
+| `mOBJ` mapobject | 51,398 | 59–82% (35–48%) |
+| `mobs` mapobjectstub | 1,657,170 | 37% (20–21%) |
+| `jnOb`, `obCr`, `mIND`, `mFXT`, `ttOb` | 14,303 | 79–97% (nearest vertex) |
+| `cmOb` | 3,218 | 1%: not placed on the ground; what it is is not known |
+
+The `flag` byte is 0 or 1 in roughly equal shares and changes nothing measured here
+(meaning not known). The float after `z` is not an angle in any obvious unit (−42…154 for
+`mobs`; 0 for signals and junctions); how objects are rotated is not decoded yet. Junction
+payloads later contain their names as text ("Single Track", "Airport Junction 2").
+
 ## Track vertices and stretches (observed; reader `src/content/TrackLayout`)
 
 The track classes' own readers are not traced; these layouts come from the data and

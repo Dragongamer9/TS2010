@@ -2,6 +2,7 @@
 
 #include "content/ContentError.h"
 #include "content/ObjectContainer.h"
+#include "content/PlacedObject.h"
 #include "content/TrackLayout.h"
 
 #include <gtest/gtest.h>
@@ -268,4 +269,67 @@ TEST(TrackLayout, ShortOrOddItemsWarn) {
     EXPECT_TRUE(t.vertices.empty());
     EXPECT_EQ(t.otherItems, 1U);
     EXPECT_EQ(t.warnings.size(), 2U);
+}
+
+namespace {
+
+Bytes baseBlock(std::uint8_t flag, std::int16_t bx, std::int16_t by, float x, float y, float z, float unknown) {
+    Bytes p;
+    p.push_back(flag);
+    putU16(p, static_cast<std::uint16_t>(bx));
+    putU16(p, static_cast<std::uint16_t>(by));
+    putF32(p, x);
+    putF32(p, y);
+    putF32(p, z);
+    putF32(p, unknown);
+    return p;
+}
+
+ObjectItem objectItem(const char* tag, Bytes payload) {
+    ObjectItem it;
+    it.index = 7;
+    it.tag = tag;
+    it.kuid.user = 523;
+    it.kuid.content = 1365;
+    it.payload = std::move(payload);
+    return it;
+}
+
+}  // namespace
+
+TEST(PlacedObject, StubAndObjectBaseBlocks) {
+    Bytes stub = baseBlock(1, -1, 3, 375.07F, 184.27F, 29.99F, 45.47F);
+    stub.resize(41, 0);  // the rest of a disc mapobjectstub
+    const auto s = decodePlacedObject(objectItem("mobs", stub));
+    ASSERT_TRUE(s.has_value());
+    EXPECT_EQ(s->flag, 1);
+    EXPECT_EQ(s->boardX, -1);
+    EXPECT_EQ(s->boardY, 3);
+    EXPECT_FLOAT_EQ(s->z, 29.99F);
+    EXPECT_DOUBLE_EQ(s->worldY(), 3 * 720.0 + static_cast<double>(184.27F));
+    EXPECT_EQ(s->rest.size(), 41U - 21U);
+    EXPECT_EQ(s->kuid.content, 1365);
+
+    Bytes obj;
+    putU32(obj, 3);
+    putU32(obj, 0xFF000000u);
+    const Bytes base = baseBlock(0, 2, -4, 10.0F, 700.0F, 120.5F, 0.0F);
+    obj.insert(obj.end(), base.begin(), base.end());
+    const auto o = decodePlacedObject(objectItem("sgOb", obj));
+    ASSERT_TRUE(o.has_value());
+    EXPECT_EQ(o->flag, 0);
+    EXPECT_EQ(o->boardY, -4);
+    EXPECT_TRUE(o->rest.empty());
+}
+
+TEST(PlacedObject, RefusesWhatDoesNotFit) {
+    EXPECT_FALSE(decodePlacedObject(objectItem("mobs", baseBlock(2, 0, 0, 1, 1, 1, 0))).has_value());     // flag
+    EXPECT_FALSE(decodePlacedObject(objectItem("mobs", baseBlock(1, 0, 0, 720, 1, 1, 0))).has_value());   // x
+    EXPECT_FALSE(decodePlacedObject(objectItem("mobs", baseBlock(1, 0, 0, 1, -1, 1, 0))).has_value());    // y
+    EXPECT_FALSE(decodePlacedObject(objectItem("mobs", baseBlock(1, 0, 0, 1, 1, std::numeric_limits<float>::infinity(), 0)))
+                     .has_value());                                                                       // z
+    EXPECT_FALSE(decodePlacedObject(objectItem("mobs", Bytes(20, 0))).has_value());                       // short
+    EXPECT_FALSE(decodePlacedObject(objectItem("tkSt", Bytes(41, 0))).has_value());                       // not placed
+    EXPECT_FALSE(placedObjectHeaderSize("Rule").has_value());
+    EXPECT_EQ(placedObjectHeaderSize("mOBJ"), 8U);
 }

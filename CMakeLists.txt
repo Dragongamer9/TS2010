@@ -44,6 +44,7 @@ add_library(trainz_content
   src/content/Kuid.cpp
   src/content/MeshFile.cpp
   src/content/ObjectContainer.cpp
+  src/content/PlacedObject.cpp
   src/content/Mp3Decoder.cpp
   src/content/ReadOnlyFile.cpp
   src/content/SoundFile.cpp

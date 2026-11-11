@@ -15,6 +15,7 @@
 #include "content/Kuid.h"
 #include "content/MeshFile.h"
 #include "content/ObjectContainer.h"
+#include "content/PlacedObject.h"
 #include "content/ReadOnlyFile.h"
 #include "content/SoundFile.h"
 #include "content/TextureDescriptor.h"
@@ -706,4 +707,37 @@ TEST_F(RealInstall, TrackSitsOnTheTerrain) {
     EXPECT_LE(badLinks * 1000, links);
     EXPECT_GT(onSection * 100, vertices * 95);  // 99.5% on the disc
     EXPECT_GT(within1m * 100, onSection * 50);  // 66% on the disc (nearest vertex here); rows flipped: 39%
+}
+
+TEST_F(RealInstall, PlacedObjectsHavePositions) {
+    // The shared base block (board, metres, height) decodes for nearly every placed object.
+    std::size_t objects = 0, placed = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        for (const auto& e : a.entries()) {
+            if (e.name.size() < 12 || e.name.compare(e.name.size() - 12, 12, "/mapfile.obs") != 0 || !a.isLookupWinner(e)) {
+                continue;
+            }
+            RouteObjectFile f;
+            try {
+                f = parseRouteObjectFile(a.read(e));
+            } catch (const ContentError&) {
+                continue;  // the old robescenario route
+            }
+            for (const auto& c : f.containers) {
+                for (const auto& item : c.items) {
+                    if (!placedObjectHeaderSize(item.tag)) {
+                        continue;
+                    }
+                    ++objects;
+                    placed += decodePlacedObject(item).has_value();
+                }
+            }
+        }
+    }
+    if (objects == 0) {
+        GTEST_SKIP() << "no mapfile.obs";
+    }
+    std::cout << "  placed objects " << objects << ", with a position " << placed << "\n";
+    EXPECT_GE(placed * 1000, objects * 999);  // 99.99% on the disc
 }

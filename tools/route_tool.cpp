@@ -15,6 +15,7 @@
 #include "content/ContentError.h"
 #include "content/GroundFile.h"
 #include "content/ObjectContainer.h"
+#include "content/PlacedObject.h"
 #include "content/TrackLayout.h"
 #include "content/JaArchive.h"
 
@@ -184,6 +185,29 @@ int main(int argc, char** argv) {
                     auto* pixel = rgba.data() + (static_cast<std::size_t>(py) * w + static_cast<std::size_t>(px)) * 4;
                     pixel[0] = r, pixel[1] = gr, pixel[2] = b, pixel[3] = 255;
                 };
+                // Placed objects first, so the track stays on top: dark green dots, signals magenta.
+                std::size_t objects = 0;
+                const JaEntry* oe = archive.find(std::string(argv[3]) + "/mapfile.obs");
+                if (oe != nullptr) {
+                    const auto obs = parseRouteObjectFile(archive.readLimited(*oe, std::size_t{256} << 20));
+                    for (const auto& c : obs.containers) {
+                        for (const auto& item : c.items) {
+                            const auto o = decodePlacedObject(item);
+                            if (!o) {
+                                continue;
+                            }
+                            const double px = (o->worldX() / kBaseboardSize - minX) * 64.0;
+                            const double py = (static_cast<double>(maxY) + 1.0 - o->worldY() / kBaseboardSize) * 64.0;
+                            if (o->tag == "sgOb") {
+                                plot(px, py, 230, 40, 230);
+                                plot(px + 1, py, 230, 40, 230);
+                            } else {
+                                plot(px, py, 20, 120, 40);
+                            }
+                            ++objects;
+                        }
+                    }
+                }
                 std::size_t drawn = 0;
                 for (const auto& st : t.stretches) {
                     const auto a = t.vertices.find(st.from);
@@ -220,8 +244,9 @@ int main(int argc, char** argv) {
                     }
                 }
                 std::printf("track: %zu pieces drawn (red: tkSt, yellow: tkBr), %zu vertices with 3+ links (cyan); "
-                            "straight lines between vertices (curves not decoded)\n",
-                            drawn, junctions);
+                            "straight lines between vertices (curves not decoded); %zu placed objects (green, signals "
+                            "magenta)\n",
+                            drawn, junctions, objects);
             }
         } else {
             for (std::size_t i = 3; i < rgba.size(); i += 4) {

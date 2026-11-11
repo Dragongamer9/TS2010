@@ -48,17 +48,19 @@ def main():
         assert r.returncode == 0, r.stderr
         assert "794 pieces drawn" in r.stdout, r.stdout
         out = Path(tmp) / "data/trainz-native/routes" / (ROUTE.replace("/", "_") + ".track.png")
-        red = yellow = cyan = 0
+        assert "placed objects" in r.stdout, r.stdout
+        red = yellow = cyan = green = 0
         for row in rgba_rows(out.read_bytes()):
             for i in range(0, len(row), 4):
                 px = tuple(row[i:i + 4])
                 red += px == (230, 30, 30, 255)
                 yellow += px == (230, 210, 30, 255)
                 cyan += px == (0, 220, 240, 255)
+                green += px == (20, 120, 40, 255)
         # The route's 790 stretches, 4 tkBr pieces and 38 junction-like vertices all show up.
-        assert red > 1000 and yellow > 0 and cyan > 0, (red, yellow, cyan)
+        assert red > 1000 and yellow > 0 and cyan > 0 and green > 1000, (red, yellow, cyan, green)
     assert (archive.stat().st_mtime_ns, archive.stat().st_size) == before
-    print(f"route track CLI checks passed (red {red}, yellow {yellow}, cyan {cyan})")
+    print(f"route track CLI checks passed (red {red}, yellow {yellow}, cyan {cyan}, green {green})")
 
 
 if __name__ == "__main__":
