@@ -95,7 +95,7 @@ fall within 1° of a right angle far more often than random angles would (2.2%):
 `obCr` 13.6%: objects lined up with streets and track. On the grid-street test route,
 91% of buildings sit at 0, 90, 180 or 270°.
 
-**Direction (observed):** a positive yaw turns **anticlockwise** in the route's x/y plane
+**Direction (inferred from the data, not traced in the engine):** a positive yaw turns **anticlockwise** in the route's x/y plane
 (from +x toward +y, like `atan2`). Test: for 11,376 buildings (`mOBJ`, `mBUI`, `mIND`)
 within 25 m of a track stretch that is *not* axis-aligned (10–80° modulo 90°),
 `(yaw − track heading) mod 90°` puts 23.6% of them in one 2° bin (0–2°), while

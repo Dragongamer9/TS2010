@@ -14,8 +14,8 @@
 // per class lie within 1 degree of a right angle, against 2.2% for random angles
 // (objects lined up with streets and track). Why it exceeds one turn is a
 // hypothesis only (the editor may keep adding to it). Positive yaw turns
-// anticlockwise in x/y (+x toward +y), checked against buildings beside angled
-// track; at 0 the object's axes line up with the world's, modulo 90 degrees
+// anticlockwise in x/y (+x toward +y): inferred from buildings beside angled
+// track, not traced in the engine; at 0 the object's axes line up with the world's, modulo 90 degrees
 // (which side faces +x is not known). Signals and junctions store 0 (they follow the track).
 #pragma once
 
