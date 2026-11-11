@@ -251,8 +251,10 @@ int main(int argc, char** argv) {
                            ev.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad))) {
                     SDL_GameControllerClose(pad);
                     pad = nullptr;
-                } else if (ev.type == SDL_CONTROLLERBUTTONDOWN && ev.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
-                    cam = start, dirty = true;
+                    openPad();  // another one already plugged in takes over
+                } else if (ev.type == SDL_CONTROLLERBUTTONDOWN && ev.cbutton.button == SDL_CONTROLLER_BUTTON_START &&
+                           pad != nullptr && ev.cbutton.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad))) {
+                    cam = start, dirty = true;  // only the gamepad in use resets the view
                 }
             }
             const Uint32 now = SDL_GetTicks();
