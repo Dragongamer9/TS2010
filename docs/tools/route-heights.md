@@ -127,7 +127,8 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
     a model this way). Its **own textures are used**: a texture of the base model whose file
     name the reskin also ships (e.g. `main.texture`, the Paint Shed's finished paint) is read
     from the reskin's folder instead (observed, not traced; 28 textures in the 25 reskins
-    drawn). `skin.dat`'s decals and `colormap.dat` are not read (the finished texture already
+    drawn, all `main.texture` at the reskin folder's root; names match without case, and a
+    file in a subfolder would match too, which no disc reskin has). `skin.dat`'s decals and `colormap.dat` are not read (the finished texture already
     holds them).
 
   SpeedTree trees (`.srt` files, a separate format) are not read: they are drawn as a

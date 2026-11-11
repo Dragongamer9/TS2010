@@ -101,7 +101,8 @@ private:
     const trainz::content::JaArchive* archive(const std::filesystem::path& path);
     // A reskin's own .texture files, by lowercased file name (no folder): drawn through its
     // base model, a base texture with one of these names comes from the reskin instead
-    // (observed, e.g. "main.texture"; not traced).
+    // (observed, not traced). Names are matched without case, anywhere in the reskin's
+    // folder; on the disc all 28 matches are "main.texture" at the folder's root.
     struct TextureOverride {
         const trainz::content::JaArchive* archive = nullptr;
         std::map<std::string, std::string> byName;  // "main.texture" -> full entry name
