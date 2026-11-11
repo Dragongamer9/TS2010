@@ -16,7 +16,13 @@ namespace {
 
 double worldOf(std::int16_t board, float local) { return board * kBaseboardSize + local; }
 
+bool fits(const Scene& scene, const PreparedMesh& mesh) { return sceneHasRoomFor(scene, mesh.triangles.size()); }
+
 }  // namespace
+
+bool sceneHasRoomFor(const Scene& scene, std::size_t triangles) {
+    return scene.triangles.size() <= kMaxSceneTriangles && triangles <= kMaxSceneTriangles - scene.triangles.size();
+}
 
 RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional<double> centreX,
                          std::optional<double> centreY) {
@@ -114,8 +120,8 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
         for (const auto& o : *in.objects) {
             const double x = o.worldX(), y = o.worldY();
             if (near(x, y) && std::isfinite(o.z)) {
-                if (in.meshes != nullptr && v.scene.triangles.size() < kMaxSceneTriangles) {
-                    if (const PreparedMesh* m = in.meshes->get(o.kuid)) {
+                if (in.meshes != nullptr) {
+                    if (const PreparedMesh* m = in.meshes->get(o.kuid); m != nullptr && fits(v.scene, *m)) {
                         // Yaw: radians, anticlockwise (inferred); which side faces +x at 0 is not known.
                         addPlacedMesh(v.scene, *m, x, y, o.z, o.yaw);
                         ++v.objectsAsMeshes;
@@ -179,8 +185,8 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
                     heading = std::atan2(worldOf(next.boardY, next.y) - worldOf(prev.boardY, prev.y),
                                          worldOf(next.boardX, next.x) - worldOf(prev.boardX, prev.x));
                 }
-                if (in.meshes != nullptr && std::isfinite(heading) && v.scene.triangles.size() < kMaxSceneTriangles) {
-                    if (const PreparedMesh* m = in.meshes->get(veh.kuid)) {
+                if (in.meshes != nullptr && std::isfinite(heading)) {
+                    if (const PreparedMesh* m = in.meshes->get(veh.kuid); m != nullptr && fits(v.scene, *m)) {
                         const double yaw = heading - std::numbers::pi / 2;
                         addPlacedMesh(v.scene, *m, x, y, vz, yaw);
                         ++v.vehiclesAsMeshes;
@@ -188,12 +194,12 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
                         for (const auto& [name, frame] : m->attachments) {
                             const auto b = m->bogeyFor(name);
                             const PreparedMesh* bogie = b ? in.meshes->get(b->kuid) : nullptr;
-                            if (bogie == nullptr) {
+                            if (bogie == nullptr || !fits(v.scene, *bogie)) {
                                 continue;
                             }
-                            LocalFrame turned;  // "reversed": turned 180 degrees about z (inferred)
-                            turned.r[0] = turned.r[4] = b->reversed ? -1.0F : 1.0F;
-                            addPlacedMesh(v.scene, *bogie, turned.then(frame), x, y, vz, yaw);
+                            // The point's own rotation turns the bogie; "reversed" only reverses
+                            // the wheel animation (documented), so it adds no turn here.
+                            addPlacedMesh(v.scene, *bogie, frame, x, y, vz, yaw);
                             ++v.bogiesAsMeshes;
                         }
                         continue;

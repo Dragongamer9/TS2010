@@ -23,6 +23,7 @@
 #include "content/TrackLayout.h"
 #include "content/JaArchive.h"
 
+#include <cctype>
 #include <array>
 #include <algorithm>
 #include <cerrno>
@@ -39,6 +40,28 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
+
+namespace {
+
+// The whole argument as a finite number, or nullopt ("abc", "10oops", "1e999", "nan", "").
+std::optional<double> strictNumber(const char* text) {
+    const std::string s = text;
+    if (s.empty() || std::isspace(static_cast<unsigned char>(s.front())) != 0) {
+        return std::nullopt;
+    }
+    try {
+        std::size_t used = 0;
+        const double v = std::stod(s, &used);
+        if (used != s.size() || !std::isfinite(v)) {
+            return std::nullopt;
+        }
+        return v;
+    } catch (const std::exception&) {  // invalid_argument, out_of_range
+        return std::nullopt;
+    }
+}
+
+}  // namespace
 using namespace trainz::content;
 
 int main(int argc, char** argv) {
@@ -65,15 +88,30 @@ int main(int argc, char** argv) {
         if (opt == "--out" && i + 1 < argc) {
             outDir = argv[++i];
         } else if (opt == "--at" && i + 2 < argc && cmd == "view") {
-            atX = std::stod(argv[++i]);
-            atY = std::stod(argv[++i]);
+            const auto x = strictNumber(argv[i + 1]), y = strictNumber(argv[i + 2]);
+            if (!x || !y) {
+                std::cerr << "--at needs two numbers (world metres)\n";
+                return 2;
+            }
+            atX = *x, atY = *y;
+            i += 2;
         } else if (opt == "--eye" && i + 3 < argc && cmd == "view") {
-            eye = std::array<double, 3>{std::stod(argv[i + 1]), std::stod(argv[i + 2]), std::stod(argv[i + 3])};
+            const auto x = strictNumber(argv[i + 1]), y = strictNumber(argv[i + 2]), z = strictNumber(argv[i + 3]);
+            if (!x || !y || !z) {
+                std::cerr << "--eye needs three numbers (metres from the centre)\n";
+                return 2;
+            }
+            eye = std::array<double, 3>{*x, *y, *z};
             i += 3;
         } else if (opt == "--install" && i + 1 < argc && cmd == "view") {
             installDir = argv[++i];
         } else if (opt == "--radius" && i + 1 < argc && cmd == "view") {
-            radius = std::stod(argv[++i]);
+            const auto r = strictNumber(argv[++i]);
+            if (!r) {
+                std::cerr << "--radius needs a number (metres, 50..20000)\n";
+                return 2;
+            }
+            radius = *r;
         } else if (opt == "--session" && i + 2 < argc && (cmd == "track" || cmd == "view")) {
             sessionArchive = argv[++i];
             sessionFolder = argv[++i];

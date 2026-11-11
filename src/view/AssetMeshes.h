@@ -57,8 +57,10 @@ struct PreparedMesh {
     // A traincar's bogies, drawn on its "a.bog<N>" points (bare numbers read as user -1; the
     // disc's bogie folders confirm it, e.g. 100008 = "kuid _1 100008"). Two forms on the disc:
     // "bogey <kuid>" (827 traincars, one model for every point) and a "bogeys" group (328
-    // traincars, 634 entries) whose entry N names the model for a.bog<N> plus "reversed".
-    // The N-to-point match and "reversed" = turned 180 degrees about z are inferred, not traced.
+    // traincars, 634 entries) whose entry named N is for a.bog<N> (documented in the Trainz
+    // wiki "Bogeys" container page; not traced in the exe). "reversed" reverses the wheel
+    // animation (documented); the bogie is turned only by its point's rotation. On the disc
+    // 64 of the 71 reversed=1 points are already turned 180 degrees, as the wiki describes.
     std::optional<trainz::content::Kuid> bogey;
     struct BogeyEntry {
         trainz::content::Kuid kuid;

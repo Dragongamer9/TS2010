@@ -1,5 +1,6 @@
 #include "content/AssetConfig.h"
 #include "view/AssetMeshes.h"
+#include "view/RouteScene.h"
 #include "view/SceneRender.h"
 
 #include <gtest/gtest.h>
@@ -441,4 +442,15 @@ TEST(SceneRender, ConfigKuidReadsBareNumbers) {
     EXPECT_EQ(configKuid(*root.child("other"))->user, 58422);
     EXPECT_FALSE(configKuid(*root.child("bad")));
     EXPECT_FALSE(configKuid(*root.child("name")));
+}
+
+TEST(SceneRender, SceneTriangleBudget) {
+    Scene s;
+    EXPECT_TRUE(sceneHasRoomFor(s, kMaxSceneTriangles));
+    EXPECT_FALSE(sceneHasRoomFor(s, kMaxSceneTriangles + 1));
+    EXPECT_FALSE(sceneHasRoomFor(s, std::numeric_limits<std::size_t>::max()));  // no wrap-around
+    s.triangles.resize(1);
+    EXPECT_TRUE(sceneHasRoomFor(s, kMaxSceneTriangles - 1));
+    EXPECT_FALSE(sceneHasRoomFor(s, kMaxSceneTriangles));  // e.g. one more bogie than fits
+    EXPECT_TRUE(sceneHasRoomFor(s, 0));
 }

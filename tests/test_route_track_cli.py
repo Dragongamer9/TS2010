@@ -98,10 +98,14 @@ def main():
                            env=env, capture_output=True, text=True, timeout=300)
         assert r.returncode == 0, r.stderr
         assert (Path(tmp) / "data/trainz-native/routes/eye" / (ROUTE.replace("/", "_") + ".view.png")).is_file()
-        for bad in (["0", "0", "0"], ["nan", "1", "1"], ["1", "1e9", "1"]):
-            r = subprocess.run([tool, "view", str(archive), ROUTE, "--eye", *bad], env=env, capture_output=True,
+        bad_numbers = [("--eye", ["0", "0", "0"]), ("--eye", ["nan", "1", "1"]), ("--eye", ["1", "1e9", "1"]),
+                       ("--eye", ["abc", "1", "1"]), ("--eye", ["10oops", "1", "1"]), ("--eye", ["1e999", "1", "1"]),
+                       ("--at", ["abc", "0"]), ("--at", ["0", "1e999"]), ("--at", ["5m", "0"]),
+                       ("--radius", ["abc"]), ("--radius", ["300x"]), ("--radius", ["1e999"]), ("--radius", [""])]
+        for opt, bad in bad_numbers:  # refused with a message, never an uncaught exception
+            r = subprocess.run([tool, "view", str(archive), ROUTE, opt, *bad], env=env, capture_output=True,
                                text=True, timeout=60)
-            assert r.returncode != 0 and "--eye" in r.stderr, (bad, r.returncode, r.stderr)
+            assert r.returncode in (1, 2) and opt in r.stderr, (opt, bad, r.returncode, r.stderr)
     assert (archive.stat().st_mtime_ns, archive.stat().st_size) == before
     print(f"route track CLI checks passed (red {red}, yellow {yellow}, cyan {cyan}, green {green})")
 

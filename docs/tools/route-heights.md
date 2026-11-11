@@ -99,8 +99,9 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   - **skipped and counted**: entries with `lod-level` above 0 (simpler copies for distance),
     `night-mesh-base` (night variants) and shadow meshes (by name). Entries with `att` (doors,
     fans, horns …) are hung on that attachment point (the mesh's `ATCH` chunk) of the entry
-    named by `att-parent`, or of `default` when none is given (837 disc entries; the port's
-    reading, not traced). Chains of attached parts work; a missing parent or point is counted.
+    named by `att-parent`, or of `default` when none is given (837 disc entries; documented
+    in the Trainz wiki, see [`../research/bogeys-attachments.md`](../research/bogeys-attachments.md);
+    not traced). Chains of attached parts work; a missing parent or point is counted.
 
   These rules are the port's reading of the key names, not traced game behaviour. Each mesh
   is turned by the object's yaw (radians, anticlockwise, inferred; which side faces +x at 0
@@ -132,9 +133,10 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   to follow its neighbours in the train (a vehicle's own stored yaw is 0 on the disc; front and
   back are not known; train models are long along their own +y). **Bogies** are drawn on the
   body's `a.bog<N>` points: a traincar names them as `bogey <kuid>` (827 disc traincars, the
-  same model on every point) or as a `bogeys` group (328 traincars) whose entry N names the
-  model for `a.bog<N>`, with `reversed` read as a 180° turn about z (both matches inferred,
-  not traced). Bare numbers are user −1 (the disc's bogie folders, e.g. `kuid _1 100008`,
+  same model on every point) or as a `bogeys` group (328 traincars) whose entry named N is
+  for `a.bog<N>` (documented in the Trainz wiki). `reversed` only reverses the wheel
+  animation (documented; on the disc 64 of 71 reversed points are already turned 180°), so
+  the bogie is turned by its point's rotation alone. Not traced in the exe. Bare numbers are user −1 (the disc's bogie folders, e.g. `kuid _1 100008`,
   confirm it). A bogie's `asset-filename` often exists only as a `.pm` (286 disc assets),
   which is used when there is no `.im`. Bogies don't turn on curves (track curves are not
   decoded). That height is a **preview approximation, not a decoded vehicle elevation**: a

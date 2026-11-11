@@ -36,7 +36,11 @@ struct RouteView {
     std::size_t bogiesAsMeshes = 0;  // bogie models drawn on vehicles' "a.bog*" points
 };
 
-inline constexpr std::size_t kMaxSceneTriangles = 4'000'000;
+inline constexpr std::size_t kMaxSceneTriangles = 4'000'000;  // never exceeded: meshes that don't fit are left out
+
+// Whether `triangles` more still fit under kMaxSceneTriangles. Checked before every placed
+// object, vehicle body and bogie, so the limit holds however many attachment points a model has.
+bool sceneHasRoomFor(const Scene& scene, std::size_t triangles);
 
 // The area within `radius` metres of (centreX, centreY), seen from the south-west and
 // above. If no centre is given: the first train if there are trains, otherwise the spot
