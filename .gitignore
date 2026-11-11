@@ -10,3 +10,5 @@ compile_commands.json
 
 # Temporary helper checkouts (Claude Code worktrees); never commit them.
 /.claude/worktrees/
+__pycache__/
+*.pyc
