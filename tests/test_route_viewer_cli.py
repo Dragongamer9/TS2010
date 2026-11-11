@@ -3,7 +3,8 @@
 driver (no window appears) and quit; refuse bad arguments.
 
 Usage: test_route_viewer_cli.py ROUTE_VIEWER TESTDATA_DIR
-Skips (exit code 77) when the test route is not there or SDL has no offscreen driver.
+Skips (exit code 77) when the test route is not there or SDL has no offscreen video driver
+(only then: any other startup failure fails the test).
 Reads the test archive only.
 """
 import os
@@ -26,8 +27,10 @@ def main():
     env = dict(os.environ, SDL_VIDEODRIVER="offscreen")
     r = subprocess.run([tool, str(archive), ROUTE, "--session", str(archive), SESSION, "--install", str(data),
                         "--radius", "300", "--frames", "3"], env=env, capture_output=True, text=True, timeout=600)
-    if r.returncode != 0 and ("SDL_Init failed" in r.stderr or "could not open a window" in r.stderr):
-        print("skipped: SDL could not start offscreen:", r.stderr.strip())
+    # Skip only when SDL itself has no offscreen video driver (SDL_Init reports "offscreen not
+    # available"); a window, renderer or texture that fails after that is a real failure.
+    if r.returncode != 0 and "SDL_Init failed" in r.stderr and "not available" in r.stderr:
+        print("skipped: SDL has no offscreen video driver:", r.stderr.strip())
         return 77
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
     assert "triangles" in r.stdout and "route-viewer  x " in r.stdout and "ms per frame" in r.stdout, r.stdout
