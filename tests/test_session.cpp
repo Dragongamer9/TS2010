@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <optional>
 
 using namespace trainz::content;
 using namespace trainz::test;
@@ -283,4 +284,109 @@ TEST(Session, OldTrainsFoundByPattern) {
         cut.payload.resize(n);
         (void)decodeTrain(cut);
     }
+}
+
+namespace {
+
+// One old-layout vehicle; `extra` goes after the name (the undecoded rest).
+void oldVehicle(Bytes& p, std::int32_t content, const std::string& name, const Bytes& extra) {
+    putU32(p, static_cast<std::uint32_t>(content));
+    putU32(p, 0x14011C1Au);
+    putU32(p, 0);
+    p.push_back(0);
+    Bytes r;
+    putU32(r, 4);
+    putU32(r, 3);
+    putU32(r, 0xFF0000FFu);
+    putU16(r, 1);
+    putU16(r, 2);
+    r.resize(40, 0);
+    putU32(r, static_cast<std::uint32_t>(name.size() + 1));
+    r.insert(r.end(), name.begin(), name.end());
+    r.push_back(0);
+    r.insert(r.end(), extra.begin(), extra.end());
+    p.insert(p.end(), r.begin(), r.end());
+}
+
+Bytes oldHeader(std::uint32_t count) {
+    Bytes p;
+    putU32(p, count);
+    putU32(p, 0);
+    putU32(p, 7);
+    putU32(p, 0);
+    putU32(p, 1);
+    return p;
+}
+
+std::optional<Train> decodeOld(const Bytes& payload) {
+    ObjectItem it;
+    it.tag = "trCt";
+    it.payload = payload;
+    return decodeTrain(it);
+}
+
+// The pattern the reader looks for, with a KUID in front, as random data might hold it.
+Bytes fakeVehicleStart() {
+    Bytes b;
+    putU32(b, 12345);
+    putU32(b, 678);
+    const Bytes mark = {0, 0, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0};
+    b.insert(b.end(), mark.begin(), mark.end());
+    b.resize(b.size() + 60, 0x22);  // no valid name where one would be
+    return b;
+}
+
+}  // namespace
+
+TEST(Session, OldTrainPatternInsideDataIsRefused) {
+    // Two real vehicles, but the first one's undecoded data happens to contain the pattern.
+    Bytes p = oldHeader(2);
+    oldVehicle(p, 1, "Wagon A", fakeVehicleStart());
+    oldVehicle(p, 2, "Wagon B", Bytes(20, 0x33));
+    EXPECT_FALSE(decodeOld(p).has_value()) << "3 matches for 2 vehicles must be refused";
+
+    // Same data with the count changed to 3, so the count agrees: the fake 'vehicle'
+    // has no valid name, so the train is still refused.
+    Bytes q = p;
+    q[0] = 3;
+    EXPECT_FALSE(decodeOld(q).has_value()) << "a match without a valid name must be refused";
+
+    // Without the embedded pattern the same two vehicles decode.
+    Bytes ok = oldHeader(2);
+    oldVehicle(ok, 1, "Wagon A", Bytes(60, 0x22));
+    oldVehicle(ok, 2, "Wagon B", Bytes(20, 0x33));
+    const auto t = decodeOld(ok);
+    ASSERT_TRUE(t.has_value());
+    EXPECT_EQ(t->vehicles.size(), 2U);
+    EXPECT_EQ(t->vehicles[1].name, "Wagon B");
+}
+
+TEST(Session, OldTrainTruncatedOrOverlongNameIsRefused) {
+    // A name length that runs into the next vehicle: refused, not read across it.
+    Bytes p = oldHeader(2);
+    oldVehicle(p, 1, "Wagon A", {});
+    const std::size_t firstNameLength = 20 + 13 + 40;  // header + vehicle prefix + record offset 40
+    p[firstNameLength] = 200;  // claim 200 bytes
+    oldVehicle(p, 2, "Wagon B", Bytes(10, 0));
+    EXPECT_FALSE(decodeOld(p).has_value());
+
+    // A name that is not NUL-terminated within its length: refused.
+    Bytes q = oldHeader(1);
+    oldVehicle(q, 1, "Wagon A", {});
+    q[q.size() - 1] = 'X';  // the terminating NUL
+    EXPECT_FALSE(decodeOld(q).has_value());
+
+    // Every truncation of a good two-vehicle train: refused or read, never past the end.
+    Bytes good = oldHeader(2);
+    oldVehicle(good, 1, "Wagon A", Bytes(30, 0x44));
+    oldVehicle(good, 2, "Wagon B", Bytes(30, 0x55));
+    std::size_t accepted = 0;
+    for (std::size_t n = 0; n < good.size(); ++n) {
+        Bytes cut(good.begin(), good.begin() + static_cast<std::ptrdiff_t>(n));
+        if (const auto t = decodeOld(cut)) {
+            ++accepted;
+            EXPECT_EQ(t->vehicles.size(), 2U);  // only cuts inside the last vehicle's undecoded tail
+        }
+    }
+    EXPECT_LE(accepted, 30U);
 }

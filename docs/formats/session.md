@@ -86,7 +86,11 @@ Nothing gives a record's length, so the reader **finds vehicles by a pattern** (
 bytes, `u32 4`, `u32 3` after each KUID). It accepts a train only when the number found
 equals `vehicleCount`, the first one starts at byte 20, and every name is valid. **606 of
 the 826** qualify (2,977 vehicles); the other 220 are refused. This is a heuristic, not a
-traced layout. Checked on one version-1 session ("hash-0b/kuid2 239249 100534 2" on its
+traced layout. False matches are the main risk (the pattern could appear inside a
+vehicle's undecoded data), so `tests/test_session.cpp` checks that such a train is
+refused, both when the extra match breaks the count and when the count is altered to
+agree (the fake vehicle has no valid name), and that over-long or unterminated names and
+every truncation are refused. Removing the name check makes those tests fail. Checked on one version-1 session ("hash-0b/kuid2 239249 100534 2" on its
 route `<kuid2:143919:27565:1>`): all 12 trains name a track piece of the route and the
 first vehicle stands within 0.1 m of that piece's line.
 
