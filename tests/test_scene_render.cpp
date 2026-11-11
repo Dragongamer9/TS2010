@@ -163,3 +163,13 @@ TEST(SceneRender, LodTextPicksTheHighestDetailMesh) {
         (void)highestDetailLodMesh(std::vector<std::uint8_t>(bad.begin(), bad.end()));  // never crashes
     }
 }
+
+TEST(SceneRender, PlaceholderTreeIsMarkedAndShaped) {
+    const PreparedMesh tree = placeholderTree();
+    EXPECT_TRUE(tree.placeholder);
+    ASSERT_EQ(tree.triangles.size(), 8U);
+    for (const auto& t : tree.triangles) {
+        EXPECT_FLOAT_EQ(t.p[2][2], 12.0F);  // apex
+        EXPECT_FLOAT_EQ(t.p[0][2], 1.5F);   // base ring
+    }
+}

@@ -4,7 +4,8 @@
 // entries at the model's origin are drawn; lower LODs, night variants, entries on
 // attachment points ("att") and shadow meshes are skipped (see meshesToDraw), so
 // attached parts can be missing; no textures on the surfaces (one flat colour per
-// part); no .lm LOD lists; no animation. Read-only; each asset loaded once.
+// part); no animation. SpeedTree trees (.srt) are not read: they get placeholderTree().
+// Read-only; each asset loaded once.
 #pragma once
 
 #include "content/AssetConfig.h"
@@ -31,7 +32,12 @@ struct LocalTriangle {
 struct PreparedMesh {
     std::string meshName;  // the file used, inside the asset folder
     std::vector<LocalTriangle> triangles;
+    bool placeholder = false;  // an invented stand-in shape, not the asset's model
 };
+
+// The stand-in for a SpeedTree tree (.srt is not read): a green 8-sided cone, 4 m wide and
+// 12 m tall, starting 1.5 m up. An invented shape, clearly not the real tree.
+PreparedMesh placeholderTree();
 
 class AssetMeshes {
 public:

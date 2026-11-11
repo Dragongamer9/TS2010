@@ -112,6 +112,8 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
     named by the second KUID in its `skin.dat` (25 of the 61 disc reskins with two KUIDs get
     a model this way). Its own textures are not applied yet.
 
+  SpeedTree trees (`.srt` files, a separate format) are not read: they are drawn as a
+  **placeholder** green cone, 4 m wide and 12 m tall, an invented stand-in, not the tree.
   Assets without a readable mesh stay dots; the reasons and the skipped parts are printed;
 - with `--session`, every vehicle as its 3D model when `--install` is given and the model
   can be read (else an orange dot), drawn at the height of its train's track piece and turned

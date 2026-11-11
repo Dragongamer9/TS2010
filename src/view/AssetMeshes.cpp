@@ -7,6 +7,7 @@
 #include "content/TextureFile.h"
 
 #include <cmath>
+#include <numbers>
 #include <optional>
 #include <span>
 
@@ -24,6 +25,25 @@ std::string folderOf(const std::string& path) {
 }
 
 }  // namespace
+
+PreparedMesh placeholderTree() {
+    PreparedMesh m;
+    m.meshName = "(placeholder for a SpeedTree tree)";
+    m.placeholder = true;
+    constexpr int kSides = 8;
+    constexpr float kRadius = 2.0F, kHeight = 12.0F, kTrunk = 1.5F;
+    for (int i = 0; i < kSides; ++i) {
+        const float a0 = static_cast<float>(i) * 2.0F * std::numbers::pi_v<float> / kSides;
+        const float a1 = static_cast<float>(i + 1) * 2.0F * std::numbers::pi_v<float> / kSides;
+        LocalTriangle t{};
+        t.p[0][0] = kRadius * std::cos(a0), t.p[0][1] = kRadius * std::sin(a0), t.p[0][2] = kTrunk;
+        t.p[1][0] = kRadius * std::cos(a1), t.p[1][1] = kRadius * std::sin(a1), t.p[1][2] = kTrunk;
+        t.p[2][2] = kHeight;
+        t.colour = {40, 95, 45};
+        m.triangles.push_back(t);
+    }
+    return m;
+}
 
 std::string highestDetailLodMesh(std::span<const std::uint8_t> text) {
     // Lines such as:  mesh("1.0")  {  name="body.im";  }   (observed in .lm.txt files)
@@ -155,7 +175,14 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
         return nullptr;
     }
     auto out = std::make_unique<PreparedMesh>();
+    bool speedTree = false;
     for (auto& mesh : meshes) {
+        if (asciiLower(mesh).ends_with(".srt")) {
+            // SpeedTree trees ("SRT " files) are not read; seasons are separate entries.
+            ++parts_["mesh-table entries skipped: SpeedTree tree (.srt, not read)"];
+            speedTree = true;
+            continue;
+        }
         if (!appendMesh(*a, base, mesh, *out)) {
             if (out->triangles.size() >= kMaxTrianglesPerMesh) {
                 ++misses_["over the triangle limit"];
@@ -164,6 +191,12 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid) {
             continue;  // that part is counted in parts_; the others may still draw
         }
         ++parts_["mesh-table entries drawn"];
+    }
+    if (out->triangles.empty() && speedTree) {
+        // A PLACEHOLDER, not the tree: a green cone, 4 m wide and 12 m tall.
+        *out = placeholderTree();
+        ++parts_["SpeedTree trees drawn as PLACEHOLDER cones (not their real shape)"];
+        return out;
     }
     if (out->triangles.empty()) {
         ++misses_["no readable mesh"];
