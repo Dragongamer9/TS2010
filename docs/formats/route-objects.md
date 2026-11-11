@@ -87,8 +87,9 @@ flipped in brackets as a control):
 The `flag` byte is 0 or 1 in roughly equal shares and changes nothing measured here
 (meaning not known).
 
-**`yaw` is a rotation in radians, not wrapped to 0…2π** (−42…154 on the disc; it seems to
-keep adding up as an object is turned). Evidence: taken modulo 90°, the non-zero values
+**`yaw` is a rotation in radians, not wrapped to 0…2π** (−42…154 on the disc). Why the
+values exceed one turn is a **hypothesis only**: the editor may keep adding to it as an
+object is turned. Evidence: taken modulo 90°, the non-zero values
 fall within 1° of a right angle far more often than random angles would (2.2%):
 `mIND` 45.2%, `mobs` 43.7%, `mBUI` 33.4%, `ttOb` 30.8%, `mFXT` 20.4%, `mOBJ` 17.3%,
 `obCr` 13.6%: objects lined up with streets and track. On the grid-street test route,
