@@ -1,10 +1,10 @@
 # Roadmap – Trainz Simulator 2010 on Linux (Hearth OS)
 
-**Overall progress: 32%**
+**Overall progress: 33%**
 
 `[██████░░░░░░░░░░░░░░]`
 
-*Last updated: 2026-11-11, after 3D models in the route view (step 8).*
+*Last updated: 2026-11-11, after the bare-number KUID fix (step 3).*
 
 This file is updated with every change that moves the project forward. The
 percentage is a **weighted estimate**, not a measurement: see
@@ -36,7 +36,7 @@ percentage is a **weighted estimate**, not a measurement: see
 | 0 | Analysis: engine map, disc contents, tooling | 2 | 65% | Claude | Engine map written ([`docs/ENGINE-MAP.md`](docs/ENGINE-MAP.md)). Function-level names inside `trainz.exe` still need a working decompiler (REA needs Ghidra 12.1.x; this PC has 12.2). |
 | 1 | `.ja` archive reader + `ja-tool` | 3 | 90% | Claude | Done in C++, CI green, format in [`docs/formats/ja.md`](docs/formats/ja.md). **Real data:** every entry of `Base.ja` and `Data.ja` decoded in CI. **Missing:** a full pass over `Builtin\1.ja`–`8.ja` on Dad's PC. **Whole disc:** every config/texture/mesh/animation/terrain entry in all 8 `Builtin` archives decoded (Python survey, [`docs/DISC-SURVEY.md`](docs/DISC-SURVEY.md)). |
 | 2 | Asset configs: `config.txt` + `config.chump` + KUIDs | 3 | 85% | Claude | Done in C++, CI green, format in [`docs/formats/config.md`](docs/formats/config.md). **Real data:** 1,639 configs parse in CI, all 1,468 asset KUIDs match their folders. **Missing:** tracing the text grammar in `trainz.exe`; `Builtin\1.ja`–`7.ja`. **Whole disc:** all 19,112 `.chump` + 70 `config.txt` parse (one grammar fix: value on the next line). |
-| 3 | Asset index (KUID → where the asset lives) + `asset-tool` | 4 | 60% | Claude | Written in C++ ([`docs/formats/asset-index.md`](docs/formats/asset-index.md)). **Real data:** 1,626 assets indexed in CI, no KUID warnings. **Missing:** `.cdp` packages, which copy/version the game picks (not traced), an on-disk cache, a run on Dad's full install. |
+| 3 | Asset index (KUID → where the asset lives) + `asset-tool` | 4 | 65% | Claude | Written in C++ ([`docs/formats/asset-index.md`](docs/formats/asset-index.md)). **Real data:** 1,626 assets indexed in CI, no KUID warnings. Bare-number KUIDs (`kuid 101135` = `<kuid:-1:101135>`, observed on 488 assets) now read: no disc config is dropped for its KUID, 19,282 assets indexed, all matching their folder names. **Missing:** `.cdp` packages, which copy/version the game picks (not traced), an on-disk cache, a run on Dad's full install. |
 | 4 | Textures: `.texture` (`MMTF`), `.tga`, `.bmp`, `.jpg` + `texture-tool` | 4 | 85% | Claude | `.texture` done in C++ ([`docs/formats/texture.md`](docs/formats/texture.md)): ARGB8888, RGB0888, DXT1/3/5, mip chain, PNG export. **`.tga`/`.bmp`/`.jpg`** done in C++ ([`docs/formats/image.md`](docs/formats/image.md)): TGA types 1/2/3/10 (+9/11), BMP 4/8/24/32 bpp + RLE8, JPEG baseline/progressive via libjpeg (optional); `texture-tool png` takes them. **Real data:** every texture in the test data parses in CI; all 1,276 test-data images decode (C++, ASan, run by hand). `.texture.txt` descriptors: keys/values/`Tile` traced in `RenderSystem_7c.dll`, all 360 disc descriptors resolve and combine ([`docs/formats/texture-descriptor.md`](docs/formats/texture-descriptor.md)). **Missing:** how the game itself loads images and uses alpha (not traced). **Whole disc:** all 89,524 textures fit (INFO version 262 found); of 20,544 images, 20,540 decode in C++ and 4 damaged ones are refused. |
 | 5 | 3D models: `.im` / `.pm` (`JIRF`/`IDXM`) + a model viewer | 8 | 60% | Claude | `GEOM` (v101/102/200/201) and `MATL` (v102/103) worked out from data; C++ reader, `mesh-tool` ([`docs/formats/mesh.md`](docs/formats/mesh.md)) and a **GPU `model-viewer`** (SDL2 + OpenGL 2.1, textures, `.kin` playback). **Real data:** 291 meshes / 1,438 parts parse in CI. **Missing:** the viewer has **not been run on a screen yet**; `INFO`/`INFL`/`ATCH`/`SKEL`/`PMIN`/`NINF`; tracing the reader code. **Whole disc:** all materials fit once UTF-16 text is read; 65 meshes look damaged by a text-mode transfer before the disc was made; `repairTextModeDamage` turns them into consistent files. |
 | 6 | Materials and shaders (`m.onetex` …, `vtx.txt`/`pxl.txt`) | 6 | 0% | Claude | Map to modern shaders; Cg is discontinued. |
@@ -53,8 +53,8 @@ percentage is a **weighted estimate**, not a measurement: see
 | 17 | Validation on Dad's PC (real-install tests, full archive verify, speed on the hard drive) | 4 | 40% | Claude + owner | **Started:** real game data in the private repo (`testdata/ts2010`), all `RealInstall.*` tests run in CI with a full decode. **Missing:** the same tests on Dad's full install, speed on his hard drive. **Whole disc surveyed** (170,167 Builtin entries plus Base/Data scans; [`docs/DISC-SURVEY.md`](docs/DISC-SURVEY.md)). |
 | | **Total** | **102** | | | |
 
-**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.60 + 4×0.85 + 8×0.60 + 4×0.60 + 10×0.65 + 4×0.50 + 2×0.60 + 4×0.55 + 4×0.40) ÷ 102 =
-33.05 ÷ 102 = 32.40% → **32%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
+**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.65 + 4×0.85 + 8×0.60 + 4×0.60 + 10×0.65 + 4×0.50 + 2×0.60 + 4×0.55 + 4×0.40) ÷ 102 =
+33.25 ÷ 102 = 32.60% → **33%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
 102 weight points.
 
 ---
@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-11 | 33% | Step 3 (60% → 65%): 500 disc configs were dropped from the asset index for an unreadable KUID; 488 of them write it as a bare number (`kuid 101135`, or in quotes), and every one in a KUID-named folder sits in `kuid _1 <number>`, so they now read as `<kuid:-1:number>` (observed, not traced). No config is dropped now; 19,282 assets indexed, all matching their folder names. In the 3D view the test route goes from 246 to 856 objects as models (trees included). `asset-tool find` now says when nothing matches (it printed nothing). "Eligible full-detail daytime parts" wording (ChatGPT review). Overall 33.05 → 33.25 ÷ 102 = 32.60% → 33%. |
 | 2026-11-11 | 32% | No step change. Model parts in the view: every full-detail daytime `mesh-table` entry at the origin is drawn, not just the first; lower LODs, night variants (`night-mesh-base`), attached parts (`att`) and shadows are skipped and counted; `asset-filename` + `.im` used when a config names no mesh. Test route: 246 objects as models. Limits stated (flat colours, attached parts missing) (ChatGPT review). |
 | 2026-11-11 | 32% | Step 8 (60% → 65%): `route-tool view --install` draws placed objects as their real 3D models: asset index → config's first mesh → triangles, turned by the object's yaw, one flat colour per part (texture average). On the test route with the whole disc indexed: 222 objects as models (houses, turntable, buildings); the rest stay dots (no mesh in the config, `.lm` only, or missing). Train height in the view labelled a preview approximation (ChatGPT review). Overall 32.55 → 33.05 ÷ 102 = 32.40% → 32%. |
 | 2026-11-11 | 32% | Step 8 (55% → 60%): first 3D route view. `route-tool view` renders a perspective picture with a new small software renderer (`src/view/SceneRender`): terrain from the height grid coloured by the route's overview maps, track lines, objects and (with `--session`) trains, from decoded data only; no meshes or textures. Renderer unit tests plus a CLI check on the test route. The in-baseboard vehicle check is labelled a disc-tested heuristic with its evidence (ChatGPT review). Overall 32.05 → 32.55 ÷ 102 = 31.91% → 32%. |

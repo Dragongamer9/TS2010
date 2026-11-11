@@ -87,7 +87,16 @@ int main(int argc, char** argv) {
             for (const auto* r : index.obsoletedBy(*k)) {
                 std::printf("  (listed as obsolete by %s)\n", formatKuid(r->kuid).c_str());
             }
-            return found.empty() ? 1 : 0;
+            if (found.empty()) {
+                std::cerr << "no asset with " << formatKuid(*k) << " in " << argv[2];
+                const auto others = index.allVersions(k->user, k->content);
+                if (!others.empty()) {
+                    std::cerr << " (other versions exist: try asset-tool versions)";
+                }
+                std::cerr << "\n";
+                return 1;
+            }
+            return 0;
         }
         if (cmd == "versions" && argc == 4) {
             const auto k = parseKuidLoose(argv[3]);

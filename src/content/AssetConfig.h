@@ -64,7 +64,9 @@ struct AssetConfig {
     ConfigNode root;                 // type Group, empty key
     std::vector<std::string> warnings;
 
-    // The asset's own KUID (its top-level "kuid" entry), if present and readable.
+    // The asset's own KUID (its top-level "kuid" entry), if present and readable. A bare
+    // number, or a number written as text, is read as <kuid:-1:number> (observed on 488
+    // disc assets; not traced).
     std::optional<trainz::content::Kuid> assetKuid() const;
 };
 

@@ -44,7 +44,7 @@ public:
     // Counts of mesh-table entries drawn and skipped (attachments, shadows, .lm, …).
     const std::map<std::string, std::size_t>& parts() const { return parts_; }
 
-    static constexpr std::size_t kMaxTrianglesPerMesh = 150000;  // all parts of one asset together
+    static constexpr std::size_t kMaxTrianglesPerMesh = 150000;  // the eligible full-detail daytime parts of one asset together
 
 private:
     const trainz::content::JaArchive* archive(const std::filesystem::path& path);

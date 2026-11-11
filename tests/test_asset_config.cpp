@@ -294,3 +294,15 @@ TEST(AssetConfigApi, FormatRoundTripsThroughTheTextParser) {
     EXPECT_EQ(again.root.child("g")->child("f")->floats.at(0), 0.5f);
     EXPECT_EQ(again.root.child("nums")->ints, (std::vector<std::int32_t>{1, 2}));
 }
+
+TEST(AssetConfig, BareNumberKuidIsUserMinusOne) {
+    // "kuid 101135" in 487 disc assets, each in a folder "kuid _1 101135" (observed).
+    const std::string text = "kind \"scenery\"\nkuid 101135\n";
+    const auto cfg = parseConfigText(std::vector<std::uint8_t>(text.begin(), text.end()));
+    EXPECT_EQ(cfg.assetKuid(), (Kuid{-1, 101135, std::nullopt}));
+    const std::string quoted = "kuid \"101060\"\n";
+    EXPECT_EQ(parseConfigText(std::vector<std::uint8_t>(quoted.begin(), quoted.end())).assetKuid(),
+              (Kuid{-1, 101060, std::nullopt}));
+    const std::string two = "kuid 1,2\n";  // not a single number: not a KUID
+    EXPECT_FALSE(parseConfigText(std::vector<std::uint8_t>(two.begin(), two.end())).assetKuid().has_value());
+}

@@ -413,7 +413,22 @@ std::optional<trainz::content::Kuid> ConfigNode::asKuid() const {
 
 std::optional<trainz::content::Kuid> AssetConfig::assetKuid() const {
     const ConfigNode* k = root.child("kuid");
-    return k ? k->asKuid() : std::nullopt;
+    if (k == nullptr) {
+        return std::nullopt;
+    }
+    // A bare number ("kuid 101135") is the content number with user -1. Observed, not
+    // traced: in all 488 disc assets that use it inside a KUID-named folder, the folder
+    // is "kuid _1 <that number>". (12 more are in Base.ja/Data.ja folders not named
+    // after a KUID, so they don't confirm it either way.)
+    if (k->type == ConfigType::Integers && k->ints.size() == 1) {
+        return trainz::content::Kuid{-1, k->ints[0], std::nullopt};
+    }
+    // The same written as text ("101060"): one more disc asset, folder "kuid _1 101060".
+    if (k->type == ConfigType::String && !k->text.empty() && k->text.size() <= 9 &&
+        k->text.find_first_not_of("0123456789") == std::string::npos) {
+        return trainz::content::Kuid{-1, std::stoi(k->text), std::nullopt};
+    }
+    return k->asKuid();
 }
 
 AssetConfig parseChump(std::span<const std::uint8_t> data) {

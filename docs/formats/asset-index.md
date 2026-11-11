@@ -63,3 +63,13 @@ Per archive, the index reads only the config entries, sorted by file offset,
 so the drive moves forward only. For `8.ja` that's 1,468 small reads spread
 over 556 MB. The index lives in memory and is not yet cached to disk. A
 cache would go in `~/.local/share/trainz-native/`.
+
+## Bare-number KUIDs (observed, not traced)
+
+488 disc configs give their own KUID as a bare number (`kuid 101135`) or a number in
+quotes (`kuid "101060"`), not `<kuid:…>`. They were dropped as "no readable top-level
+kuid" until 2026-11-11. In every one that sits in a KUID-named folder, the folder is
+`kuid _1 <that number>`, so the reader takes them as `<kuid:-1:number>` (user −1, written
+`_1` in folder names). 12 more are in `Base.ja`/`Data.ja` folders not named after a KUID,
+so they don't confirm the rule either way. With it, no config on the disc is dropped for its
+KUID, and all 19,282 indexed assets' KUIDs match their folder names.
