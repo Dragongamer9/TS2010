@@ -14,6 +14,7 @@ Picked:
       a bogie          hash-c1/kuid 58422 50128     (.pm, .kin with 3 bones)
       a steel bridge   hash-c0/kuid 101839 22229    (GEOM v201 flag 1, MATL v103)
       a bell sounder   hash-d4/kuid2 60850 60001 2  (.kin with events)
+      a session        hash-e1/kuid 467400 1035     (profile.dat / .obs / .trk / .lyr)
   - every config.chump and config.txt in the archive
   - a few .texture files of every pixel format in use
 
@@ -30,6 +31,7 @@ ASSET_FOLDERS = (
     "hash-c1/kuid 58422 50128/",
     "hash-c0/kuid 101839 22229/",
     "hash-d4/kuid2 60850 60001 2/",
+    "hash-e1/kuid 467400 1035/",
 )
 TEXTURES_PER_FORMAT = 3
 

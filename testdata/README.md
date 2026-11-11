@@ -8,7 +8,7 @@ ever made public, delete them from git history first.
 |---|---:|---|
 | `ts2010/Base.ja` | 44 MB | copied unchanged from the disc installer (SHA-256 starts `ec1b3716`) |
 | `ts2010/Data.ja` | 65 MB | copied unchanged from the disc installer (SHA-256 starts `9f33b848`) |
-| `ts2010/Builtin/sample8.ja` | 11 MB | a **subset** of `Builtin\8.ja`, rebuilt by `tools/dev/make_sample_ja.py` |
+| `ts2010/Builtin/sample8.ja` | 12 MB | a **subset** of `Builtin\8.ja`, rebuilt by `tools/dev/make_sample_ja.py` (now including the "Midday Manifest" session) |
 | `ts2010/UserData/settings/keyboard.txt` | 15 KB | copied unchanged from the disc installer (SHA-256 starts `94b0521d`) |
 
 **About `sample8.ja`:**

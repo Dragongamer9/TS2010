@@ -47,6 +47,7 @@ add_library(trainz_content
   src/content/PlacedObject.cpp
   src/content/Mp3Decoder.cpp
   src/content/ReadOnlyFile.cpp
+  src/content/SessionFile.cpp
   src/content/SoundFile.cpp
   src/content/TextureDescriptor.cpp
   src/content/TextureFile.cpp
@@ -181,6 +182,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_real_install.cpp
     tests/test_route_objects.cpp
     tests/test_safe_output.cpp
+    tests/test_session.cpp
     tests/test_sound.cpp
     tests/test_texture.cpp
     tests/test_texture_descriptor.cpp

@@ -17,6 +17,7 @@
 #include "content/ObjectContainer.h"
 #include "content/PlacedObject.h"
 #include "content/ReadOnlyFile.h"
+#include "content/SessionFile.h"
 #include "content/SoundFile.h"
 #include "content/TextureDescriptor.h"
 #include "content/TrackLayout.h"
@@ -740,4 +741,50 @@ TEST_F(RealInstall, PlacedObjectsHavePositions) {
     }
     std::cout << "  placed objects " << objects << ", with a position " << placed << "\n";
     EXPECT_GE(placed * 1000, objects * 999);  // 99.99% on the disc
+}
+
+TEST_F(RealInstall, SessionProfilesRead) {
+    // profile.dat: version, size-prefixed blocks; behaviours carry a name and a .chump.
+    std::size_t files = 0, behaviours = 0, decoded = 0, failures = 0;
+    std::vector<std::string> names;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        for (const auto& e : a.entries()) {
+            if (e.name.size() < 12 || e.name.compare(e.name.size() - 12, 12, "/profile.dat") != 0 || !a.isLookupWinner(e)) {
+                continue;
+            }
+            try {
+                const auto p = parseSessionProfile(a.readLimited(e, std::size_t{256} << 20));
+                ++files;
+                for (const auto& b : p.blocks) {
+                    if (!b.container) {
+                        continue;
+                    }
+                    for (const auto& item : b.container->items) {
+                        if (item.tag != "BHVR") {
+                            continue;
+                        }
+                        ++behaviours;
+                        if (const auto r = decodeBehaviour(item)) {
+                            ++decoded;
+                            names.push_back(r->name);
+                        }
+                    }
+                }
+            } catch (const ContentError& err) {
+                ++failures;
+                std::cout << "  " << e.name << ": " << err.what() << "\n";
+            }
+        }
+    }
+    if (files == 0 && failures == 0) {
+        GTEST_SKIP() << "no profile.dat";
+    }
+    std::cout << "  session files " << files << ", behaviours " << behaviours << ", decoded " << decoded;
+    for (std::size_t i = 0; i < names.size() && i < 4; ++i) {
+        std::cout << (i == 0 ? ": " : ", ") << names[i];
+    }
+    std::cout << "\n";
+    EXPECT_EQ(failures, 0u);
+    EXPECT_GE(decoded * 100, behaviours * 99);  // 4,251 of 4,254 on the disc
 }
