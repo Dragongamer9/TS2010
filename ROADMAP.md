@@ -2,7 +2,7 @@
 
 **Overall progress: 35%**
 
-`[██████░░░░░░░░░░░░░░]`
+`[███████░░░░░░░░░░░░░]`
 
 *Last updated: 2026-11-11, after ground textures in the 3D view (step 8).*
 
