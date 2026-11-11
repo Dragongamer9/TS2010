@@ -30,22 +30,38 @@ std::optional<TrackVertex> decodeTrackVertex(const ObjectItem& item) {
     v.x = f32At(p + 8);
     v.y = f32At(p + 12);
     v.z = f32At(p + 16);
-    v.rest.assign(item.payload.begin() + 20, item.payload.end());
+    std::size_t pos = 20;
+    if (item.payload.size() >= 41) {
+        for (int k = 0; k < 4; ++k, pos += 5) {
+            const auto linked = static_cast<std::int32_t>(loadU32LE(p + pos));
+            if (linked != -1) {
+                v.links.push_back({linked, p[pos + 4]});
+            }
+        }
+        v.lastByte = p[pos++];
+    }
+    v.rest.assign(item.payload.begin() + static_cast<std::ptrdiff_t>(pos), item.payload.end());
     return v;
 }
 
 std::optional<TrackStretch> decodeTrackStretch(const ObjectItem& item) {
-    if (item.tag != "tkSt" || item.payload.size() < 20) {
+    // tkBr wraps a whole stretch after one word of its own (2 on the disc).
+    const std::size_t start = item.tag == "tkBr" ? 4 : 0;
+    if ((item.tag != "tkSt" && item.tag != "tkBr") || item.payload.size() < start + 20) {
         return std::nullopt;
     }
-    const std::uint8_t* p = item.payload.data();
+    const std::uint8_t* p = item.payload.data() + start;
     TrackStretch s;
+    s.kind = item.tag;
+    if (start != 0) {
+        s.wrapperVersion = loadU32LE(item.payload.data());
+    }
     s.index = item.index;
     s.version = loadU32LE(p);
     s.from = static_cast<std::int32_t>(loadU32LE(p + 4));
     s.to = static_cast<std::int32_t>(loadU32LE(p + 8));
     s.track = unpackChumpKuid(loadU32LE(p + 16), static_cast<std::int32_t>(loadU32LE(p + 12)));
-    s.rest.assign(item.payload.begin() + 20, item.payload.end());
+    s.rest.assign(item.payload.begin() + static_cast<std::ptrdiff_t>(start + 20), item.payload.end());
     return s;
 }
 
@@ -62,7 +78,7 @@ TrackLayout readTrackLayout(const RouteObjectFile& trk) {
                 } else if (!t.vertices.emplace(v->index, std::move(*v)).second) {
                     t.warnings.push_back("vertex index " + std::to_string(item.index) + " appears twice; first kept");
                 }
-            } else if (item.tag == "tkSt") {
+            } else if (item.tag == "tkSt" || item.tag == "tkBr") {
                 auto s = decodeTrackStretch(item);
                 if (s) {
                     t.stretches.push_back(std::move(*s));
@@ -71,6 +87,22 @@ TrackLayout readTrackLayout(const RouteObjectFile& trk) {
                 }
             } else {
                 ++t.otherItems;
+            }
+        }
+    }
+    std::map<std::int32_t, const TrackStretch*> byIndex;
+    for (const auto& s : t.stretches) {
+        byIndex.emplace(s.index, &s);
+    }
+    for (const auto& [index, v] : t.vertices) {
+        for (const auto& l : v.links) {
+            const auto it = byIndex.find(l.item);
+            if (it == byIndex.end()) {
+                t.warnings.push_back("vertex " + std::to_string(index) + " links to track piece " +
+                                     std::to_string(l.item) + ", which is not in the file");
+            } else if (it->second->from != index && it->second->to != index) {
+                t.warnings.push_back("vertex " + std::to_string(index) + " links to track piece " +
+                                     std::to_string(l.item) + ", which does not end there");
             }
         }
     }

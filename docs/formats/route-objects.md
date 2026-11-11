@@ -47,7 +47,7 @@ name pushed next to it (39 registrations in all; the others are UI elements):
 | `tkSt` | `tSkt` | *(no name; track stretch, guess)* | 307,270 |
 | `mOBJ` | `JBOm` | `mapobject` | 78,677 |
 | `tsO2` | `2Ost` | *(unconfirmed: one `trackside` registration has no tag nearby)* | 23,619 |
-| `tkBr` | `rBkt` | *(no name)* | 14,173 |
+| `tkBr` | `rBkt` | *(no name; a wrapped stretch, see below)* | 14,173 |
 | `sgOb` | `bOgs` | `mosignal` | 13,806 |
 | `jnOb` | `bOnj` | `mojunction` | 10,138 |
 | `cmOb` | `bOmc` | *(no name)* | 3,734 |
@@ -70,8 +70,16 @@ are checked against all 50 disc routes.
 **`tkVx` (track vertex), 41 bytes, version 3 on all 406,207 disc vertices:**
 
 ```
-u32 version (3)   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   u8 rest[21] (not decoded)
+u32 version (3)   i16 boardX   i16 boardY   f32 x   f32 y   f32 z
+4 × { i32 piece (-1 = empty), u8 flag }   u8 last
 ```
+
+The 4 slots list every track piece (`tkSt` or `tkBr`) that ends at this vertex: on the
+disc, 614,430 of 614,432 links point at a piece that really ends there (2 point at
+pieces missing from the file). Slots used per vertex: 1 (211,040, line ends), 2 (182,491,
+along a line), 3 (12,242; junctions, guess: there are 10,138 `mojunction` objects), 4
+(421), 0 (13). The `flag` is not simply "start" or "end" of the piece; its meaning and
+`last` (0, 1 or 2) are not known.
 
 `boardX/boardY` name the terrain section (baseboard) the vertex lies on; `x`/`y` are
 metres inside it (0..720, toward +x and +y); `z` is the height in metres. Evidence: 99.5%
@@ -88,7 +96,13 @@ u32 version   i32 from   i32 to   u32 content   u32 packed user/version   u8 res
 ```
 
 `from`/`to` are vertex indices: both exist for all 293,750 disc stretches; the KUID
-always equals the item's own KUID (the track asset). Median length between the two
+always equals the item's own KUID (the track asset).
+
+**`tkBr`, 88 or 94 bytes:** `u32 2`, then a whole stretch as above (version, from, to,
+KUID, …), then more fields not decoded (on the test route: three `i32` values each
+followed by sixteen `ff` bytes). Its ends are the two vertices that link to it. With
+`tkSt` that makes 307,226 track pieces on the disc, every one with both ends present.
+What `tkBr` adds over a stretch (bridge? attached objects?) is not known. Median length between the two
 ends: 52 m (99th percentile 661 m). How a stretch curves between its ends (the `rest`
 bytes, or the vertices' own undecoded bytes) is not known.
 

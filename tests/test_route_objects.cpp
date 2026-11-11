@@ -151,7 +151,7 @@ void putF32(Bytes& b, float f) {
     putU32(b, u);
 }
 
-Bytes vertexPayload(std::int16_t bx, std::int16_t by, float x, float y, float z) {
+Bytes vertexPayload(std::int16_t bx, std::int16_t by, float x, float y, float z, std::vector<std::int32_t> links = {}) {
     Bytes p;
     putU32(p, 3);
     putU16(p, static_cast<std::uint16_t>(bx));
@@ -159,7 +159,12 @@ Bytes vertexPayload(std::int16_t bx, std::int16_t by, float x, float y, float z)
     putF32(p, x);
     putF32(p, y);
     putF32(p, z);
-    p.resize(41, 0);  // the 21 bytes not decoded
+    links.resize(4, -1);  // empty slots are -1
+    for (const auto l : links) {
+        putU32(p, static_cast<std::uint32_t>(l));
+        p.push_back(0);  // flag
+    }
+    p.push_back(0);  // last byte
     return p;
 }
 
@@ -186,8 +191,8 @@ TEST(TrackLayout, DecodesVerticesAndStretches) {
     endContainer(b, 5, 2);
     putU32(b, 5);
     putU32(b, 2);
-    item(b, 10, "xVkt", -1, 0x1FFFFFFu, vertexPayload(-1, 3, 600.0F, 237.5F, 30.0F));
-    item(b, 11, "xVkt", -1, 0x1FFFFFFu, vertexPayload(0, 3, 10.0F, 240.0F, 30.5F));
+    item(b, 10, "xVkt", -1, 0x1FFFFFFu, vertexPayload(-1, 3, 600.0F, 237.5F, 30.0F, {0}));
+    item(b, 11, "xVkt", -1, 0x1FFFFFFu, vertexPayload(0, 3, 10.0F, 240.0F, 30.5F, {0, 1}));
     endContainer(b, 5, 2);
 
     const auto t = readTrackLayout(parseRouteObjectFile(b));
@@ -204,8 +209,43 @@ TEST(TrackLayout, DecodesVerticesAndStretches) {
     EXPECT_EQ(t.stretches[0].track.user, 523);
     EXPECT_EQ(t.stretches[0].track.content, 1116);
     EXPECT_EQ(t.stretches[0].rest.size(), 10U);
+    ASSERT_EQ(v.links.size(), 1U);
+    EXPECT_EQ(v.links[0].item, 0);
+    EXPECT_EQ(t.vertices.at(11).links.size(), 2U);
+    EXPECT_TRUE(v.rest.empty());
     ASSERT_EQ(t.warnings.size(), 1U);  // the stretch to the missing vertex 99
     EXPECT_NE(t.warnings[0].find("missing"), std::string::npos);
+}
+
+TEST(TrackLayout, LinksMustPointAtPiecesEndingThere) {
+    Bytes b;
+    putU32(b, 2);
+    putU32(b, 5);
+    putU32(b, 2);
+    item(b, 0, "tSkt", 1116, 523, stretchPayload(10, 11));
+    Bytes wrapped;
+    putU32(wrapped, 2);  // tkBr: its own word, then a whole stretch
+    const Bytes inner = stretchPayload(11, 12);
+    wrapped.insert(wrapped.end(), inner.begin(), inner.end());
+    wrapped.resize(94, 0xFF);
+    item(b, 1, "rBkt", 1116, 523, wrapped);
+    endContainer(b, 5, 2);
+    putU32(b, 5);
+    putU32(b, 2);
+    item(b, 10, "xVkt", -1, 0x1FFFFFFu, vertexPayload(0, 0, 1.0F, 1.0F, 0.0F, {0}));
+    item(b, 11, "xVkt", -1, 0x1FFFFFFu, vertexPayload(0, 0, 2.0F, 1.0F, 0.0F, {0, 1}));
+    item(b, 12, "xVkt", -1, 0x1FFFFFFu, vertexPayload(0, 0, 3.0F, 1.0F, 0.0F, {1, 0, 7}));  // 0 doesn't end here; 7 missing
+    endContainer(b, 5, 2);
+    const auto t = readTrackLayout(parseRouteObjectFile(b));
+    ASSERT_EQ(t.stretches.size(), 2U);
+    EXPECT_EQ(t.stretches[1].kind, "tkBr");
+    EXPECT_EQ(t.stretches[1].wrapperVersion, 2U);
+    EXPECT_EQ(t.stretches[1].from, 11);
+    EXPECT_EQ(t.stretches[1].to, 12);
+    EXPECT_EQ(t.vertices.at(12).links.size(), 3U);
+    ASSERT_EQ(t.warnings.size(), 2U);
+    EXPECT_NE(t.warnings[0].find("does not end there"), std::string::npos);
+    EXPECT_NE(t.warnings[1].find("not in the file"), std::string::npos);
 }
 
 TEST(TrackLayout, ShortOrOddItemsWarn) {
@@ -222,7 +262,7 @@ TEST(TrackLayout, ShortOrOddItemsWarn) {
     f.containers.emplace_back();
     ObjectItem nanVertex;
     nanVertex.tag = "tkVx";
-    nanVertex.payload = vertexPayload(0, 0, std::numeric_limits<float>::quiet_NaN(), 1.0F, 1.0F);
+    nanVertex.payload = vertexPayload(0, 0, std::numeric_limits<float>::quiet_NaN(), 1.0F, 1.0F);  // links all empty
     f.containers[0].items = {shortVertex, nanVertex, other};
     const auto t = readTrackLayout(f);
     EXPECT_TRUE(t.vertices.empty());
