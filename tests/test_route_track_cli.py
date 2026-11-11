@@ -1,7 +1,7 @@
 """route-tool track on the real test route: draws the track network over the terrain.
 
 Run: python3 tests/test_route_track_cli.py BUILT_ROUTE_TOOL TESTDATA_DIR
-Skips (exit 0 with a note) when the test route is not there. Never writes into the
+Skips (exit code 77, which CTest reports as "Skipped") when the test route is not there. Never writes into the
 test data: output goes to a temporary XDG data folder.
 """
 import os
@@ -40,7 +40,7 @@ def main():
     archive = Path(sys.argv[2]) / "Builtin" / "sample8.ja"
     if not archive.is_file():
         print("test route not found; skipped")
-        return
+        sys.exit(77)
     before = archive.stat().st_mtime_ns, archive.stat().st_size
     with tempfile.TemporaryDirectory() as tmp:
         env = dict(os.environ, HOME=tmp, XDG_DATA_HOME=str(Path(tmp) / "data"))
