@@ -17,9 +17,22 @@ struct ScenePoint {
     double x = 0, y = 0, z = 0;
 };
 
+// A small RGBA texture (row by row, top row first), with optional smaller copies.
+struct SceneTexture {
+    std::uint32_t width = 0, height = 0;
+    std::vector<std::uint8_t> rgba;
+    bool alphaTest = false;  // drop texels with alpha < 128 (cut-out leaves, fences)
+    // Smaller versions, largest first (e.g. the file's own mips). For each triangle the
+    // renderer takes the first whose texels are not smaller than the screen pixels, so
+    // far surfaces don't shimmer. The top level's alphaTest applies to all of them.
+    std::vector<SceneTexture> smaller;
+};
+
 struct SceneTriangle {
     ScenePoint p[3];
-    Rgb c[3];  // per-vertex colour, interpolated
+    Rgb c[3];  // per-vertex colour, interpolated; multiplies the texture when there is one
+    int texture = -1;  // index into Scene::textures, or -1
+    float u[3] = {0, 0, 0}, v[3] = {0, 0, 0};
 };
 
 struct SceneLine {
@@ -34,6 +47,7 @@ struct SceneDot {
 };
 
 struct Scene {
+    std::vector<const SceneTexture*> textures;  // not owned: they must outlive renderScene
     std::vector<SceneTriangle> triangles;
     std::vector<SceneLine> lines;
     std::vector<SceneDot> dots;

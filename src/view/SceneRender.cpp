@@ -61,6 +61,10 @@ private:
     double f_ = 1;
 };
 
+bool usable(const SceneTexture& t) {
+    return t.width > 0 && t.height > 0 && t.rgba.size() >= static_cast<std::size_t>(t.width) * t.height * 4;
+}
+
 std::uint8_t clamp8(double v) { return static_cast<std::uint8_t>(std::clamp(v, 0.0, 255.0)); }
 
 }  // namespace
@@ -105,6 +109,13 @@ std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, 
         if (!ok) {
             continue;  // behind the camera (no clipping: the far terrain is what matters here)
         }
+        const SceneTexture* tex = nullptr;
+        if (t.texture >= 0 && static_cast<std::size_t>(t.texture) < scene.textures.size()) {
+            tex = scene.textures[static_cast<std::size_t>(t.texture)];
+            if (tex != nullptr && !usable(*tex)) {
+                tex = nullptr;  // malformed: draw untextured
+            }
+        }
         const V3 nrm = normalize(cross(sub(v3(t.p[1]), v3(t.p[0])), sub(v3(t.p[2]), v3(t.p[0]))));
         const double light = 0.45 + 0.55 * std::max(0.0, std::fabs(dot(nrm, sun)));
         const double minX = std::floor(std::min({q[0].sx, q[1].sx, q[2].sx}));
@@ -119,6 +130,20 @@ std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, 
         if (std::fabs(area) < 1e-9) {
             continue;
         }
+        const bool alphaTest = tex != nullptr && tex->alphaTest;  // the top level's choice, for every level
+        if (tex != nullptr && !tex->smaller.empty()) {
+            // Texels per screen pixel, from the triangle's texture area and screen area.
+            const double du1 = t.u[1] - t.u[0], dv1 = t.v[1] - t.v[0], du2 = t.u[2] - t.u[0], dv2 = t.v[2] - t.v[0];
+            const double uvArea = std::fabs(du1 * dv2 - du2 * dv1);
+            double ratio = uvArea * tex->width * tex->height / std::fabs(area);
+            for (const auto& m : tex->smaller) {
+                if (!(ratio > 2.0) || !usable(m)) {  // within a factor of 2: keep this level
+                    break;
+                }
+                ratio *= static_cast<double>(m.width) * m.height / (static_cast<double>(tex->width) * tex->height);
+                tex = &m;
+            }
+        }
         const int x0 = std::max(0, static_cast<int>(minX)), x1 = std::min(static_cast<int>(width) - 1, static_cast<int>(maxX));
         const int y0 = std::max(0, static_cast<int>(minY)), y1 = std::min(static_cast<int>(height) - 1, static_cast<int>(maxY));
         for (int y = y0; y <= y1; ++y) {
@@ -131,9 +156,24 @@ std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, 
                     continue;
                 }
                 const double z = w0 * q[0].depth + w1 * q[1].depth + w2 * q[2].depth;
-                put(x, y, z, clamp8(light * (w0 * t.c[0].r + w1 * t.c[1].r + w2 * t.c[2].r)),
-                    clamp8(light * (w0 * t.c[0].g + w1 * t.c[1].g + w2 * t.c[2].g)),
-                    clamp8(light * (w0 * t.c[0].b + w1 * t.c[1].b + w2 * t.c[2].b)));
+                double r = w0 * t.c[0].r + w1 * t.c[1].r + w2 * t.c[2].r;
+                double gg = w0 * t.c[0].g + w1 * t.c[1].g + w2 * t.c[2].g;
+                double b = w0 * t.c[0].b + w1 * t.c[1].b + w2 * t.c[2].b;
+                if (tex != nullptr) {
+                    // Perspective-correct: interpolate u/z, v/z and 1/z across the screen.
+                    const double iz = w0 / q[0].depth + w1 / q[1].depth + w2 / q[2].depth;
+                    const double uu = (w0 * t.u[0] / q[0].depth + w1 * t.u[1] / q[1].depth + w2 * t.u[2] / q[2].depth) / iz;
+                    const double vv = (w0 * t.v[0] / q[0].depth + w1 * t.v[1] / q[1].depth + w2 * t.v[2] / q[2].depth) / iz;
+                    const double fu = uu - std::floor(uu), fv = vv - std::floor(vv);  // wrap
+                    const auto tx = std::min<std::uint32_t>(tex->width - 1, static_cast<std::uint32_t>(fu * tex->width));
+                    const auto ty = std::min<std::uint32_t>(tex->height - 1, static_cast<std::uint32_t>(fv * tex->height));
+                    const std::uint8_t* texel = tex->rgba.data() + (static_cast<std::size_t>(ty) * tex->width + tx) * 4;
+                    if (alphaTest && texel[3] < 128) {
+                        continue;
+                    }
+                    r = r * texel[0] / 255.0, gg = gg * texel[1] / 255.0, b = b * texel[2] / 255.0;
+                }
+                put(x, y, z, clamp8(light * r), clamp8(light * gg), clamp8(light * b));
             }
         }
     }

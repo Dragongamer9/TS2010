@@ -173,3 +173,154 @@ TEST(SceneRender, PlaceholderTreeIsMarkedAndShaped) {
         EXPECT_FLOAT_EQ(t.p[0][2], 1.5F);   // base ring
     }
 }
+
+namespace {
+
+// A 2x2 texture: top row red, green; bottom row blue, white. Alpha of the green texel is
+// given, the rest solid.
+SceneTexture checker(std::uint8_t greenAlpha) {
+    SceneTexture t;
+    t.width = t.height = 2;
+    t.rgba = {255, 0, 0, 255, 0, 255, 0, greenAlpha, 0, 0, 255, 255, 255, 255, 255, 255};
+    return t;
+}
+
+// A white square at z = 0 from (-20,-20) to (20,20), u along +x and v down the screen
+// (v = 0 at +y, the top of the screen when looking down).
+void texturedSquare(Scene& s, int texture) {
+    SceneTriangle a, b;
+    const ScenePoint p00{-20, 20, 0}, p10{20, 20, 0}, p01{-20, -20, 0}, p11{20, -20, 0};
+    a.p[0] = p00, a.p[1] = p10, a.p[2] = p11;
+    a.u[0] = 0, a.v[0] = 0, a.u[1] = 1, a.v[1] = 0, a.u[2] = 1, a.v[2] = 1;
+    b.p[0] = p00, b.p[1] = p11, b.p[2] = p01;
+    b.u[0] = 0, b.v[0] = 0, b.u[1] = 1, b.v[1] = 1, b.u[2] = 0, b.v[2] = 1;
+    for (auto* t : {&a, &b}) {
+        t->c[0] = t->c[1] = t->c[2] = {255, 255, 255};
+        t->texture = texture;
+        s.triangles.push_back(*t);
+    }
+}
+
+}  // namespace
+
+TEST(SceneRender, TextureIsSampledByUv) {
+    const SceneTexture tex = checker(255);
+    Scene s;
+    s.textures.push_back(&tex);
+    texturedSquare(s, 0);
+    const auto img = renderScene(s, lookingDown(), 64, 64);
+    const auto* tl = px(img, 64, 26, 26);  // top left of the square: red
+    EXPECT_GT(tl[0], 100);
+    EXPECT_LT(tl[1], 20);
+    const auto* tr = px(img, 64, 38, 26);  // top right: green
+    EXPECT_GT(tr[1], 100);
+    EXPECT_LT(tr[0], 20);
+    const auto* bl = px(img, 64, 26, 38);  // bottom left: blue
+    EXPECT_GT(bl[2], 100);
+    EXPECT_LT(bl[0], 20);
+}
+
+TEST(SceneRender, AlphaTestDropsClearTexelsOnlyWhenAsked) {
+    SceneTexture tex = checker(0);
+    Scene s;
+    s.triangles.push_back(flat(-10, {0, 0, 200}, 40));  // a blue floor below
+    s.textures.push_back(&tex);
+    texturedSquare(s, 0);
+    auto img = renderScene(s, lookingDown(), 64, 64);
+    EXPECT_GT(px(img, 64, 38, 26)[1], 100);  // drawn solid green: no alpha test
+    tex.alphaTest = true;
+    img = renderScene(s, lookingDown(), 64, 64);
+    const auto* through = px(img, 64, 38, 26);
+    EXPECT_LT(through[1], 20);  // the floor shows through
+    EXPECT_GT(through[2], 80);
+    EXPECT_GT(px(img, 64, 26, 26)[0], 100);  // red still solid
+}
+
+TEST(SceneRender, BadTextureIndexOrDataDrawsUntextured) {
+    SceneTexture broken;
+    broken.width = broken.height = 4;  // no pixel data
+    Scene s;
+    s.textures.push_back(&broken);
+    s.textures.push_back(nullptr);
+    texturedSquare(s, 0);
+    texturedSquare(s, 1);
+    texturedSquare(s, 7);
+    const auto img = renderScene(s, lookingDown(), 64, 64);
+    const auto* c = px(img, 64, 32, 32);
+    EXPECT_GT(c[0], 100);  // the white base colour, shaded
+    EXPECT_GT(c[1], 100);
+    EXPECT_GT(c[2], 100);
+}
+
+TEST(SceneRender, TexturedMeshSharesItsTexturesAcrossPlacements) {
+    PreparedMesh m;
+    m.textures.push_back(checker(255));
+    LocalTriangle t{};
+    t.p[1][0] = 1, t.p[2][1] = 1;
+    t.texture = 0;
+    t.uv[1][0] = 0.75F, t.uv[2][1] = 0.25F;
+    t.colour = {1, 2, 3};
+    m.triangles.push_back(t);
+    LocalTriangle plain = t;
+    plain.texture = -1;
+    m.triangles.push_back(plain);
+    Scene s;
+    const SceneTexture other = checker(255);
+    s.textures.push_back(&other);  // something already in the scene
+    addPlacedMesh(s, m, 0, 0, 0, 0);
+    addPlacedMesh(s, m, 10, 0, 0, 0);
+    ASSERT_EQ(s.textures.size(), 2U);  // added once, after the existing one
+    EXPECT_EQ(s.textures[1], &m.textures[0]);
+    ASSERT_EQ(s.triangles.size(), 4U);
+    EXPECT_EQ(s.triangles[0].texture, 1);
+    EXPECT_EQ(s.triangles[2].texture, 1);
+    EXPECT_FLOAT_EQ(s.triangles[0].u[1], 0.75F);
+    EXPECT_FLOAT_EQ(s.triangles[0].v[2], 0.25F);
+    EXPECT_EQ(s.triangles[0].c[0].r, 255);  // white: the texture gives the colour
+    EXPECT_EQ(s.triangles[1].texture, -1);
+    EXPECT_EQ(s.triangles[1].c[0].r, 1);  // untextured part keeps its flat colour
+}
+
+TEST(SceneRender, AlphaTestHeuristic) {
+    auto image = [](std::size_t clear, std::size_t solid, std::size_t middle) {
+        std::vector<std::uint8_t> rgba;
+        for (std::size_t i = 0; i < clear + solid + middle; ++i) {
+            rgba.insert(rgba.end(), {9, 9, 9, static_cast<std::uint8_t>(i < clear ? 0 : i < clear + solid ? 255 : 120)});
+        }
+        return rgba;
+    };
+    EXPECT_TRUE(wantsAlphaTest(image(40, 60, 0)));    // leaves: a clear/solid mix
+    EXPECT_FALSE(wantsAlphaTest(image(0, 100, 0)));   // all solid
+    EXPECT_FALSE(wantsAlphaTest(image(2, 98, 0)));    // a few clear texels only
+    EXPECT_FALSE(wantsAlphaTest(image(98, 2, 0)));    // nearly all clear (e.g. a gloss mask)
+    EXPECT_FALSE(wantsAlphaTest(image(30, 30, 40)));  // smooth alpha: not a cut-out
+    EXPECT_FALSE(wantsAlphaTest({}));
+}
+
+TEST(SceneRender, DistantSurfacesUseASmallerMip) {
+    auto solid = [](std::uint32_t side, Rgb c) {
+        SceneTexture t;
+        t.width = t.height = side;
+        for (std::uint32_t i = 0; i < side * side; ++i) {
+            t.rgba.insert(t.rgba.end(), {c.r, c.g, c.b, 255});
+        }
+        return t;
+    };
+    // The square is about 22 x 22 pixels on screen: 64 x 64 texels are ~8 per pixel,
+    // 24 x 24 about 1.2 (kept), 8 x 8 too coarse.
+    SceneTexture big = solid(64, {255, 0, 0});
+    big.smaller = {solid(24, {0, 255, 0}), solid(8, {0, 0, 255})};
+    Scene s;
+    s.textures.push_back(&big);
+    texturedSquare(s, 0);
+    auto img = renderScene(s, lookingDown(), 64, 64);
+    EXPECT_GT(px(img, 64, 32, 32)[1], 100);  // the 24 level: within 2x of the pixels
+    EXPECT_LT(px(img, 64, 32, 32)[0], 20);
+
+    SceneTexture fine = solid(16, {255, 0, 0});  // already coarser than the pixels: kept
+    fine.smaller = {solid(8, {0, 255, 0})};
+    s.textures[0] = &fine;
+    img = renderScene(s, lookingDown(), 64, 64);
+    EXPECT_GT(px(img, 64, 32, 32)[0], 100);
+    EXPECT_LT(px(img, 64, 32, 32)[1], 20);
+}

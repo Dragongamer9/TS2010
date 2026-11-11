@@ -7,6 +7,7 @@
 #include "content/TextureFile.h"
 
 #include <cmath>
+#include <map>
 #include <numbers>
 #include <optional>
 #include <span>
@@ -247,33 +248,52 @@ bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& bas
     }
     out.meshName += (out.meshName.empty() ? "" : ", ") + meshPath;
     const std::string meshDir = folderOf(meshPath);
+    std::map<std::string, int> textureByFile;  // one copy per file within this asset
     for (const auto& part : m.parts) {
         Rgb colour{170, 165, 155};
+        int texture = -1;
         for (const auto& t : part.material.textures) {
             if (t.type != 1 || t.fileName.empty()) {
                 continue;  // only the colour map
             }
-            const JaEntry* te = a->find(meshDir + t.fileName);
+            const std::string file = meshDir + t.fileName;
+            if (const auto known = textureByFile.find(file); known != textureByFile.end()) {
+                texture = known->second;
+                break;
+            }
+            const JaEntry* te = a->find(file);
             if (te == nullptr) {
                 break;
             }
             try {
                 const TextureFile tex = parseTexture(a->readLimited(*te, kMaxFileBytes));
                 if (!tex.mips.empty()) {
-                    const auto& mip = tex.mips.back();  // smallest
-                    const auto rgba = decodeToRgba8(mip, tex.info.format);
-                    double r = 0, g = 0, b = 0;
-                    const std::size_t n = rgba.size() / 4;
-                    for (std::size_t i = 0; i < n; ++i) {
-                        r += rgba[4 * i], g += rgba[4 * i + 1], b += rgba[4 * i + 2];
+                    // mips are largest first: take the first that fits kTextureSide.
+                    const MipLevel* pick = &tex.mips.back();
+                    for (const auto& mip : tex.mips) {
+                        if (mip.width <= kTextureSide && mip.height <= kTextureSide) {
+                            pick = &mip;
+                            break;
+                        }
                     }
-                    if (n > 0) {
-                        colour = {static_cast<std::uint8_t>(r / n), static_cast<std::uint8_t>(g / n),
-                                  static_cast<std::uint8_t>(b / n)};
+                    SceneTexture st;
+                    st.width = pick->width, st.height = pick->height;
+                    st.rgba = decodeToRgba8(*pick, tex.info.format);
+                    st.alphaTest = wantsAlphaTest(st.rgba);
+                    for (const MipLevel* m = pick + 1; m < tex.mips.data() + tex.mips.size(); ++m) {
+                        SceneTexture smaller;  // the file's own smaller mips, for distant surfaces
+                        smaller.width = m->width, smaller.height = m->height;
+                        smaller.rgba = decodeToRgba8(*m, tex.info.format);
+                        st.smaller.push_back(std::move(smaller));
+                    }
+                    if (st.width > 0 && st.height > 0 && st.rgba.size() == std::size_t{st.width} * st.height * 4) {
+                        texture = static_cast<int>(out.textures.size());
+                        out.textures.push_back(std::move(st));
+                        textureByFile.emplace(file, texture);
                     }
                 }
             } catch (const ContentError&) {
-                // keep the default colour
+                // keep the flat colour
             }
             break;
         }
@@ -291,9 +311,11 @@ bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& bas
                     break;
                 }
                 tri.p[k][0] = g.vertices[vi].x, tri.p[k][1] = g.vertices[vi].y, tri.p[k][2] = g.vertices[vi].z;
+                tri.uv[k][0] = g.vertices[vi].u, tri.uv[k][1] = g.vertices[vi].v;
             }
             if (ok) {
                 tri.colour = colour;
+                tri.texture = texture;
                 out.triangles.push_back(tri);
             }
         }
@@ -355,14 +377,53 @@ const PreparedMesh* AssetMeshes::get(const Kuid& kuid) {
     return it->second.get();
 }
 
+bool wantsAlphaTest(std::span<const std::uint8_t> rgba) {
+    std::size_t clear = 0, solid = 0;
+    for (std::size_t i = 3; i < rgba.size(); i += 4) {
+        (rgba[i] < 128 ? clear : solid) += 1;
+    }
+    const std::size_t n = clear + solid;
+    // HEURISTIC: a real mix of see-through and solid texels (each at least 5%, and mostly
+    // near 0 or 255) suggests a cut-out map (leaves, fences). Not traced: the game's
+    // material flags for this are not decoded.
+    if (n == 0 || clear * 20 < n || solid * 20 < n) {
+        return false;
+    }
+    std::size_t middle = 0;
+    for (std::size_t i = 3; i < rgba.size(); i += 4) {
+        middle += rgba[i] > 32 && rgba[i] < 224;
+    }
+    return middle * 4 < n;
+}
+
 void addPlacedMesh(Scene& scene, const PreparedMesh& mesh, double x, double y, double z, double yaw) {
     const double c = std::cos(yaw), s = std::sin(yaw);
+    int base = -1;
+    if (!mesh.textures.empty()) {
+        for (std::size_t i = 0; i < scene.textures.size(); ++i) {
+            if (scene.textures[i] == &mesh.textures.front()) {
+                base = static_cast<int>(i);  // already added by an earlier placement
+                break;
+            }
+        }
+        if (base < 0) {
+            base = static_cast<int>(scene.textures.size());
+            for (const auto& t : mesh.textures) {
+                scene.textures.push_back(&t);
+            }
+        }
+    }
     for (const auto& t : mesh.triangles) {
         SceneTriangle st;
+        const bool textured = t.texture >= 0 && static_cast<std::size_t>(t.texture) < mesh.textures.size();
+        if (textured) {
+            st.texture = base + t.texture;
+        }
         for (int k = 0; k < 3; ++k) {
             const double lx = t.p[k][0], ly = t.p[k][1];
             st.p[k] = {x + c * lx - s * ly, y + s * lx + c * ly, z + t.p[k][2]};
-            st.c[k] = t.colour;
+            st.c[k] = textured ? Rgb{255, 255, 255} : t.colour;
+            st.u[k] = t.uv[k][0], st.v[k] = t.uv[k][1];
         }
         scene.triangles.push_back(st);
     }

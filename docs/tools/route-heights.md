@@ -103,9 +103,19 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
 
   These rules are the port's reading of the key names, not traced game behaviour. Each mesh
   is turned by the object's yaw (radians, anticlockwise, inferred; which side faces +x at 0
-  is not known) and placed at its position. **Each part is one flat colour**, the average of
-  its colour texture. `.lm` level-of-detail lists are not read (an `.im` of the same name
-  is used if there is one). Two more fallbacks, both observed and not traced:
+  is not known) and placed at its position. **Textures:** each part shows its colour map
+  (the material's type-1 texture), a copy no bigger than 128×128 plus the file's smaller
+  mips; each triangle takes the mip closest to its size on screen, sampled nearest-texel and
+  perspective-correct. Texture `v` is taken as running down the image (top row = 0), the
+  Direct3D convention; this is assumed from the pictures looking right, not traced. No
+  blending, lighting maps or the game's material flags: a texture is drawn as a **cut-out**
+  (texels with alpha under 128 left out) only when its alpha looks like a mask, a
+  **heuristic**: at least 5% clear and 5% solid texels, and under a quarter in between.
+  Other textures are drawn solid, since their alpha may mean something else (gloss). So
+  some billboard trees whose alpha is smooth still show as solid squares, and some bushes
+  are dark because their texture is (their solid texels average RGB 43,41,53; how the game
+  lights them is not known). A part with no readable texture keeps a flat grey. `.lm`
+  level-of-detail lists are not read (an `.im` of the same name is used if there is one). Two more fallbacks, both observed and not traced:
   - `.lm`: no `.lm` file exists on the disc; the archives ship `<name>.lm.txt` text lists
     (`mesh("1.0") { name="body.im"; }`), and the entry with the largest level is used;
   - reskins: a Paint Shed reskin (`skin.dat`) without a mesh of its own uses the base asset
@@ -122,6 +132,6 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   and are not drawn yet. That height is a **preview approximation, not a decoded vehicle elevation**: a
   vehicle's own stored `z` is often 0.3, and what it means is not known.
 
-No surface textures, track curves, train models or animation yet. `--at X Y` takes world metres (+x east, +y
+No terrain textures (the ground is coloured from the overview maps), track curves or animation yet. `--at X Y` takes world metres (+x east, +y
 north); without it the view centres on the first train, or else the area with the most
 track junctions. Writes `<route-folder>.view.png` through `SafeOutputDir`.

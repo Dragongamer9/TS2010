@@ -1,8 +1,8 @@
 // Builds a 3D scene of part of a route from the decoded files, for SceneRender. It shows
 // only what the port can read: terrain heights (coloured from the route's own overview
 // maps), track as straight lines between vertices, placed objects (as their 3D models when
-// AssetMeshes is given and can read them, else dots) and a session's vehicles as dots.
-// No surface textures or track curves yet.
+// AssetMeshes is given and can read them, textured; else dots) and a session's vehicles
+// (as models too, or dots). No terrain textures or track curves yet.
 #pragma once
 
 #include "content/GroundFile.h"

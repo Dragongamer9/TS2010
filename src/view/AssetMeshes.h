@@ -1,10 +1,11 @@
 // Loads an asset's 3D model for the route view: KUID -> asset (AssetIndex) -> config's
-// meshes -> triangles, each part coloured by the average colour of its first texture.
+// meshes -> triangles, each part textured with a small copy of its colour map (type-1
+// texture), or a flat grey when it has none the port can read.
 // A preview helper, not the game's renderer. Limits: the full-detail daytime mesh-table
 // entries at the model's origin are drawn; lower LODs, night variants, entries on
 // attachment points ("att") and shadow meshes are skipped (see meshesToDraw), so
-// attached parts can be missing; no textures on the surfaces (one flat colour per
-// part); no animation. SpeedTree trees (.srt) are not read: they get placeholderTree().
+// attached parts can be missing; no lighting maps, no blending (cut-out alpha only, see
+// appendMesh); no animation. SpeedTree trees (.srt) are not read: they get placeholderTree().
 // Read-only; each asset loaded once.
 #pragma once
 
@@ -26,14 +27,21 @@ namespace trainz::view {
 
 struct LocalTriangle {
     float p[3][3];  // model space, metres, Z up
-    Rgb colour;
+    Rgb colour;     // flat colour, used when there is no texture
+    int texture = -1;  // index into PreparedMesh::textures, or -1
+    float uv[3][2] = {{0, 0}, {0, 0}, {0, 0}};
 };
 
 struct PreparedMesh {
     std::string meshName;  // the file used, inside the asset folder
     std::vector<LocalTriangle> triangles;
+    // Small copies of the parts' colour maps (the largest mip no bigger than
+    // kTextureSide). Not changed after loading, so Scene may point at them.
+    std::vector<SceneTexture> textures;
     bool placeholder = false;  // an invented stand-in shape, not the asset's model
 };
+
+inline constexpr std::uint32_t kTextureSide = 128;
 
 // The stand-in for a SpeedTree tree (.srt is not read): a green 8-sided cone, 4 m wide and
 // 12 m tall, starting 1.5 m up. An invented shape, clearly not the real tree.
@@ -80,8 +88,14 @@ std::string highestDetailLodMesh(std::span<const std::uint8_t> text);
 std::vector<std::string> selectAssetMeshes(const trainz::content::ConfigNode& root,
                                            std::map<std::string, std::size_t>& parts);
 
+// HEURISTIC (not traced): whether a texture's alpha looks like a cut-out mask (at least
+// 5% clear and 5% solid texels, and under a quarter in between), so the view drops the
+// clear texels. Other textures are drawn solid, as their alpha may mean something else.
+bool wantsAlphaTest(std::span<const std::uint8_t> rgba);
+
 // Places a prepared mesh in the world: rotate by yaw (radians, anticlockwise, about +z)
-// and move to (x, y, z). Appends to the scene.
+// and move to (x, y, z). Appends to the scene; the mesh's textures are added to
+// scene.textures once per mesh (by pointer), so the mesh must outlive the render.
 void addPlacedMesh(Scene& scene, const PreparedMesh& mesh, double x, double y, double z, double yaw);
 
 }  // namespace trainz::view
