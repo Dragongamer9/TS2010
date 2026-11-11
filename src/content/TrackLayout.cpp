@@ -262,6 +262,12 @@ TrackLocator::TrackLocator(const TrackLayout& layout, double centreX, double cen
         if (!c) {
             continue;
         }
+        // Damaged files can hold huge (finite) positions: leave such pieces out, so every grid
+        // cell number and segment count below stays in range.
+        if (!(std::fabs(c->p0[0]) <= kMaxCoordinate && std::fabs(c->p0[1]) <= kMaxCoordinate &&
+              std::fabs(c->p1[0]) <= kMaxCoordinate && std::fabs(c->p1[1]) <= kMaxCoordinate)) {
+            continue;
+        }
         const double len = std::hypot(c->p1[0] - c->p0[0], c->p1[1] - c->p0[1]);
         // Both ends far outside the area (pieces are shorter than a few km): skip.
         if (std::hypot(c->p0[0] - centreX, c->p0[1] - centreY) > radius + len &&
@@ -269,7 +275,7 @@ TrackLocator::TrackLocator(const TrackLayout& layout, double centreX, double cen
             continue;
         }
         // Straight pieces in 20 m segments (so each fits a few grid cells), curves every `step`.
-        const int n = std::clamp(static_cast<int>(std::ceil(len / (st.straight() ? 20.0 : step))), 1, 4096);
+        const int n = static_cast<int>(std::clamp(std::ceil(len / (st.straight() ? 20.0 : step)), 1.0, 4096.0));
         double prev[3];
         c->point(0, prev);
         for (int k = 1; k <= n; ++k) {
@@ -278,6 +284,11 @@ TrackLocator::TrackLocator(const TrackLayout& layout, double centreX, double cen
             c->point(static_cast<double>(k) / n, sg.b);
             std::copy(sg.b, sg.b + 3, prev);
             sg.piece = st.index;
+            // A curve can swing a little past its ends; keep the grid numbers bounded all the same.
+            if (!(std::fabs(sg.b[0]) <= 2 * kMaxCoordinate && std::fabs(sg.b[1]) <= 2 * kMaxCoordinate &&
+                  std::fabs(sg.a[0]) <= 2 * kMaxCoordinate && std::fabs(sg.a[1]) <= 2 * kMaxCoordinate)) {
+                continue;
+            }
             if (!(std::hypot(sg.b[0] - sg.a[0], sg.b[1] - sg.a[1]) > 1e-6)) {
                 continue;  // no length: no direction
             }
@@ -298,8 +309,8 @@ TrackLocator::TrackLocator(const TrackLayout& layout, double centreX, double cen
 }
 
 std::optional<TrackSample> TrackLocator::nearest(double x, double y, double maxDistance) const {
-    if (!std::isfinite(x) || !std::isfinite(y) || !(maxDistance > 0)) {
-        return std::nullopt;
+    if (!(std::fabs(x) <= 2 * kMaxCoordinate && std::fabs(y) <= 2 * kMaxCoordinate) || !(maxDistance > 0)) {
+        return std::nullopt;  // also NaN and infinity
     }
     maxDistance = std::min(maxDistance, kCell);
     const auto cx = static_cast<std::int64_t>(std::floor(x / kCell)), cy = static_cast<std::int64_t>(std::floor(y / kCell));

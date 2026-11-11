@@ -470,3 +470,40 @@ TEST(SceneRender, HeadingAlongTheTrain) {
         }
     }
 }
+
+TEST(SceneRender, SwivelTurnsAboutTheModelsVertical) {
+    // A point at (1, 4, 0.5), tilted 30 degrees about its x axis (e.g. a bogie on a ramp).
+    LocalFrame point;
+    const float c30 = std::cos(0.5236F), s30 = std::sin(0.5236F);
+    point.r[4] = c30, point.r[5] = s30, point.r[7] = -s30, point.r[8] = c30;  // y and z axes tilted
+    point.t[0] = 1, point.t[1] = 4, point.t[2] = 0.5F;
+    const double turn = std::numbers::pi / 2;
+    const LocalFrame sw = swivelAboutModelZ(point, turn);
+    // The position stays.
+    const float origin[3] = {0, 0, 0};
+    float o[3];
+    sw.apply(origin, o);
+    EXPECT_NEAR(o[0], 1, 1e-5);
+    EXPECT_NEAR(o[1], 4, 1e-5);
+    EXPECT_NEAR(o[2], 0.5, 1e-5);
+    // Every axis of the point is turned a quarter about the MODEL's z: (x, y, z) -> (-y, x, z).
+    for (int axis = 0; axis < 3; ++axis) {
+        const float* before = point.r + 3 * axis;
+        const float* after = sw.r + 3 * axis;
+        EXPECT_NEAR(after[0], -before[1], 1e-5) << axis;
+        EXPECT_NEAR(after[1], before[0], 1e-5) << axis;
+        EXPECT_NEAR(after[2], before[2], 1e-5) << axis;  // the tilt is kept
+    }
+    // The old composition (swivel in the point's own axes) gets the tilted case wrong.
+    LocalFrame spinLocal;
+    spinLocal.r[0] = spinLocal.r[4] = 0, spinLocal.r[1] = 1, spinLocal.r[3] = -1;
+    const LocalFrame wrong = spinLocal.then(point);
+    EXPECT_GT(std::fabs(wrong.r[2] - sw.r[2]) + std::fabs(wrong.r[5] - sw.r[5]), 0.1);
+    // Upright points: both agree (why the disc check could not tell them apart).
+    LocalFrame upright;
+    upright.t[1] = 4;
+    const LocalFrame a = swivelAboutModelZ(upright, turn), b = spinLocal.then(upright);
+    for (int i = 0; i < 9; ++i) {
+        EXPECT_NEAR(a.r[i], b.r[i], 1e-5);
+    }
+}

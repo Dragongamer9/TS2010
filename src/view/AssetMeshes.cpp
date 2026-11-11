@@ -534,6 +534,15 @@ LocalFrame LocalFrame::then(const LocalFrame& outer) const {
     return f;
 }
 
+LocalFrame swivelAboutModelZ(const LocalFrame& point, double turn) {
+    LocalFrame spin;  // about z through point.t: p -> R(p - t) + t
+    const float c = static_cast<float>(std::cos(turn)), s = static_cast<float>(std::sin(turn));
+    spin.r[0] = c, spin.r[1] = s, spin.r[3] = -s, spin.r[4] = c;
+    spin.t[0] = point.t[0] - (c * point.t[0] - s * point.t[1]);
+    spin.t[1] = point.t[1] - (s * point.t[0] + c * point.t[1]);
+    return point.then(spin);
+}
+
 void addPlacedMesh(Scene& scene, const PreparedMesh& mesh, double x, double y, double z, double yaw) {
     addPlacedMesh(scene, mesh, LocalFrame{}, x, y, z, yaw);
 }

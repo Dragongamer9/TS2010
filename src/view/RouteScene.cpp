@@ -243,11 +243,7 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
                             const double bx = x + c * frame.t[0] - s * frame.t[1], by = y + s * frame.t[0] + c * frame.t[1];
                             if (const auto under = onTrack ? onTrack->nearest(bx, by, kOnTrackDistance) : std::nullopt) {
                                 const double turn = headingAlong(under->heading, heading) - heading;  // within +-90 degrees
-                                LocalFrame swivel;
-                                swivel.r[0] = swivel.r[4] = static_cast<float>(std::cos(turn));
-                                swivel.r[1] = static_cast<float>(std::sin(turn));
-                                swivel.r[3] = -swivel.r[1];
-                                inner = swivel.then(frame);
+                                inner = swivelAboutModelZ(frame, turn);  // about the body's vertical
                                 ++v.bogiesOnTrack;
                             }
                             addPlacedMesh(v.scene, *bogie, inner, x, y, vz, yaw);

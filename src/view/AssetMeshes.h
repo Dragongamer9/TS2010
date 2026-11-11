@@ -38,6 +38,11 @@ struct LocalFrame {
     LocalFrame then(const LocalFrame& outer) const;
 };
 
+// The frame `point` turned by `turn` radians about the model's own vertical (z) axis through
+// the point's position: e.g. a bogie swivelling under its body. The point's position stays,
+// and a tilted point keeps its tilt relative to that axis.
+LocalFrame swivelAboutModelZ(const LocalFrame& point, double turn);
+
 struct LocalTriangle {
     float p[3][3];  // model space, metres, Z up
     Rgb colour;     // flat colour, used when there is no texture

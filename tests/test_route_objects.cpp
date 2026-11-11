@@ -532,3 +532,25 @@ TEST(TrackLocator, NearestPointHeadingAndHeight) {
     EXPECT_EQ(far.segments(), 0U);
     EXPECT_FALSE(far.nearest(40, 2));
 }
+
+TEST(TrackLocator, HugeCoordinatesAreLeftOutSafely) {
+    // Damaged files can hold huge but finite positions; nothing may overflow (UBSan checks
+    // the float-to-integer conversions).
+    Builder b;
+    b.vertex(0, 0, 0, {{80, 0}});
+    b.vertex(1, 1e30F, 0, {{80, 0}});  // a float far beyond any route
+    b.vertex(2, -2.9e7F, 5, {{81, 0}});
+    b.vertex(3, 2.9e7F, 5, {{81, 0}});  // in range, but 58,000 km long
+    b.vertex(4, 0, 10, {{82, 0}});
+    b.vertex(5, 50, 10, {{82, 0}});  // an ordinary piece
+    b.piece(80, 0, 1);
+    b.piece(81, 2, 3, 0x20);
+    b.piece(82, 4, 5, 0x20);
+    const TrackLocator loc(b.t, 0, 0, 1e300);
+    const auto s = loc.nearest(25, 11);
+    ASSERT_TRUE(s);
+    EXPECT_EQ(s->piece, 82);  // the ordinary piece still works
+    EXPECT_FALSE(loc.nearest(1e30, 0));
+    EXPECT_FALSE(loc.nearest(-1e300, 1e300));
+    EXPECT_FALSE(loc.nearest(std::numeric_limits<double>::infinity(), 0));
+}

@@ -139,6 +139,9 @@ public:
     std::size_t segments() const { return segs_.size(); }
 
     static constexpr double kCell = 25.0;  // grid cell, metres
+    // Pieces with an end farther out than this (metres, either axis) are left out. Baseboard
+    // numbers are 16-bit, so real routes stay within 32768 x 720 m = 23.6 million m.
+    static constexpr double kMaxCoordinate = 30e6;
 
 private:
     struct Seg {
