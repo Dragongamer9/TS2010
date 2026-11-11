@@ -157,6 +157,12 @@ if(TRAINZ_BUILD_TESTS)
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_route_heights_cli.py"
             "$<TARGET_FILE:route-tool>")
   set_tests_properties(RouteHeights.Cli PROPERTIES TIMEOUT 120)
+  add_test(NAME RouteTrack.Cli
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_route_track_cli.py"
+            "$<TARGET_FILE:route-tool>"
+            "${CMAKE_CURRENT_SOURCE_DIR}/testdata/ts2010")
+  set_tests_properties(RouteTrack.Cli PROPERTIES TIMEOUT 300)
   add_executable(content_tests
     tests/test_action_map.cpp
     tests/test_animation.cpp

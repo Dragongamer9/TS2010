@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-11 | 29% | No step change. `route-tool track` draws the decoded track network over the height map (straight lines between vertices; curves not decoded) with a CLI test on the real test route (794 pieces, 38 junction-like vertices). A first, flat piece of the route viewer. |
 | 2026-11-11 | 29% | No step change. The 2 inconsistent track links identified and documented as unexplained: ECML Kings Cross - York (`<kuid:447264:1019>`), vertices 33398 and 33490 link to pieces 33 and 129, which are not in the file; nothing is repaired (ChatGPT review). |
 | 2026-11-11 | 29% | Step 8 (45% → 50%): the track network. Each vertex lists the track pieces ending at it (4 slots), and `tkBr` turned out to be a stretch wrapped in one more word. On all 50 disc routes: 307,226 pieces, every end present; 614,430 of 614,432 vertex links consistent (observed, not traced). README lists `python3`; step 8 states the 10 m grid as found (ChatGPT review). Overall 28.85 → 29.35 ÷ 102 = 28.77% → 29%. |
 | 2026-11-11 | 28% | No step change. Multi-section regression test for `route-tool heights` (ChatGPT): a 2×2 `Secs` route and a mixed `Secs`/`Sec5` route check slope direction, equal greys across shared edges and 144-cell `Sec5` sampling. Checked that it fails, naming the pixels, when the rows are flipped back or the old 76-vertex sampling is restored (ChatGPT review). Overall stays 28.85 ÷ 102 = 28.28% → 28%. |

@@ -45,3 +45,29 @@ python3 tests/test_route_heights_cli.py ./build/route-tool
 ```
 
 The check uses a temporary HOME and XDG data directory, never game data.
+
+## Track map: `route-tool track`
+
+```
+./build/route-tool track ARCHIVE.ja ROUTE_FOLDER [--out DIR]
+```
+
+Draws the height map as above, then the route's track network from `mapfile.trk` on
+top, and writes `<route-folder>.track.png` the same protected way:
+
+- red: track stretches (`tkSt`); yellow: wrapped stretches (`tkBr`);
+- cyan dots: vertices with 3 or more track pieces (junctions, probably);
+- each piece is a **straight line** between its two vertices: how track curves is not
+  decoded, so tight curves look faceted where vertices are far apart.
+
+The positions use the observed track layout (baseboard + metres; see
+[route-objects.md](../formats/route-objects.md)). Pieces with a missing end are left out
+and reported as warnings. On the test route it draws 794 pieces and 38 junction-like
+vertices; some straight grids are probably roads (Trainz also stores those as splines;
+not confirmed).
+
+Regression check (uses the real test route; skips if it is missing):
+
+```
+python3 tests/test_route_track_cli.py ./build/route-tool testdata/ts2010
+```
