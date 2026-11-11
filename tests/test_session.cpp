@@ -390,3 +390,36 @@ TEST(Session, OldTrainTruncatedOrOverlongNameIsRefused) {
     }
     EXPECT_LE(accepted, 30U);
 }
+
+TEST(Session, OldTrainFakeWithPlausibleNameButFarAwayIsRefused) {
+    // ChatGPT's case: an embedded pattern with a valid name and a matching count. The
+    // vehicle-gap rule catches it when its position is not next to its neighbours.
+    auto farVehicle = [](Bytes& p, const std::string& name, std::int16_t bx) {
+        putU32(p, 999);
+        putU32(p, 1);
+        putU32(p, 0);
+        p.push_back(0);
+        Bytes r;
+        putU32(r, 4);
+        putU32(r, 3);
+        putU32(r, 0xFF0000FFu);
+        putU16(r, static_cast<std::uint16_t>(bx));
+        putU16(r, 2);
+        r.resize(40, 0);
+        putU32(r, static_cast<std::uint32_t>(name.size() + 1));
+        r.insert(r.end(), name.begin(), name.end());
+        r.push_back(0);
+        p.insert(p.end(), r.begin(), r.end());
+    };
+    Bytes p = oldHeader(3);
+    oldVehicle(p, 1, "Wagon A", {});
+    farVehicle(p, "Looks Like A Wagon", 40);  // 40 baseboards away
+    oldVehicle(p, 2, "Wagon B", {});
+    EXPECT_FALSE(decodeOld(p).has_value());
+
+    Bytes near = oldHeader(3);
+    oldVehicle(near, 1, "Wagon A", {});
+    farVehicle(near, "Wagon M", 1);  // same board as its neighbours
+    oldVehicle(near, 2, "Wagon B", {});
+    EXPECT_TRUE(decodeOld(near).has_value()) << "a plausible name at a plausible position is accepted: the residual risk";
+}

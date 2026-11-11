@@ -68,7 +68,10 @@ std::optional<Behaviour> decodeBehaviour(const ObjectItem& item);
 // …, u32 nameLength (at record offset 40), name. Since nothing gives a record's length,
 // vehicles are FOUND BY A PATTERN (5 zero bytes + u32 4 or 1 + u32 3 after the KUID), and
 // a train is decoded only if the number of matches equals vehicleCount, the first starts
-// at byte 20 and every match has a valid name: 627 of the 826 qualify (3,127 vehicles).
+// at byte 20, every match has a valid name, and neighbouring vehicles stand under 50 m
+// apart (true of every version-5 train, which is size-checked): 627 of the 826 qualify
+// (3,127 vehicles). A stray match with a plausible name AND a plausible position would
+// still be accepted; that residual risk is not ruled out.
 // Record version 5 also occurs but its position looks different, so trains with it are
 // refused, like the other 199. A heuristic, not a traced layout.
 struct Vehicle {

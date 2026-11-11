@@ -3,6 +3,7 @@
 #include "ByteOrder.h"
 #include "ContentError.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace trainz::content {
@@ -159,6 +160,15 @@ std::optional<Train> decodeOldTrain(const ObjectItem& item) {
             return std::nullopt;  // the pattern found something that isn't a vehicle
         }
         v.name.assign(reinterpret_cast<const char*>(r.data() + 44), len - 1);
+        if (!t.vehicles.empty()) {
+            // Coupled vehicles stand close together: in every accepted disc train (and every
+            // size-checked version-5 train) neighbours are under 50 m apart.
+            const auto& u = t.vehicles.back();
+            const double gap = std::hypot((v.boardX - u.boardX) * 720.0 + v.x - u.x, (v.boardY - u.boardY) * 720.0 + v.y - u.y);
+            if (!(gap < 50.0)) {
+                return std::nullopt;
+            }
+        }
         t.vehicles.push_back(std::move(v));
     }
     return t;
