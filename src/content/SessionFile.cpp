@@ -160,8 +160,10 @@ std::optional<Train> decodeOldTrain(const ObjectItem& item) {
             return std::nullopt;  // the pattern found something that isn't a vehicle
         }
         v.name.assign(reinterpret_cast<const char*>(r.data() + 44), len - 1);
+        // Disc-tested heuristic, not a format rule: all 3,363 size-checked version-5
+        // vehicles lie inside their baseboard (x and y in 0..720).
         if (!(v.x >= 0 && v.x < 720 && v.y >= 0 && v.y < 720)) {
-            return std::nullopt;  // not inside a baseboard
+            return std::nullopt;
         }
         if (!t.vehicles.empty()) {
             // Disc-tested heuristic, not a format rule: no accepted train in the surveyed disc

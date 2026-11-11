@@ -85,8 +85,11 @@ record: u32 4 (or 1 or 5)   u32 3   u32 colour?   i16 boardX   i16 boardY   f32 
 Nothing gives a record's length, so the reader **finds vehicles by a pattern** (5 zero
 bytes, `u32 4`, `1` or `5`, `u32 3` after each KUID). It accepts a train only when the
 number found equals `vehicleCount`, the first one starts at byte 20, every match has a
-valid name and a position inside its baseboard, and neighbouring vehicles stand under
-50 m apart. That last rule is a
+valid name and a position inside its baseboard (x and y in 0…720), and neighbouring
+vehicles stand under 50 m apart. Both position rules are **disc-tested heuristics, not
+established format constraints**. The baseboard rule rests on the size-checked data: all
+3,363 version-5 vehicles (read by their stored sizes, not by the pattern) lie inside
+0…720, as do 99.99% of placed objects and 99.5% of track vertices. That last rule is a
 **disc-tested heuristic, not an established format constraint**: no accepted train in the
 surveyed disc data exceeds it (all 655 size-checked version-5 trains and all accepted old
 trains have their largest neighbour gap under 50 m). How many false matches it catches
