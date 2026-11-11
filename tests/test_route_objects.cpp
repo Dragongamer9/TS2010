@@ -7,7 +7,9 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstring>
+#include <numbers>
 #include <limits>
 
 using namespace trainz::content;
@@ -333,4 +335,141 @@ TEST(PlacedObject, RefusesWhatDoesNotFit) {
     EXPECT_FALSE(decodePlacedObject(objectItem("tkSt", Bytes(41, 0))).has_value());                       // not placed
     EXPECT_FALSE(placedObjectHeaderSize("Rule").has_value());
     EXPECT_EQ(placedObjectHeaderSize("mOBJ"), 8U);
+}
+
+namespace {
+
+// A hand-built layout: vertices at (x, y) on baseboard 0,0 with the given links (piece, side).
+struct Builder {
+    TrackLayout t;
+    void vertex(std::int32_t index, float x, float y, std::vector<TrackLink> links, float z = 0) {
+        TrackVertex v;
+        v.index = index, v.x = x, v.y = y, v.z = z, v.links = std::move(links);
+        t.vertices.emplace(index, v);
+    }
+    void piece(std::int32_t index, std::int32_t from, std::int32_t to, std::uint8_t flags = 0) {
+        TrackStretch s;
+        s.index = index, s.from = from, s.to = to, s.rest = {flags, 0, 0, 0};
+        t.stretches.push_back(s);
+    }
+};
+
+double distToLine(const double p[3], double ax, double ay, double bx, double by) {
+    return std::fabs((p[0] - ax) * (by - ay) - (p[1] - ay) * (bx - ax)) / std::hypot(bx - ax, by - ay);
+}
+
+}  // namespace
+
+TEST(TrackCurve, StraightFlagAndEnds) {
+    Builder b;
+    b.vertex(0, 0, 0, {{10, 0}});
+    b.vertex(1, 100, 0, {{10, 0}, {11, 1}}, 4);
+    b.vertex(2, 150, 50, {{11, 0}});
+    b.piece(10, 0, 1, 0x20);  // flagged straight
+    b.piece(11, 1, 2);        // curved
+    EXPECT_TRUE(b.t.stretches[0].straight());
+    EXPECT_FALSE(b.t.stretches[1].straight());
+    TrackStretch noRest;
+    EXPECT_FALSE(noRest.straight());
+
+    const auto s = trackCurve(b.t, b.t.stretches[0]);
+    ASSERT_TRUE(s);
+    double q[3];
+    s->point(0.5, q);
+    EXPECT_NEAR(q[0], 50, 1e-9);  // the straight line, evenly
+    EXPECT_NEAR(q[1], 0, 1e-9);
+    EXPECT_NEAR(q[2], 2, 1e-9);  // height linear
+    EXPECT_NEAR(s->bulge(), 0, 1e-9);
+
+    // The curved piece carries straight on from the straight one: it leaves vertex 1 along +x.
+    const auto c = trackCurve(b.t, b.t.stretches[1]);
+    ASSERT_TRUE(c);
+    EXPECT_GT(c->t0[0], 0);
+    EXPECT_NEAR(c->t0[1], 0, 1e-9);
+    c->point(0, q);
+    EXPECT_NEAR(q[0], 100, 1e-9);
+    c->point(1, q);
+    EXPECT_NEAR(q[0], 150, 1e-9);
+    EXPECT_NEAR(q[1], 50, 1e-9);
+    EXPECT_GT(c->bulge(), 1.0);  // it bends
+}
+
+TEST(TrackCurve, SmoothThroughAVertex) {
+    // Three curved pieces round a corner: at the shared vertices the tangents agree.
+    Builder b;
+    b.vertex(0, 0, 0, {{20, 0}});
+    b.vertex(1, 100, 0, {{20, 0}, {21, 1}});
+    b.vertex(2, 170, 70, {{21, 0}, {22, 1}});
+    b.vertex(3, 170, 170, {{22, 0}});
+    b.piece(20, 0, 1);
+    b.piece(21, 1, 2);
+    b.piece(22, 2, 3);
+    const auto a = trackCurve(b.t, b.t.stretches[0]), m = trackCurve(b.t, b.t.stretches[1]),
+               z = trackCurve(b.t, b.t.stretches[2]);
+    ASSERT_TRUE(a && m && z);
+    auto angle = [](const double t[2]) { return std::atan2(t[1], t[0]); };
+    EXPECT_NEAR(angle(a->t1), angle(m->t0), 1e-9);  // arriving at 1 = leaving 1
+    EXPECT_NEAR(angle(m->t1), angle(z->t0), 1e-9);
+    // The middle tangent at vertex 1 bisects the two chords (0 and 45 degrees).
+    EXPECT_NEAR(angle(m->t0), std::numbers::pi / 8, 1e-9);
+    // Line ends use the chord direction.
+    EXPECT_NEAR(angle(a->t0), 0, 1e-9);
+    EXPECT_NEAR(angle(z->t1), std::numbers::pi / 2, 1e-9);
+    // Tangent length = chord length (kCurveTangentScale 1).
+    EXPECT_NEAR(std::hypot(m->t0[0], m->t0[1]), std::hypot(70, 70), 1e-9);
+    // The middle piece bows outward of its chord but stays near it.
+    double q[3];
+    m->point(0.5, q);
+    const double off = distToLine(q, 100, 0, 170, 70);
+    EXPECT_GT(off, 1.0);
+    EXPECT_LT(off, 0.2 * std::hypot(70, 70));
+}
+
+TEST(TrackCurve, SideFlagsDecideTheDirection) {
+    // The same corner with vertex 1's sides swapped: the tangent flips but the piece still
+    // leaves toward its own side, so the curve is the same.
+    Builder b;
+    b.vertex(0, 0, 0, {{30, 0}});
+    b.vertex(1, 100, 0, {{30, 1}, {31, 0}});
+    b.vertex(2, 170, 70, {{31, 0}});
+    b.piece(30, 0, 1);
+    b.piece(31, 1, 2);
+    const auto m = trackCurve(b.t, b.t.stretches[1]);
+    ASSERT_TRUE(m);
+    EXPECT_NEAR(std::atan2(m->t0[1], m->t0[0]), std::numbers::pi / 8, 1e-9);
+
+    // Both pieces on the same side: no "other side", so the chord direction.
+    Builder s;
+    s.vertex(0, 0, 0, {{40, 0}});
+    s.vertex(1, 100, 0, {{40, 0}, {41, 0}});
+    s.vertex(2, 170, 70, {{41, 0}});
+    s.piece(40, 0, 1);
+    s.piece(41, 1, 2);
+    const auto n = trackCurve(s.t, s.t.stretches[1]);
+    ASSERT_TRUE(n);
+    EXPECT_NEAR(std::atan2(n->t0[1], n->t0[0]), std::numbers::pi / 4, 1e-9);
+}
+
+TEST(TrackCurve, MissingOrDegenerateEnds) {
+    Builder b;
+    b.vertex(0, 10, 10, {{50, 0}});
+    b.vertex(1, 10, 10, {{50, 0}});  // same place
+    b.piece(50, 0, 1);
+    b.piece(51, 0, 99);  // vertex 99 is missing
+    EXPECT_FALSE(trackCurve(b.t, b.t.stretches[0]));
+    EXPECT_FALSE(trackCurve(b.t, b.t.stretches[1]));
+}
+
+TEST(TrackCurve, FindStretchWithAndWithoutTheIndex) {
+    Builder b;
+    b.piece(7, 0, 1);
+    b.piece(9, 1, 2);
+    ASSERT_NE(b.t.findStretch(9), nullptr);  // no index: scanned
+    EXPECT_EQ(b.t.findStretch(9)->from, 1);
+    EXPECT_EQ(b.t.findStretch(8), nullptr);
+    b.t.stretchAt = {{7, 0}, {9, 1}};
+    EXPECT_EQ(b.t.findStretch(7)->to, 1);
+    EXPECT_EQ(b.t.findStretch(8), nullptr);  // indexed and absent
+    b.t.stretchAt[9] = 0;                    // a stale entry is not trusted
+    EXPECT_EQ(b.t.findStretch(9), nullptr);
 }

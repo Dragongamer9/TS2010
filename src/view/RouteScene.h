@@ -1,8 +1,8 @@
 // Builds a 3D scene of part of a route from the decoded files, for SceneRender. It shows
 // only what the port can read: terrain heights (coloured from the route's own overview
-// maps), track as straight lines between vertices, placed objects (as their 3D models when
+// maps), track (curves by the port's model in TrackLayout.h), placed objects (as their 3D models when
 // AssetMeshes is given and can read them, textured; else dots) and a session's vehicles
-// (as models with their bogies, or dots). No terrain textures or track curves yet.
+// (as models with their bogies, or dots). No terrain textures yet.
 #pragma once
 
 #include "content/GroundFile.h"
@@ -33,7 +33,8 @@ struct RouteView {
     std::size_t objectsAsMeshes = 0;
     std::size_t objectsAsDots = 0;
     std::size_t vehiclesAsMeshes = 0;
-    std::size_t bogiesAsMeshes = 0;  // bogie models drawn on vehicles' "a.bog*" points
+    std::size_t bogiesAsMeshes = 0;
+    std::size_t curvedPieces = 0;  // track pieces drawn as curves (the port's model) rather than straight  // bogie models drawn on vehicles' "a.bog*" points
 };
 
 inline constexpr std::size_t kMaxSceneTriangles = 4'000'000;  // never exceeded: meshes that don't fit are left out

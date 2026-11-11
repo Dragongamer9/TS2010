@@ -120,7 +120,8 @@ u32 version (3)   i16 boardX   i16 boardY   f32 x   f32 y   f32 z
 ```
 
 The 4 slots list every track piece (`tkSt` or `tkBr`) that ends at this vertex: on the
-disc, 614,430 of 614,432 links point at a piece that really ends there. The other 2 are
+disc, 614,430 of 614,432 links point at a piece that really ends there. The `flag` says
+which side of the vertex the piece leaves from (see the curve model below). The other 2 are
 **unexplained** and left as they are (the reader reports them as warnings and repairs
 nothing). Both are in "ECML Kings Cross - York" (`<kuid:447264:1019>`, `Builtin\5.ja`):
 
@@ -132,8 +133,8 @@ nothing). Both are in "ECML Kings Cross - York" (`<kuid:447264:1019>`, `Builtin\
 33 and 129 exist only as vertex numbers in the second container; whether that is a
 coincidence or a different kind of link is not known. Slots used per vertex: 1 (211,040, line ends), 2 (182,491,
 along a line), 3 (12,242; junctions, guess: there are 10,138 `mojunction` objects), 4
-(421), 0 (13). The `flag` is not simply "start" or "end" of the piece; its meaning and
-`last` (0, 1 or 2) are not known.
+(421), 0 (13). The `flag` is not "start" or "end" of the piece but the side of the vertex (below); what
+`last` (0, 1 or 2) means is not known.
 
 `boardX/boardY` name the terrain section (baseboard) the vertex lies on; `x`/`y` are
 metres inside it (0..720, toward +x and +y); `z` is the height in metres. Evidence: 99.5%
@@ -157,8 +158,35 @@ KUID, …), then more fields not decoded (on the test route: three `i32` values 
 followed by sixteen `ff` bytes). Its ends are the two vertices that link to it. With
 `tkSt` that makes 307,226 track pieces on the disc, every one with both ends present.
 What `tkBr` adds over a stretch (bridge? attached objects?) is not known. Median length between the two
-ends: 52 m (99th percentile 661 m). How a stretch curves between its ends (the `rest`
-bytes, or the vertices' own undecoded bytes) is not known.
+ends: 52 m (99th percentile 661 m).
+
+**How a stretch curves (a model, checked against the data, not traced):**
+
+- **Sides.** A vertex link's `flag` says which side of the vertex the piece leaves from.
+  On the disc, of 206,782 pairs of pieces at one vertex with different flags, 92% point
+  within 30° of opposite ways (69% within 10°); of 13,387 same-flag pairs (junction legs),
+  83% point within 30° of the same way (68% within 10°).
+- **Straight pieces.** Bit `0x20` of the stretch's first byte after the KUID marks a
+  straight piece (`TrackStretch::straight()`). In 125 disc sessions, vehicles (which sit
+  on their track) on pieces with that bit are 0–3% more than 0.3 m off the straight line
+  between the ends; on pieces whose byte is 0 or 16 (most of the rest), 31–57%. Values 84,
+  132 and 148 (no `0x20`) also had none off (about 660 vehicles), but reading `0x40` or
+  `0x80` as straight too changes nothing measurable, and bits `0x10`/`0x04` make it worse.
+- **The curve.** Every vertex gets one tangent, from its side-0 neighbours toward its
+  side-1 neighbours; a piece next to a straight piece on the vertex's other side carries
+  straight on from it, and a line end uses the chord. A curved piece is then a cubic
+  Hermite curve in x/y between its ends with tangent length = chord length (height linear).
+- **Check.** Over the 6,071 vehicles of 125 disc sessions: 97.0% lie within 0.5 m of the
+  modelled track (87.0% of the straight chords) and 99.5% within 3 m (95.6%). For the 964
+  more than 0.3 m from every chord, the model is a median 0.04 m away and within 1.1 m for
+  90%. Tangent lengths of 0.8× or 1.2× the chord fit clearly worse (median 0.36 m, 0.38 m),
+  which suggests this is close to what the game does. Of 282,444 non-straight pieces, 88
+  bend more than 20% of their length from the chord (mostly roads, rivers and tree
+  splines) and none more than 30%.
+- **Not known:** the other bits of that byte (`0x10`, `0x04`, `0x40`, `0x80`, seen as
+  16, 48, 84, 132, 148, 212 …), whether the game's curve is exactly this Hermite form,
+  and how heights curve.
+
 
 In `.trk` the first container holds the stretches (`tkSt`, plus `tkBr` in most) and the
 second the vertices (`tkVx`) in every non-empty disc file; 33 `.trk` files hold two empty

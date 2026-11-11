@@ -235,7 +235,7 @@ int main(int argc, char** argv) {
             rgba = trainz::view::renderScene(view.scene, view.camera, w, h);
             std::printf("view: centre %.0f, %.0f, radius %.0f m; %zu sections, %zu triangles, %zu track lines, "
                         "%zu dots (objects green, signals magenta, trains orange); objects as models %zu, as dots %zu; "
-                        "vehicles as models %zu (bogies %zu); straight track\n",
+                        "vehicles as models %zu (bogies %zu); track curves by the port's model\n",
                         view.centreX, view.centreY, radius, view.sections, view.scene.triangles.size(),
                         view.scene.lines.size(), view.scene.dots.size(), view.objectsAsMeshes, view.objectsAsDots,
                         view.vehiclesAsMeshes, view.bogiesAsMeshes);
@@ -372,11 +372,20 @@ int main(int argc, char** argv) {
                     if (!std::isfinite(len) || len > 4.0 * w + 4.0 * h) {
                         continue;
                     }
-                    const auto steps = static_cast<std::size_t>(std::ceil(len)) + 1;
+                    // The port's curve model (TrackLayout.h), or the straight line without one.
+                    const auto curve = trackCurve(t, st);
+                    const auto steps = static_cast<std::size_t>(std::ceil(2.0 * len)) + 1;
                     const bool wrapped = st.kind == "tkBr";
                     for (std::size_t k = 0; k <= steps; ++k) {
                         const double f = static_cast<double>(k) / static_cast<double>(steps);
-                        plot(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f, 230, wrapped ? 210 : 30, 30);
+                        double px = x0 + (x1 - x0) * f, py = y0 + (y1 - y0) * f;
+                        if (curve) {
+                            double q[3];
+                            curve->point(f, q);
+                            px = (q[0] / kBaseboardSize - minX) * 64.0;
+                            py = (static_cast<double>(maxY) + 1.0 - q[1] / kBaseboardSize) * 64.0;
+                        }
+                        plot(px, py, 230, wrapped ? 210 : 30, 30);
                     }
                     ++drawn;
                 }
@@ -429,7 +438,7 @@ int main(int argc, char** argv) {
                     std::printf("session: %zu trains, %zu vehicles (orange)\n", trains, vehicles);
                 }
                 std::printf("track: %zu pieces drawn (red: tkSt, yellow: tkBr), %zu vertices with 3+ links (cyan); "
-                            "straight lines between vertices (curves not decoded); %zu placed objects (green, signals "
+                            "curves by the port's model (straight pieces flagged; not traced); %zu placed objects (green, signals "
                             "magenta)\n",
                             drawn, junctions, objects);
             }

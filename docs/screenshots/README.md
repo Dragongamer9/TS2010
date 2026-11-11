@@ -23,6 +23,7 @@ port can already read and draw.
 | ![](midday-textured.png) | "Midday Manifest" close-up, textured: brick buildings with windows, the train's cars, the industrial plant. The dark bushes are dark in their own texture (how the game lights them is not known) | `route-tool view … --session … --install … --radius 250` |
 | ![](loco-bogies.png) | **Bogies and attached parts**: the CN SD40-2 in "Midday Manifest" on its two trucks, read from its `bogeys` list and hung on the body's `a.bog0`/`a.bog1` attachment points (`ATCH`, decoded); handrails, fans and steps. Close camera with `--eye`. Preview limits: bogies don't turn on curves; the point-to-entry match is documented in the Trainz wiki, not traced | `route-tool view … --session … --install … --radius 60 --eye -14 -10 4` |
 | ![](freight-bogies.png) | The same train's covered hoppers and boxcars, each on its own bogies (a bare-number `bogey`, e.g. `100008` = `<kuid:-1:100008>`, whose model exists only as a `.pm`). Grass in front drawn as cut-outs; the green cone is a SpeedTree **placeholder** | `route-tool view … --radius 120 --at 352 -3745 --eye 22 -12 5` |
+| ![](woodchips-curve.png) | **Curved track**: a woodchip train on a 252 m curved siding (Builtin `2.ja` route `<kuid:47119:1015>`), the red track drawn with the port's curve model, which puts 97% of disc session vehicles within 0.5 m of their track (87% for straight lines). A model checked against the data, not traced | `route-tool view … --session … --install … --radius 220 --at -5760 -2090 --eye -60 -140 70` |
 | ![](thueringen-overview.png) | "Thüringen Romantik Strecke": every terrain section's built-in 64×64 overview map, stitched | `route-tool overview` |
 | ![](thueringen-track.png) | The same route: terrain heights (black low, white high), placed objects (green) and the track network on top | `route-tool track` |
 | ![](sample-route-objects.png) | The test route with its 10,201 placed objects (dark green dots; signals magenta) under the track | `route-tool track` |
@@ -34,8 +35,9 @@ port can already read and draw.
 
 In the track maps, **red** is every `tkSt` spline piece, which seems to include roads
 and other splines as well as railway (not confirmed); **yellow** is `tkBr`; **cyan**
-marks vertices where 3 or more pieces meet (likely junctions). Pieces are drawn as
-straight lines between vertices, because how they curve is not decoded yet. Terrain
+marks vertices where 3 or more pieces meet (likely junctions). Pieces follow the
+port's curve model (see [route-objects.md](../formats/route-objects.md)); pictures made
+before it show straight lines between vertices. Terrain
 seams that remain are real mismatches in the data (unexplained; see
 [route.md](../formats/route.md)). The largest disc route, "ECML Kings Cross – York", is
 too big for one image (over 8,192 pixels across).

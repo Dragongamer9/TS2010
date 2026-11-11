@@ -142,9 +142,27 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
             }
             const ScenePoint pa{a->second.worldX(), a->second.worldY(), a->second.z + 0.5};
             const ScenePoint pb{b->second.worldX(), b->second.worldY(), b->second.z + 0.5};
-            if (near(pa.x, pa.y) && near(pb.x, pb.y)) {  // both ends inside: nothing sticks out past the terrain
-                v.scene.lines.push_back({pa, pb, st.kind == "tkBr" ? Rgb{240, 210, 40} : Rgb{200, 30, 30}});
+            if (!near(pa.x, pa.y) || !near(pb.x, pb.y)) {  // both ends inside: nothing sticks out past the terrain
+                continue;
             }
+            const Rgb colour = st.kind == "tkBr" ? Rgb{240, 210, 40} : Rgb{200, 30, 30};
+            const auto curve = trackCurve(*in.track, st);
+            if (!curve || st.straight()) {
+                v.scene.lines.push_back({pa, pb, colour});
+                continue;
+            }
+            // The port's curve model (TrackLayout.h), in pieces of about 5 m (2..64).
+            const double len = std::hypot(pb.x - pa.x, pb.y - pa.y);
+            const int pieces = std::clamp(static_cast<int>(std::ceil(len / 5.0)), 2, 64);
+            ScenePoint prev = pa;
+            for (int k = 1; k <= pieces; ++k) {
+                double q[3];
+                curve->point(static_cast<double>(k) / pieces, q);
+                const ScenePoint p{q[0], q[1], q[2] + 0.5};
+                v.scene.lines.push_back({prev, p, colour});
+                prev = p;
+            }
+            ++v.curvedPieces;
         }
     }
     if (in.trains != nullptr) {

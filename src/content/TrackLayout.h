@@ -60,7 +60,14 @@ struct TrackStretch {
     std::int32_t from = 0;  // vertex indices
     std::int32_t to = 0;
     Kuid track;             // the track asset
-    std::vector<std::uint8_t> rest;  // not decoded
+    std::vector<std::uint8_t> rest;  // not decoded, except bit 0x20 of rest[0] (see straight())
+
+    // Bit 0x20 of the first byte after the KUID marks a straight piece (OBSERVED, not traced):
+    // in 125 disc sessions, vehicles on pieces with it lie on the straight line between the
+    // ends (0-3% more than 0.3 m off); on pieces whose byte is 0 or 16 (most of the rest)
+    // 31-57% are off. Values 84, 132, 148 (no 0x20) also had 0% off (about 660 vehicles), but
+    // reading 0x40 or 0x80 as straight changes nothing measurable; no other single bit helps.
+    bool straight() const { return !rest.empty() && (rest[0] & 0x20) != 0; }
 };
 
 struct TrackLayout {
@@ -68,6 +75,11 @@ struct TrackLayout {
     std::vector<TrackStretch> stretches;
     std::size_t otherItems = 0;  // items that are neither vertices nor tkSt/tkBr
     std::vector<std::string> warnings;
+    // Piece index -> position in `stretches` (filled by readTrackLayout; the first wins on a
+    // repeat). Code that builds a layout by hand may leave it empty: lookups then scan.
+    std::map<std::int32_t, std::size_t> stretchAt;
+
+    const TrackStretch* findStretch(std::int32_t index) const;
 };
 
 // Decodes one item, or nullopt if it is not that class or too short.
@@ -78,5 +90,34 @@ std::optional<TrackStretch> decodeTrackStretch(const ObjectItem& item);
 // Stretches whose ends are missing, vertex links to unknown pieces, duplicate
 // vertex indices and unreadable items become warnings.
 TrackLayout readTrackLayout(const RouteObjectFile& trk);
+
+// The port's model of how a stretch curves between its ends (a MODEL, not traced). A
+// straight() piece is the straight line between its ends. Otherwise:
+// a vertex link's flag says which side of the vertex the piece leaves from (observed: on
+// the disc, of 206,782 pairs of pieces at one vertex with different flags, 92% point within
+// 30 degrees of opposite ways (69% within 10); of 13,387 same-flag pairs, 83% point within
+// 30 degrees of the same way (68% within 10)). Each vertex gets one tangent, from its
+// side-0 neighbours toward its side-1 neighbours, except that a piece carries straight on
+// from a straight() piece on the vertex's other side; a stretch is a cubic Hermite curve in x/y
+// leaving each end along that tangent (on the piece's side), with tangent length
+// kCurveTangentScale x the chord. Height is linear along the chord. A vertex with pieces on
+// one side only (a line end) uses the chord direction.
+// Checked against the 6,071 vehicles of 125 disc sessions (they sit on their track): within
+// 0.5 m of the model 97.0%, of the straight chords 87.0%; within 3 m 99.5% vs 95.6%. For
+// the 964 vehicles more than 0.3 m from every chord: median 0.04 m from the model, 90% within 1.1 m.
+inline constexpr double kCurveTangentScale = 1.0;
+
+struct TrackCurve {
+    double p0[3] = {0, 0, 0}, p1[3] = {0, 0, 0};  // world metres (x, y, z)
+    double t0[2] = {0, 0}, t1[2] = {0, 0};        // x/y tangents at p0 and p1 (both pointing from p0 toward p1)
+    // The point at s in 0..1 (0 = from, 1 = to).
+    void point(double s, double out[3]) const;
+    // Largest distance between the curve and its chord, sampled (metres).
+    double bulge() const;
+};
+
+// nullopt if an end is missing or both ends are (almost) at the same place.
+std::optional<TrackCurve> trackCurve(const TrackLayout& layout, const TrackStretch& stretch,
+                                     double tangentScale = kCurveTangentScale);
 
 }  // namespace trainz::content

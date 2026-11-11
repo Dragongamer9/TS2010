@@ -61,8 +61,9 @@ top, and writes `<route-folder>.track.png` the same protected way:
 - with `--session ARCHIVE.ja SESSION_FOLDER`, the session's trains on top: every vehicle at
   its own stored position as an orange dot (version-5 trains only; see
   [session.md](../formats/session.md));
-- each piece is a **straight line** between its two vertices: how track curves is not
-  decoded, so tight curves look faceted where vertices are far apart.
+- each piece follows the port's **curve model** (straight pieces flagged in the data,
+  others a smooth curve through the vertices; checked against 6,071 session vehicles: 97%
+  within 0.5 m; see [route-objects.md](../formats/route-objects.md)). A model, not traced.
 
 The positions use the observed track layout (baseboard + metres; see
 [route-objects.md](../formats/route-objects.md)). Pieces with a missing end are left out
@@ -138,12 +139,11 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   animation (documented; on the disc 64 of 71 reversed points are already turned 180°), so
   the bogie is turned by its point's rotation alone. Not traced in the exe. Bare numbers are user −1 (the disc's bogie folders, e.g. `kuid _1 100008`,
   confirm it). A bogie's `asset-filename` often exists only as a `.pm` (286 disc assets),
-  which is used when there is no `.im`. Bogies don't turn on curves (track curves are not
-  decoded). That height is a **preview approximation, not a decoded vehicle elevation**: a
+  which is used when there is no `.im`. Bogies don't turn on curves yet (they keep the body's direction). That height is a **preview approximation, not a decoded vehicle elevation**: a
   vehicle's own stored `z` is often 0.3, and what it means is not known.
 
 `--eye DX DY DZ` puts the camera that many metres from the centre's ground point (for
-close-ups). No terrain textures (the ground is coloured from the overview maps), track
-curves or animation yet. `--at X Y` takes world metres (+x east, +y
+close-ups). Track follows the curve model above (drawn in pieces of about 5 m). No terrain textures
+(the ground is coloured from the overview maps) or animation yet. `--at X Y` takes world metres (+x east, +y
 north); without it the view centres on the first train, or else the area with the most
 track junctions. Writes `<route-folder>.view.png` through `SafeOutputDir`.

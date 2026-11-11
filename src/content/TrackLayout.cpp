@@ -2,7 +2,10 @@
 
 #include "ByteOrder.h"
 
+#include <algorithm>
 #include <cmath>
+#include <optional>
+#include <utility>
 #include <cstring>
 
 namespace trainz::content {
@@ -91,8 +94,9 @@ TrackLayout readTrackLayout(const RouteObjectFile& trk) {
         }
     }
     std::map<std::int32_t, const TrackStretch*> byIndex;
-    for (const auto& s : t.stretches) {
-        byIndex.emplace(s.index, &s);
+    for (std::size_t i = 0; i < t.stretches.size(); ++i) {
+        byIndex.emplace(t.stretches[i].index, &t.stretches[i]);
+        t.stretchAt.emplace(t.stretches[i].index, i);
     }
     for (const auto& [index, v] : t.vertices) {
         for (const auto& l : v.links) {
@@ -113,6 +117,135 @@ TrackLayout readTrackLayout(const RouteObjectFile& trk) {
         }
     }
     return t;
+}
+
+const TrackStretch* TrackLayout::findStretch(std::int32_t index) const {
+    if (const auto it = stretchAt.find(index); it != stretchAt.end() && it->second < stretches.size() &&
+                                               stretches[it->second].index == index) {
+        return &stretches[it->second];
+    }
+    if (!stretchAt.empty()) {
+        return nullptr;  // indexed and not there (scanning would make missing links slow)
+    }
+    for (const auto& s : stretches) {
+        if (s.index == index) {
+            return &s;
+        }
+    }
+    return nullptr;
+}
+
+namespace {
+
+// Unit x/y direction from vertex v along the piece `item`, or nullopt.
+std::optional<std::pair<double, double>> towardOtherEnd(const TrackLayout& layout, const TrackVertex& v,
+                                                        std::int32_t item) {
+    if (const TrackStretch* found = layout.findStretch(item)) {
+        const TrackStretch& st = *found;
+        const std::int32_t otherIndex = st.from == v.index ? st.to : st.from;
+        const auto o = layout.vertices.find(otherIndex);
+        if (o == layout.vertices.end()) {
+            return std::nullopt;
+        }
+        const double dx = o->second.worldX() - v.worldX(), dy = o->second.worldY() - v.worldY();
+        const double len = std::hypot(dx, dy);
+        if (!(len > 1e-6)) {
+            return std::nullopt;
+        }
+        return std::pair{dx / len, dy / len};
+    }
+    return std::nullopt;
+}
+
+// The direction a piece leaves vertex v in (unit, x/y): the vertex tangent on the piece's
+// side, or the chord direction `chord` when the vertex has no pieces on the other side.
+std::pair<double, double> leaving(const TrackLayout& layout, const TrackVertex& v, std::int32_t item,
+                                  std::pair<double, double> chord) {
+    int side = -1;
+    for (const auto& l : v.links) {
+        if (l.item == item) {
+            side = l.flag != 0 ? 1 : 0;
+        }
+    }
+    double sx[2] = {0, 0}, sy[2] = {0, 0};
+    int n[2] = {0, 0};
+    for (const auto& l : v.links) {
+        const int s = l.flag != 0 ? 1 : 0;
+        if (const auto d = l.item == item ? std::optional(chord) : towardOtherEnd(layout, v, l.item)) {
+            sx[s] += d->first, sy[s] += d->second, ++n[s];
+        }
+    }
+    if (side < 0 || n[0] == 0 || n[1] == 0) {
+        return chord;
+    }
+    // Next to a straight piece on the other side: carry straight on from it.
+    for (const auto& l : v.links) {
+        const int s = l.flag != 0 ? 1 : 0;
+        const TrackStretch* p = l.item == item ? nullptr : layout.findStretch(l.item);
+        if (s != side && p != nullptr && p->straight()) {
+            if (const auto d = towardOtherEnd(layout, v, l.item)) {
+                return {-d->first, -d->second};
+            }
+        }
+    }
+    // From side 0 toward side 1.
+    double tx = sx[1] / n[1] - sx[0] / n[0], ty = sy[1] / n[1] - sy[0] / n[0];
+    const double len = std::hypot(tx, ty);
+    if (!(len > 1e-9)) {
+        return chord;
+    }
+    tx /= len, ty /= len;
+    return side == 1 ? std::pair{tx, ty} : std::pair{-tx, -ty};
+}
+
+}  // namespace
+
+void TrackCurve::point(double s, double out[3]) const {
+    const double s2 = s * s, s3 = s2 * s;
+    const double h00 = 2 * s3 - 3 * s2 + 1, h10 = s3 - 2 * s2 + s, h01 = -2 * s3 + 3 * s2, h11 = s3 - s2;
+    for (int i = 0; i < 2; ++i) {
+        out[i] = h00 * p0[i] + h10 * t0[i] + h01 * p1[i] + h11 * t1[i];
+    }
+    out[2] = p0[2] + (p1[2] - p0[2]) * s;
+}
+
+double TrackCurve::bulge() const {
+    const double cx = p1[0] - p0[0], cy = p1[1] - p0[1];
+    const double len = std::hypot(cx, cy);
+    double worst = 0;
+    for (int k = 1; k < 16; ++k) {
+        double q[3];
+        point(k / 16.0, q);
+        worst = std::max(worst, std::fabs((q[0] - p0[0]) * cy - (q[1] - p0[1]) * cx) / len);
+    }
+    return worst;
+}
+
+std::optional<TrackCurve> trackCurve(const TrackLayout& layout, const TrackStretch& stretch, double tangentScale) {
+    const auto a = layout.vertices.find(stretch.from), b = layout.vertices.find(stretch.to);
+    if (a == layout.vertices.end() || b == layout.vertices.end()) {
+        return std::nullopt;
+    }
+    const TrackVertex& va = a->second;
+    const TrackVertex& vb = b->second;
+    TrackCurve c;
+    c.p0[0] = va.worldX(), c.p0[1] = va.worldY(), c.p0[2] = va.z;
+    c.p1[0] = vb.worldX(), c.p1[1] = vb.worldY(), c.p1[2] = vb.z;
+    const double dx = c.p1[0] - c.p0[0], dy = c.p1[1] - c.p0[1];
+    const double len = std::hypot(dx, dy);
+    if (!(len > 1e-3) || !std::isfinite(len)) {
+        return std::nullopt;
+    }
+    if (stretch.straight()) {
+        c.t0[0] = c.t1[0] = dx, c.t0[1] = c.t1[1] = dy;  // a Hermite curve with chord tangents is the straight line
+        return c;
+    }
+    const auto ta = leaving(layout, va, stretch.index, {dx / len, dy / len});
+    const auto tb = leaving(layout, vb, stretch.index, {-dx / len, -dy / len});
+    const double m = tangentScale * len;
+    c.t0[0] = ta.first * m, c.t0[1] = ta.second * m;
+    c.t1[0] = -tb.first * m, c.t1[1] = -tb.second * m;  // arriving at p1 = opposite of leaving it
+    return c;
 }
 
 }  // namespace trainz::content
