@@ -417,9 +417,10 @@ std::optional<trainz::content::Kuid> AssetConfig::assetKuid() const {
         return std::nullopt;
     }
     // A bare number ("kuid 101135") is the content number with user -1. Observed, not
-    // traced: in all 488 disc assets that use it inside a KUID-named folder, the folder
-    // is "kuid _1 <that number>". (12 more are in Base.ja/Data.ja folders not named
-    // after a KUID, so they don't confirm it either way.)
+    // traced: in all 1,006 disc assets that use it (1,005 bare, 1 quoted) inside a
+    // KUID-named folder, the folder is "kuid _1 <that number>". 12 more are in
+    // Base.ja/Data.ja folders not named after a KUID, so they don't confirm it either way;
+    // they are read by the same rule.
     if (k->type == ConfigType::Integers && k->ints.size() == 1) {
         return trainz::content::Kuid{-1, k->ints[0], std::nullopt};
     }

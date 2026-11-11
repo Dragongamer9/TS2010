@@ -68,7 +68,12 @@ int main(int argc, char** argv) {
             for (const auto& [k, v] : byKind) {
                 std::printf("  %-20s %zu\n", k.c_str(), v);
             }
-            std::printf("\nwarnings: %zu\n", index.warnings().size());
+            if (index.warningCount() > index.warnings().size()) {
+                std::printf("\nwarnings: %zu (only the first %zu are listed)\n", index.warningCount(),
+                            index.warnings().size() - 1);
+            } else {
+                std::printf("\nwarnings: %zu\n", index.warningCount());
+            }
             for (const auto& w : index.warnings()) {
                 std::printf("  %s\n", w.c_str());
             }

@@ -56,7 +56,10 @@ public:
     static AssetIndex scanInstall(const std::filesystem::path& installRoot);
 
     const std::vector<AssetRecord>& records() const { return records_; }
+    // The first warnings only (a capped list, ending with "(further warnings not shown)").
     const std::vector<std::string>& warnings() const { return warnings_; }
+    // How many warnings there were in all, including those not kept.
+    std::size_t warningCount() const { return warningCount_; }
 
     // Every copy of exactly this KUID (normalized), in the order the sources were added.
     std::vector<const AssetRecord*> find(const Kuid& kuid) const;

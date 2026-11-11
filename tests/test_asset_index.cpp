@@ -6,6 +6,10 @@
 
 #include <gtest/gtest.h>
 
+#include <fstream>
+
+#include <filesystem>
+
 #include <algorithm>
 
 using namespace trainz::content;
@@ -189,4 +193,20 @@ TEST_F(AssetIndexTest, SameKuidInTwoPlacesIsReportedTwice) {
     ASSERT_EQ(both.size(), 2u);  // which one the game uses is not decided here
     EXPECT_EQ(both[0]->username, "Built-in");
     EXPECT_EQ(both[1]->username, "Local copy");
+}
+
+TEST(AssetIndex, WarningCountIncludesWarningsNotKept) {
+    // More than the kept 500: the list is capped, the count is not.
+    AssetIndex index;
+    const auto dir = std::filesystem::temp_directory_path() / "trainz-warning-count-test";
+    std::filesystem::remove_all(dir);
+    for (int i = 0; i < 520; ++i) {
+        const auto folder = dir / ("asset" + std::to_string(i));
+        std::filesystem::create_directories(folder);
+        std::ofstream(folder / "config.txt") << "kind \"scenery\"\n";  // no kuid: one warning each
+    }
+    index.addFolder(dir);
+    std::filesystem::remove_all(dir);
+    EXPECT_EQ(index.warningCount(), 520U);
+    EXPECT_EQ(index.warnings().size(), 501U);  // 500 + "(further warnings not shown)"
 }

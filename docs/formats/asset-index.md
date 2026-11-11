@@ -66,10 +66,17 @@ cache would go in `~/.local/share/trainz-native/`.
 
 ## Bare-number KUIDs (observed, not traced)
 
-488 disc configs give their own KUID as a bare number (`kuid 101135`) or a number in
-quotes (`kuid "101060"`), not `<kuid:…>`. They were dropped as "no readable top-level
-kuid" until 2026-11-11. In every one that sits in a KUID-named folder, the folder is
-`kuid _1 <that number>`, so the reader takes them as `<kuid:-1:number>` (user −1, written
-`_1` in folder names). 12 more are in `Base.ja`/`Data.ja` folders not named after a KUID,
-so they don't confirm the rule either way. With it, no config on the disc is dropped for its
-KUID, and all 19,282 indexed assets' KUIDs match their folder names.
+**1,018** disc configs give their own KUID as a bare number (`kuid 101135`; one as a number
+in quotes, `kuid "101060"`) instead of `<kuid:…>`. Until 2026-11-11 the index dropped every
+one as "no readable top-level kuid". (The first count of this said 500: the index keeps
+only its first 500 warnings, so the other 518 were not visible.)
+
+- **1,006** of them sit in a KUID-named folder (1,005 bare, 1 quoted), and in **every** one
+  that folder is `kuid _1 <that number>`. So the reader takes them as `<kuid:-1:number>`
+  (user −1, written `_1` in folder names).
+- The other **12** are in `Base.ja`/`Data.ja` folders not named after a KUID
+  (`environment/calm_water`, `…/mediumclouds`, …). They are read by the same rule, but
+  nothing on the disc confirms it for them.
+
+With the rule no config is dropped for its KUID: the index goes from 18,264 to **19,282**
+assets (+1,018, none removed), and every one whose folder is named after a KUID matches it.
