@@ -57,7 +57,7 @@ std::optional<PlacedObject> decodePlacedObject(const ObjectItem& item) {
     o.x = f32At(p + 5);
     o.y = f32At(p + 9);
     o.z = f32At(p + 13);
-    o.unknown = f32At(p + 17);
+    o.yaw = f32At(p + 17);
     if (o.flag > 1 || !(o.x >= 0 && o.x < kBaseboardSize && o.y >= 0 && o.y < kBaseboardSize) || !std::isfinite(o.z)) {
         return std::nullopt;
     }

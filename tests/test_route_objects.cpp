@@ -273,7 +273,7 @@ TEST(TrackLayout, ShortOrOddItemsWarn) {
 
 namespace {
 
-Bytes baseBlock(std::uint8_t flag, std::int16_t bx, std::int16_t by, float x, float y, float z, float unknown) {
+Bytes baseBlock(std::uint8_t flag, std::int16_t bx, std::int16_t by, float x, float y, float z, float yaw) {
     Bytes p;
     p.push_back(flag);
     putU16(p, static_cast<std::uint16_t>(bx));
@@ -281,7 +281,7 @@ Bytes baseBlock(std::uint8_t flag, std::int16_t bx, std::int16_t by, float x, fl
     putF32(p, x);
     putF32(p, y);
     putF32(p, z);
-    putF32(p, unknown);
+    putF32(p, yaw);
     return p;
 }
 
@@ -306,6 +306,7 @@ TEST(PlacedObject, StubAndObjectBaseBlocks) {
     EXPECT_EQ(s->boardX, -1);
     EXPECT_EQ(s->boardY, 3);
     EXPECT_FLOAT_EQ(s->z, 29.99F);
+    EXPECT_FLOAT_EQ(s->yaw, 45.47F);  // radians, unwrapped, as stored
     EXPECT_DOUBLE_EQ(s->worldY(), 3 * 720.0 + static_cast<double>(184.27F));
     EXPECT_EQ(s->rest.size(), 41U - 21U);
     EXPECT_EQ(s->kuid.content, 1365);

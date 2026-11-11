@@ -2,15 +2,18 @@
 // See docs/formats/route-objects.md.
 //
 // OBSERVED, not traced (the classes' own readers are not traced yet):
-//   [class header]  u8 flag   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   f32 unknown   ...
+//   [class header]  u8 flag   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   f32 yaw   ...
 // The class header is empty for mobs (mapobjectstub) and 8 bytes (u32 3, u32
 // 0xff000000) for the other classes seen on the disc. x/y are metres inside the
 // 720 m baseboard, z the height in metres. On all 50 disc routes the block fits
-// 1,760,978 of 1,761,124 objects (99.99%); most classes sit on the terrain
+// 1,760,978 of 1,761,124 objects (146 unexplained); most classes sit on the terrain
 // (signals 75-82% within 1 m, junctions 79-88%, crossings 86-93%; mapobjectstub
 // 37%), against roughly half that with the terrain rows flipped. The flag is 0 or
-// 1 (meaning not known); the float after z is not an angle in any obvious unit
-// (-42..154 for mobs; 0 for signals and junctions).
+// 1 (meaning not known). The float after z is a yaw in RADIANS, not wrapped to
+// 0..2pi (-42..154 on the disc): taken mod 90 degrees, 14-45% of non-zero values
+// per class lie within 1 degree of a right angle, against 2.2% for random angles
+// (objects lined up with streets and track). Which way is positive and where 0
+// points are not known. Signals and junctions store 0 (they follow the track).
 #pragma once
 
 #include "content/ObjectContainer.h"
@@ -32,7 +35,7 @@ struct PlacedObject {
     float x = 0;  // metres inside the baseboard, toward +x
     float y = 0;  // metres inside the baseboard, toward +y
     float z = 0;  // height in metres
-    float unknown = 0;  // the float after z
+    float yaw = 0;  // radians, not wrapped; direction and zero axis not known
     std::vector<std::uint8_t> rest;  // everything after the base block (class-specific, not decoded)
 
     double worldX() const;

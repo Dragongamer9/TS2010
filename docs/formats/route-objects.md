@@ -68,7 +68,7 @@ Every `.obs` class seen on the disc starts its payload with the same base block,
 class header that is empty for `mobs` and 8 bytes (`u32 3`, `u32 0xff000000`) for the others:
 
 ```
-[class header]   u8 flag (0 or 1)   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   f32 unknown   ...class-specific
+[class header]   u8 flag (0 or 1)   i16 boardX   i16 boardY   f32 x   f32 y   f32 z   f32 yaw   ...class-specific
 ```
 
 `x`/`y` are metres inside the 720 m baseboard and `z` is the height in metres, as for track
@@ -85,8 +85,18 @@ flipped in brackets as a control):
 | `cmOb` | 3,218 | 1%: not placed on the ground; what it is is not known |
 
 The `flag` byte is 0 or 1 in roughly equal shares and changes nothing measured here
-(meaning not known). The float after `z` is not an angle in any obvious unit (−42…154 for
-`mobs`; 0 for signals and junctions); how objects are rotated is not decoded yet. Junction
+(meaning not known).
+
+**`yaw` is a rotation in radians, not wrapped to 0…2π** (−42…154 on the disc; it seems to
+keep adding up as an object is turned). Evidence: taken modulo 90°, the non-zero values
+fall within 1° of a right angle far more often than random angles would (2.2%):
+`mIND` 45.2%, `mobs` 43.7%, `mBUI` 33.4%, `ttOb` 30.8%, `mFXT` 20.4%, `mOBJ` 17.3%,
+`obCr` 13.6%: objects lined up with streets and track. On the grid-street test route,
+91% of buildings sit at 0, 90, 180 or 270°. Which way a positive yaw turns and which
+direction 0 faces are **not known**. Signals and junctions store 0 here (they presumably
+take their direction from the track). For `mobs` the next two floats (`rest[0..3]`,
+`rest[4..7]`) are almost always 0 and sometimes small (±1.6): perhaps pitch and roll
+(guess, not decoded). Junction
 payloads later contain their names as text ("Single Track", "Airport Junction 2").
 
 ## Track vertices and stretches (observed; reader `src/content/TrackLayout`)
