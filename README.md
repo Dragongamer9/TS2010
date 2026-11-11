@@ -82,7 +82,7 @@ The readers themselves run in CI on real game data (`testdata/ts2010`: `Base.ja`
 Debian packages:
 
 ```sh
-sudo apt install cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev \
+sudo apt install cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev python3 \
   pkg-config libmpg123-dev \
   libjpeg62-turbo-dev   # mpg123 and libjpeg are optional; without them MP3 / JPEG decoding is left out
 ```
