@@ -16,6 +16,8 @@ port can already read and draw.
 | ![](thueringen-overview.png) | "Thüringen Romantik Strecke": every terrain section's built-in 64×64 overview map, stitched | `route-tool overview` |
 | ![](thueringen-track.png) | The same route: terrain heights (black low, white high), placed objects (green) and the track network on top | `route-tool track` |
 | ![](sample-route-objects.png) | The test route with its 10,201 placed objects (dark green dots; signals magenta) under the track | `route-tool track` |
+| ![](midday-manifest-trains.png) | The "Midday Manifest" session's 25 trains (231 vehicles, orange) on its route `<kuid:107727:1019>`, with track, junctions and objects | `route-tool track … --session …` |
+| ![](midday-manifest-yard.png) | Close-up (3×) of the busiest yard: a long train sitting on its track line | `route-tool track … --session …`, cropped |
 | ![](avery-drexel-track.png) | "Avery – Drexel", the disc's largest route that fits one image (30,169 spline pieces) | `route-tool track` |
 
 In the track maps, **red** is every `tkSt` spline piece, which seems to include roads

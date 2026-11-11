@@ -68,7 +68,10 @@ Checked:
 - on the test session "Midday Manifest" (25 trains, 231 vehicles) against its route
   `<kuid:107727:1019>`: every `trackPiece` is one of the route's track stretches, the first
   vehicle stands on that piece's line (0.0 m away), and `distance` is the metres from one
-  end of the piece (all 25 within 1 m). Which end, and `direction`, are not known.
+  end of the piece (all 25 within 1 m). This is **checked on that one 25-train test
+  session only**; it does not establish which end `distance` counts from, what
+  `direction` means, or how placement works on curved track (pieces are compared as
+  straight lines).
 
 The other **826 trains** (in version-1 sessions) don't start with the magic and use an
 older layout, not decoded.

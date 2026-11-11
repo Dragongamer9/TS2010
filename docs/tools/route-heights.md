@@ -58,6 +58,9 @@ top, and writes `<route-folder>.track.png` the same protected way:
 - red: track stretches (`tkSt`); yellow: wrapped stretches (`tkBr`);
 - cyan dots: vertices with 3 or more track pieces (junctions, probably);
 - under the track, placed objects from `mapfile.obs` as dark green dots (signals magenta);
+- with `--session ARCHIVE.ja SESSION_FOLDER`, the session's trains on top: every vehicle at
+  its own stored position as an orange dot (version-5 trains only; see
+  [session.md](../formats/session.md));
 - each piece is a **straight line** between its two vertices: how track curves is not
   decoded, so tight curves look faceted where vertices are far apart.
 

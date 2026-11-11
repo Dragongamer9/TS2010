@@ -16,6 +16,7 @@
 #include "content/GroundFile.h"
 #include "content/ObjectContainer.h"
 #include "content/PlacedObject.h"
+#include "content/SessionFile.h"
 #include "content/TrackLayout.h"
 #include "content/JaArchive.h"
 
@@ -40,16 +41,23 @@ int main(int argc, char** argv) {
         std::cerr << "usage:\n  route-tool info     ARCHIVE.ja ROUTE_FOLDER\n"
                      "  route-tool overview ARCHIVE.ja ROUTE_FOLDER [--out DIR]\n"
                      "  route-tool heights  ARCHIVE.ja ROUTE_FOLDER [--out DIR]\n"
-                     "  route-tool track    ARCHIVE.ja ROUTE_FOLDER [--out DIR]\n";
+                     "  route-tool track    ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--out DIR]\n";
         return 2;
     }
     const std::string cmd = argv[1];
     fs::path outDir;
-    if (argc == 6 && std::string(argv[4]) == "--out") {
-        outDir = argv[5];
-    } else if (argc != 4) {
-        std::cerr << "unexpected arguments\n";
-        return 2;
+    std::string sessionArchive, sessionFolder;
+    for (int i = 4; i < argc; ++i) {
+        const std::string opt = argv[i];
+        if (opt == "--out" && i + 1 < argc) {
+            outDir = argv[++i];
+        } else if (opt == "--session" && i + 2 < argc && cmd == "track") {
+            sessionArchive = argv[++i];
+            sessionFolder = argv[++i];
+        } else {
+            std::cerr << "unexpected argument " << opt << "\n";
+            return 2;
+        }
     }
     try {
         const auto archive = JaArchive::open(argv[2]);
@@ -242,6 +250,41 @@ int main(int argc, char** argv) {
                         }
                         ++junctions;
                     }
+                }
+                // A session's trains on top: every vehicle at its own stored position, orange.
+                std::size_t trains = 0, vehicles = 0;
+                if (!sessionArchive.empty()) {
+                    const auto sa = JaArchive::open(sessionArchive);
+                    const std::string profName = sessionFolder + "/profile.dat";
+                    const JaEntry* pe = sa.find(profName);
+                    if (pe == nullptr) {
+                        throw ContentError("'" + profName + "' is not in " + sessionArchive);
+                    }
+                    const auto prof = parseSessionProfile(sa.readLimited(*pe, std::size_t{256} << 20));
+                    for (const auto& blk : prof.blocks) {
+                        if (!blk.container) {
+                            continue;
+                        }
+                        for (const auto& item : blk.container->items) {
+                            const auto train = decodeTrain(item);
+                            if (!train) {
+                                continue;
+                            }
+                            ++trains;
+                            for (const auto& v : train->vehicles) {
+                                const double px = ((v.boardX * kBaseboardSize + v.x) / kBaseboardSize - minX) * 64.0;
+                                const double py =
+                                    (static_cast<double>(maxY) + 1.0 - (v.boardY * kBaseboardSize + v.y) / kBaseboardSize) * 64.0;
+                                for (int dy = -1; dy <= 1; ++dy) {
+                                    for (int dx = -1; dx <= 1; ++dx) {
+                                        plot(px + dx, py + dy, 255, 140, 0);
+                                    }
+                                }
+                                ++vehicles;
+                            }
+                        }
+                    }
+                    std::printf("session: %zu trains, %zu vehicles (orange)\n", trains, vehicles);
                 }
                 std::printf("track: %zu pieces drawn (red: tkSt, yellow: tkBr), %zu vertices with 3+ links (cyan); "
                             "straight lines between vertices (curves not decoded); %zu placed objects (green, signals "

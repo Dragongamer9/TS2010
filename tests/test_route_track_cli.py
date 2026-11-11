@@ -13,6 +13,7 @@ import zlib
 from pathlib import Path
 
 ROUTE = "hash-fa/kuid 447264 1035"
+SESSION = "hash-e1/kuid 467400 1035"
 
 
 def rgba_rows(png):
@@ -59,6 +60,16 @@ def main():
                 green += px == (20, 120, 40, 255)
         # The route's 790 stretches, 4 tkBr pieces and 38 junction-like vertices all show up.
         assert red > 1000 and yellow > 0 and cyan > 0 and green > 1000, (red, yellow, cyan, green)
+        # --session: the test session's trains are read and counted. Its own route is not
+        # in the test data, so they are drawn on this route only where they happen to fall.
+        r = subprocess.run([tool, "track", str(archive), ROUTE, "--session", str(archive), SESSION, "--out",
+                            str(Path(tmp) / "data/trainz-native/routes/session")],
+                           env=env, capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, r.stderr
+        assert "session: 25 trains, 231 vehicles" in r.stdout, r.stdout
+        r = subprocess.run([tool, "track", str(archive), ROUTE, "--session", str(archive), "no/such/session"],
+                           env=env, capture_output=True, text=True, timeout=120)
+        assert r.returncode != 0 and "profile.dat" in r.stderr, (r.returncode, r.stderr)
     assert (archive.stat().st_mtime_ns, archive.stat().st_size) == before
     print(f"route track CLI checks passed (red {red}, yellow {yellow}, cyan {cyan}, green {green})")
 

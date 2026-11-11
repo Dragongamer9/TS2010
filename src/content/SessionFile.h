@@ -80,6 +80,7 @@ struct Train {
     // Checked on the 25 trains of "Midday Manifest" against its route (kuid:107727:1019):
     // every trackPiece is a tkSt of the route, the first vehicle stands on that
     // piece's line (0.0 m off), and distance is the metres from one end of it.
+    // That is one session; which end, and placement on curved track, are not established.
     std::int32_t trackPiece = 0;
     float distance = 0;
     std::uint32_t direction = 0;  // perhaps which end distance counts from (not checked)
