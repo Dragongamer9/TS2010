@@ -43,6 +43,7 @@ add_library(trainz_content
   src/content/JirfFile.cpp
   src/content/Kuid.cpp
   src/content/MeshFile.cpp
+  src/content/ObjectContainer.cpp
   src/content/Mp3Decoder.cpp
   src/content/ReadOnlyFile.cpp
   src/content/SoundFile.cpp
@@ -164,6 +165,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_corruption.cpp
     tests/test_path_kuid.cpp
     tests/test_real_install.cpp
+    tests/test_route_objects.cpp
     tests/test_safe_output.cpp
     tests/test_sound.cpp
     tests/test_texture.cpp

@@ -14,6 +14,7 @@
 #include "content/AssetIndex.h"
 #include "content/Kuid.h"
 #include "content/MeshFile.h"
+#include "content/ObjectContainer.h"
 #include "content/ReadOnlyFile.h"
 #include "content/SoundFile.h"
 #include "content/TextureDescriptor.h"
@@ -591,4 +592,40 @@ TEST_F(RealInstall, TextureDescriptorsResolve) {
     std::cout << "  texture descriptors: " << descriptors << ", combined: " << combined
               << ", skipped (no libjpeg): " << skippedJpeg << ", problems: " << problems << "\n";
     EXPECT_EQ(problems, 0u);
+}
+
+TEST_F(RealInstall, RouteObjectFilesRead) {
+    // mapfile.obs / mapfile.trk (and profile.* copies): every one reads to its exact end.
+    std::size_t files = 0;
+    std::size_t objects = 0;
+    std::size_t refusedOld = 0;
+    std::size_t failures = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        for (const auto& e : a.entries()) {
+            const bool obs = e.name.size() > 4 && e.name.compare(e.name.size() - 4, 4, ".obs") == 0;
+            const bool trk = e.name.size() > 4 && e.name.compare(e.name.size() - 4, 4, ".trk") == 0;
+            if (!(obs || trk) || !a.isLookupWinner(e)) {
+                continue;
+            }
+            try {
+                const auto f = parseRouteObjectFile(a.readLimited(e, std::size_t{256} << 20));
+                ++files;
+                for (const auto& c : f.containers) {
+                    objects += c.items.size();
+                }
+            } catch (const ContentError& err) {
+                const std::string why = err.what();
+                if (why.find("version 2") != std::string::npos) {
+                    ++refusedOld;  // the old robescenario route; not handled yet
+                } else {
+                    ++failures;
+                    std::cout << "  " << e.name << ": " << why << "\n";
+                }
+            }
+        }
+    }
+    std::cout << "  route object files: " << files << ", objects: " << objects
+              << ", old container v2 refused: " << refusedOld << "\n";
+    EXPECT_EQ(failures, 0u);
 }

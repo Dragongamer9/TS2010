@@ -17,6 +17,7 @@
 #pragma once
 
 #include "Kuid.h"
+#include "ObjectContainer.h"
 
 #include <cstdint>
 #include <span>
@@ -46,13 +47,9 @@ struct GroundEnvKey {
     float colourB[3][4] = {};
 };
 
-// Object container (vtable+0x28 = 0x886be0 on the object at world+0x803c).
-struct GroundContainerItem {
-    std::int32_t index = 0;  // looked up in the container (0x88698b)
-    std::string tag;         // class tag, stored reversed like the section tags (e.g. "Rule")
-    Kuid kuid;
-    std::vector<std::uint8_t> payload;  // object data; the game checks it ends at its size (0x886b8f)
-};
+// Object container (vtable+0x28 = 0x886be0 on the object at world+0x803c); the same
+// container mapfile.obs / .trk use, so the item type is shared.
+using GroundContainerItem = ObjectItem;
 
 // The world data between the index and the first section (file loader
 // 0x6d2aa0 from 0x6d2cc7 on). TRACED; CHECKED on all 50 disc mapfile.gnd.

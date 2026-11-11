@@ -284,40 +284,14 @@ GroundWorld parseGroundWorld(std::span<const std::uint8_t> worldData, std::uint8
     }
     if (version >= 8) {
         // Object container, 0x886be0 (called from 0x6da060 with flags 1, 0).
-        w.containerVersion = r.u32();
-        if (w.containerVersion >= 1 && w.containerVersion <= 5) {
-            if (w.containerVersion >= 5) {
-                w.containerWord = r.u32();
-            }
-            if (w.containerVersion == 2) {
-                throw ContentError("world object container version 2 is not handled (items are not self-sized)");
-            }
-            if (w.containerVersion >= 3) {
-                for (;;) {  // 0x886800: items until an index of -1
-                    GroundContainerItem it;
-                    it.index = r.i32();
-                    if (it.index == -1) {
-                        break;
-                    }
-                    const std::uint32_t tag = r.u32();
-                    for (int k = 3; k >= 0; --k) {
-                        it.tag.push_back(static_cast<char>((tag >> (8 * k)) & 0xFF));
-                    }
-                    it.kuid = r.kuid();
-                    const std::uint32_t size = r.u32();
-                    if (size > 0xFFFFFF) {  // 0x8869b8
-                        throw ContentError("world object of " + std::to_string(size) + " bytes");
-                    }
-                    it.payload = r.bytes(size);
-                    w.items.push_back(std::move(it));
-                }
-            }
-            if (w.containerVersion >= 4) {
-                // 0x8858d0: u32 size, then size bytes. With these flags the game seeks past them.
-                const std::uint32_t size = r.u32();
-                w.containerTail = r.bytes(size);
-            }
-        }
+        // Object container (0x886be0), shared with mapfile.obs / .trk: see ObjectContainer.h.
+        std::size_t cpos = r.pos();
+        ObjectContainer c = readObjectContainer(worldData, cpos);
+        (void)r.bytes(cpos - r.pos());
+        w.containerVersion = c.version;
+        w.containerWord = c.word;
+        w.items = std::move(c.items);
+        w.containerTail = std::move(c.tail);
     }
     if (version < 13) {
         // Ground-texture table, 0x6d2db8..0x6d2ef8: at most 250 entries (0x1f40 / 0x20).
