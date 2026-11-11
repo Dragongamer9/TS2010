@@ -280,10 +280,10 @@ bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& bas
                     st.width = pick->width, st.height = pick->height;
                     st.rgba = decodeToRgba8(*pick, tex.info.format);
                     st.alphaTest = wantsAlphaTest(st.rgba);
-                    for (const MipLevel* m = pick + 1; m < tex.mips.data() + tex.mips.size(); ++m) {
+                    for (const MipLevel* lower = pick + 1; lower < tex.mips.data() + tex.mips.size(); ++lower) {
                         SceneTexture smaller;  // the file's own smaller mips, for distant surfaces
-                        smaller.width = m->width, smaller.height = m->height;
-                        smaller.rgba = decodeToRgba8(*m, tex.info.format);
+                        smaller.width = lower->width, smaller.height = lower->height;
+                        smaller.rgba = decodeToRgba8(*lower, tex.info.format);
                         st.smaller.push_back(std::move(smaller));
                     }
                     if (st.width > 0 && st.height > 0 && st.rgba.size() == std::size_t{st.width} * st.height * 4) {
