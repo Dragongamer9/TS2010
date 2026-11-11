@@ -47,4 +47,30 @@ void FlyCamera::turn(double dHeading, double dPitch) {
     pitch = std::clamp(pitch + dPitch, -kMaxPitch, kMaxPitch);
 }
 
+bool applyFlyControls(FlyCamera& cam, const FlyControls& c, double seconds, const FlySpeeds& s) {
+    auto axis = [](double v) { return std::isfinite(v) ? std::clamp(v, -1.0, 1.0) : 0.0; };
+    auto finite = [](double v) { return std::isfinite(v) ? v : 0.0; };
+    const double dt = std::isfinite(seconds) ? std::clamp(seconds, 0.0, 0.5) : 0.0;
+    const double v = s.metresPerSecond * (c.fast ? s.fastFactor : 1.0) * dt;
+    const double fwd = axis(c.forward) * v + finite(c.wheel) * s.metresPerWheelStep * (c.fast ? s.fastFactor : 1.0);
+    const double side = axis(c.right) * v, rise = axis(c.up) * v;
+    const double yaw = axis(c.turnLeft) * s.turnPerSecond * dt - finite(c.mouseDx) * s.mousePerPixel;
+    const double pitch = axis(c.lookUp) * s.lookPerSecond * dt - finite(c.mouseDy) * s.mousePerPixel;
+    if (fwd == 0 && side == 0 && rise == 0 && yaw == 0 && pitch == 0) {
+        return false;
+    }
+    cam.move(fwd, side, rise);
+    cam.turn(yaw, pitch);
+    return true;
+}
+
+double stickAxis(int raw, double deadZone) {
+    const double v = std::clamp(raw / 32767.0, -1.0, 1.0);
+    const double dz = std::isfinite(deadZone) ? std::clamp(deadZone, 0.0, 0.95) : 0.15;
+    if (std::fabs(v) <= dz) {
+        return 0;
+    }
+    return (v > 0 ? v - dz : v + dz) / (1 - dz);  // rescaled so the edge of the dead zone is 0
+}
+
 }  // namespace trainz::view

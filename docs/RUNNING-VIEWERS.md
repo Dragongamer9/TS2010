@@ -114,6 +114,16 @@ whole install takes a few seconds.
 | Shift (held) | 5× faster |
 | R | back to the start view |
 | Esc | quit |
+| Right mouse button + drag | look around |
+| Mouse wheel | forward / back (10 m a step) |
+| Gamepad left stick | move |
+| Gamepad right stick | look |
+| Gamepad triggers | down (left) / up (right) |
+| Gamepad A (bottom button), held | 5× faster |
+| Gamepad Start | back to the start view |
+
+A gamepad SDL knows (Xbox- or PlayStation-style) can be plugged in while the viewer runs.
+None of this is the game's own controls; these are the viewer's.
 
 The window title shows the camera position and how long the last frame took.
 

@@ -14,6 +14,9 @@
 // SDL_VIDEODRIVER=offscreen no window appears.
 // Keys: W/S or Up/Down forward/back, A/D sideways, Left/Right turn, PgUp/PgDn look up/down,
 // Q/E down/up, Shift = 5x faster, R = back to the start view, Esc = quit.
+// Mouse: hold the right button and drag to look; the wheel moves forward/back.
+// Gamepad: left stick moves, right stick looks, triggers down/up, A (south button) = faster,
+// Start = back to the start view.
 // Read-only: it opens the archives for reading and writes nothing.
 
 #include "common/StrictNumber.h"
@@ -47,7 +50,8 @@ int main(int argc, char** argv) {
                      "       route-viewer ARCHIVE.ja ROUTE_FOLDER [--session ARCHIVE.ja SESSION_FOLDER] [--install DIR]\n"
                      "                    [--at X Y] [--radius M]\n"
                      "keys: W/S or Up/Down forward/back, A/D sideways, Left/Right turn, PgUp/PgDn look up/down,\n"
-                     "      Q/E down/up, Shift 5x faster, R start view, Esc quit\n";
+                     "      Q/E down/up, Shift 5x faster, R start view, Esc quit\n"
+                     "mouse: right button + drag to look, wheel forward/back; gamepad: sticks, triggers, A faster\n";
         return 2;
     }
     std::string sessionArchive, sessionFolder, installDir, routeQuery, sessionQuery;
@@ -199,7 +203,7 @@ int main(int argc, char** argv) {
         std::printf("%zu triangles, %zu sections, %zu objects as models\n", view.scene.triangles.size(), view.sections,
                     view.objectsAsMeshes);
 
-        if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0 && SDL_Init(SDL_INIT_VIDEO) != 0) {
             std::cerr << "SDL_Init failed: " << SDL_GetError() << "\n";
             return 1;
         }
@@ -218,7 +222,17 @@ int main(int argc, char** argv) {
         auto cam = start;
         bool dirty = true, running = true;
         Uint32 last = SDL_GetTicks();
+        SDL_GameController* pad = nullptr;  // the first gamepad SDL knows, if any
+        auto openPad = [&]() {
+            for (int j = 0; pad == nullptr && j < SDL_NumJoysticks(); ++j) {
+                if (SDL_IsGameController(j)) {
+                    pad = SDL_GameControllerOpen(j);
+                }
+            }
+        };
+        openPad();
         while (running) {
+            trainz::view::FlyControls ctl;
             SDL_Event ev;
             while (SDL_PollEvent(&ev)) {
                 if (ev.type == SDL_QUIT || (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE)) {
@@ -227,25 +241,45 @@ int main(int argc, char** argv) {
                     cam = start, dirty = true;
                 } else if (ev.type == SDL_WINDOWEVENT) {
                     dirty = true;
+                } else if (ev.type == SDL_MOUSEMOTION && (ev.motion.state & SDL_BUTTON_RMASK) != 0) {
+                    ctl.mouseDx += ev.motion.xrel, ctl.mouseDy += ev.motion.yrel;
+                } else if (ev.type == SDL_MOUSEWHEEL) {
+                    ctl.wheel += ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -ev.wheel.y : ev.wheel.y;
+                } else if (ev.type == SDL_CONTROLLERDEVICEADDED) {
+                    openPad();
+                } else if (ev.type == SDL_CONTROLLERDEVICEREMOVED && pad != nullptr &&
+                           ev.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad))) {
+                    SDL_GameControllerClose(pad);
+                    pad = nullptr;
+                } else if (ev.type == SDL_CONTROLLERBUTTONDOWN && ev.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
+                    cam = start, dirty = true;
                 }
             }
             const Uint32 now = SDL_GetTicks();
             const double dt = std::min(0.5, (now - last) / 1000.0);
             last = now;
             const Uint8* k = SDL_GetKeyboardState(nullptr);
-            const double speed = ((k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT]) ? 150.0 : 30.0) * dt;  // m/s
-            const double fwd = (k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP] ? 1 : 0) - (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN] ? 1 : 0);
-            const double side = (k[SDL_SCANCODE_D] ? 1 : 0) - (k[SDL_SCANCODE_A] ? 1 : 0);
-            const double up = (k[SDL_SCANCODE_E] ? 1 : 0) - (k[SDL_SCANCODE_Q] ? 1 : 0);
-            const double yaw = (k[SDL_SCANCODE_LEFT] ? 1 : 0) - (k[SDL_SCANCODE_RIGHT] ? 1 : 0);
-            const double look = (k[SDL_SCANCODE_PAGEUP] ? 1 : 0) - (k[SDL_SCANCODE_PAGEDOWN] ? 1 : 0);
+            ctl.fast = k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT];
+            ctl.forward = (k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP] ? 1 : 0) - (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN] ? 1 : 0);
+            ctl.right = (k[SDL_SCANCODE_D] ? 1 : 0) - (k[SDL_SCANCODE_A] ? 1 : 0);
+            ctl.up = (k[SDL_SCANCODE_E] ? 1 : 0) - (k[SDL_SCANCODE_Q] ? 1 : 0);
+            ctl.turnLeft = (k[SDL_SCANCODE_LEFT] ? 1 : 0) - (k[SDL_SCANCODE_RIGHT] ? 1 : 0);
+            ctl.lookUp = (k[SDL_SCANCODE_PAGEUP] ? 1 : 0) - (k[SDL_SCANCODE_PAGEDOWN] ? 1 : 0);
+            if (pad != nullptr) {  // sticks add to the keys (applyFlyControls clamps the sums)
+                using trainz::view::stickAxis;
+                ctl.forward -= stickAxis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY));
+                ctl.right += stickAxis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX));
+                ctl.turnLeft -= stickAxis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX));
+                ctl.lookUp -= stickAxis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY));
+                ctl.up += stickAxis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT)) -
+                         stickAxis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT));
+                ctl.fast = ctl.fast || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A) != 0;
+            }
             if (frames > 0) {  // test mode: turn a little every frame
                 cam.turn(0.05, 0);
                 dirty = true;
             }
-            if (fwd != 0 || side != 0 || up != 0 || yaw != 0 || look != 0) {
-                cam.move(fwd * speed, side * speed, up * speed);
-                cam.turn(yaw * 1.2 * dt, look * 0.8 * dt);  // radians per second
+            if (trainz::view::applyFlyControls(cam, ctl, dt)) {
                 dirty = true;
             }
             if (dirty) {
@@ -267,6 +301,9 @@ int main(int argc, char** argv) {
             } else {
                 SDL_Delay(15);
             }
+        }
+        if (pad != nullptr) {
+            SDL_GameControllerClose(pad);
         }
         SDL_DestroyTexture(tex);
         SDL_DestroyRenderer(ren);

@@ -52,7 +52,8 @@ files, and exports plain WAVs (MP3 needs a build with `libmpg123-dev`);
 `sound-player ARCHIVE NAME` plays one through SDL2 ([`docs/formats/sound.md`](docs/formats/sound.md)).
 
 `route-viewer --install DIR --list`, then `route-viewer --install DIR --session NAME` (or `--route NAME`;
-SDL2) opens a window and lets you fly around a route (keys: W/A/S/D, arrows, Page Up/Down, Q/E, Shift, R, Esc), drawn by the port's own
+SDL2) opens a window and lets you fly around a route (keys: W/A/S/D, arrows, Page Up/Down, Q/E, Shift, R, Esc; mouse: right-drag to look, wheel;
+a gamepad's sticks and triggers), drawn by the port's own
 software renderer; see [`docs/RUNNING-VIEWERS.md`](docs/RUNNING-VIEWERS.md). `cmake --install build --prefix ~/.local`
 installs the tools and a menu entry; the `trainz-route-viewer` launcher (after `--set-install /path/to/TS2010`)
 lists the routes and opens one by name.

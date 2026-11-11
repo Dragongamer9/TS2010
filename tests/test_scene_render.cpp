@@ -841,3 +841,53 @@ TEST(RouteCatalog, FindByNameOrKuid) {
     const std::vector<const CatalogEntry*> one = {&v1};
     EXPECT_EQ(findEntry(one, "<kuid2:9:9:7>", cand), &v1);  // the only installed version
 }
+
+TEST(FlyCamera, ControlsFromKeysMouseAndSticks) {
+    FlyCamera cam;  // at the origin, heading +x, level
+    FlyControls none;
+    EXPECT_FALSE(applyFlyControls(cam, none, 0.1));
+
+    FlyControls go;
+    go.forward = 1;
+    EXPECT_TRUE(applyFlyControls(cam, go, 0.5));
+    EXPECT_NEAR(cam.position.x, 15, 1e-9);  // 30 m/s for half a second
+    go.fast = true;
+    applyFlyControls(cam, go, 0.1);
+    EXPECT_NEAR(cam.position.x, 30, 1e-9);  // 5x faster
+    go.forward = 7;  // key + stick sums are clamped to full speed
+    go.fast = false;
+    applyFlyControls(cam, go, 0.1);
+    EXPECT_NEAR(cam.position.x, 33, 1e-9);
+    applyFlyControls(cam, go, 30);  // a long pause counts as half a second at most
+    EXPECT_NEAR(cam.position.x, 48, 1e-9);
+
+    FlyControls wheel;
+    wheel.wheel = 2;  // wheel steps move without time
+    applyFlyControls(cam, wheel, 0);
+    EXPECT_NEAR(cam.position.x, 68, 1e-9);
+
+    FlyControls mouse;
+    mouse.mouseDx = 100;  // dragging right turns right (clockwise)
+    mouse.mouseDy = -50;  // dragging up looks up
+    applyFlyControls(cam, mouse, 0);
+    EXPECT_NEAR(cam.heading, -0.4, 1e-9);
+    EXPECT_NEAR(cam.pitch, 0.2, 1e-9);
+
+    FlyControls bad;
+    bad.forward = std::numeric_limits<double>::quiet_NaN();
+    bad.mouseDx = std::numeric_limits<double>::infinity();
+    const auto before = cam.position;
+    EXPECT_FALSE(applyFlyControls(cam, bad, 0.1));
+    EXPECT_DOUBLE_EQ(cam.position.x, before.x);
+}
+
+TEST(FlyCamera, StickDeadZone) {
+    EXPECT_DOUBLE_EQ(stickAxis(0), 0);
+    EXPECT_DOUBLE_EQ(stickAxis(3000), 0);  // inside the 15% dead zone
+    EXPECT_DOUBLE_EQ(stickAxis(-3000), 0);
+    EXPECT_NEAR(stickAxis(32767), 1, 1e-12);
+    EXPECT_NEAR(stickAxis(-32768), -1, 1e-12);  // clamped
+    EXPECT_NEAR(stickAxis(static_cast<int>(32767 * 0.575)), 0.5, 1e-4);  // halfway between the dead zone and the edge
+    EXPECT_DOUBLE_EQ(stickAxis(20000, 0.99), 0);  // dead zone held below 0.95: 20000 is ~0.61
+    EXPECT_GT(stickAxis(32767, std::numeric_limits<double>::quiet_NaN()), 0.99);
+}
