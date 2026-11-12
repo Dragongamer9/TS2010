@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
 
 namespace trainz::content {
@@ -19,6 +20,15 @@ std::optional<double> number(const ConfigNode* n) {
         return n->ints[0];
     }
     return std::nullopt;
+}
+
+std::optional<int> nonnegativeCount(const ConfigNode* node) {
+    const auto value = number(node);
+    if (!value || !std::isfinite(*value) || *value < 0 ||
+        *value > static_cast<double>(std::numeric_limits<int>::max()) || std::floor(*value) != *value) {
+        return std::nullopt;
+    }
+    return static_cast<int>(*value);
 }
 
 bool numericKey(const std::string& k, double& v) {
@@ -109,12 +119,8 @@ EngineSpec parseEngineSpec(const ConfigNode& root) {
         e.resistance = number(m->child("resistance"));
         e.maxSpeed = number(m->child("maxspeed"));
         e.brakeRatio = number(m->child("brakeratio"));
-        if (const auto a = number(m->child("axle-count"))) {
-            e.axleCount = static_cast<int>(*a);
-        }
-        if (const auto t = number(m->child("throttle-notches"))) {
-            e.throttleNotches = static_cast<int>(*t);
-        }
+        e.axleCount = nonnegativeCount(m->child("axle-count"));
+        e.throttleNotches = nonnegativeCount(m->child("throttle-notches"));
     }
     e.throttlePower = curves(root.child("throttle-power"));
     e.dynamicBrake = curves(root.child("dynamic-brake"));

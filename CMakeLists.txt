@@ -250,6 +250,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_archive.cpp
     tests/test_asset_config.cpp
     tests/test_asset_index.cpp
+    tests/test_engine_spec.cpp
     tests/test_cfil.cpp
     tests/test_ground.cpp
     tests/test_image.cpp
