@@ -58,7 +58,7 @@ Track geometry in `mapfile.trk` consists of stretches (`tkSt`, `tkBr`) connectin
   - `3 links`: 12,242 vertices (standard turnouts / junctions).
   - `4 links`: 421 vertices (crossings / double slips).
   - `0 links`: 13 vertices.
-- **Junction Correlation**: The 12,242 vertices with 3 links closely match the 10,138 `jnOb` (`mojunction`) objects across the 50 disc routes (difference accounted for by routes without explicit switch lever objects, or complex multi-piece junction nodes).
+- **Junction Correlation**: 12,242 three-link vertices against 10,138 `jnOb`. Why the numbers differ is not yet known (guesses: routes without lever objects, junctions built from several pieces).
 - **Test Route Verification**: On the real test route (`ROADMAP.md` step 8, `tools/route_tool.cpp`), `route-tool track` identifies **38 junction-like vertices** (vertices with $\ge 3$ links, plotted as cyan dots) connecting 794 track pieces.
 
 ### 2.2 Vertex Link Flags and Curvature
@@ -93,7 +93,7 @@ In `src/sim/TrackNetwork.{h,cpp}`:
 |---|---|---|---|
 | **`jnOb` / `mojunction` registration** | **Known** | `trainz.exe` factory registration at `0x807eb0` | Factory binds tag `jnOb` to class `mojunction`. 10,138 objects on disc. |
 | **`sgOb` / `mosignal` registration** | **Known** | `trainz.exe` factory registration at `0x807eb0` | Factory binds tag `sgOb` to class `mosignal`. 13,806 objects on disc. |
-| **Class base block & position** | **Known** | `src/content/PlacedObject.{h,cpp}`, verified on 50 disc routes | 8-byte header (`0x03`, `0xff000000`), board coordinates, x/y/z offsets. 75–88% sit within 1 m of ground. |
+| **Class base block & position** | **Known** | `src/content/PlacedObject.{h,cpp}`, verified on 50 disc routes | 8-byte header (`0x03`, `0xff000000`), board coordinates, x/y/z offsets (75–82% for signals near ground; 79–97% for five classes together near nearest vertex). |
 | **Signal/junction yaw convention** | **Known** | Disc survey across all 10,138 junctions and 13,806 signals | Always stored as `0.0`. Rotation is not stored in the object record. |
 | **Junction vertex topology** | **Guess** | `src/content/TrackLayout.{h,cpp}`, verified on all 50 routes | Vertices with $\ge 3$ links represent junctions (12,242 3-way, 421 4-way on disc; 38 on test route; "3 links = junction" is a guess). |
 | **Turnout diverging legs** | **Known** | Disc survey of 13,387 same-flag vertex link pairs | Same link flag denotes pieces branching from the same side of the vertex (83% within 30°). |
