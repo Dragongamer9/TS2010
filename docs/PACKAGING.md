@@ -119,7 +119,7 @@ version set, then run CPack:
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DTRAINZ_PACKAGE_VERSION=YOUR_VERSION_HERE
 cmake --build build --parallel
-cpack --config build/CPackConfig.cmake -G DEB
+cpack --config build/CPackConfig.cmake -G DEB -B build
 ```
 
 The `.deb` appears in `build/`. Check what it contains:

@@ -95,7 +95,7 @@ jobs:
           # CI-only version: starts with a digit (dpkg requires that) and is not a release.
           # Owner sets the real TRAINZ_PACKAGE_VERSION; never invent one for shipping.
           cmake -S . -B build -DTRAINZ_PACKAGE_VERSION='0~ci'
-          cpack --config build/CPackConfig.cmake -G DEB
+          cpack --config build/CPackConfig.cmake -G DEB -B build  # the .deb goes into build/
           deb=$(ls build/trainz-native-0-ci_0~ci_amd64.deb)
           test -f "$deb"
           dpkg-deb -c "$deb" | tee deb-contents.txt
