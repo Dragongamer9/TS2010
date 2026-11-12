@@ -899,5 +899,5 @@ TEST(SceneRender, GlossAndReflectAlphaIsNotACutOut) {
     EXPECT_FALSE(materialMayCutOut("m.gloss"));
     EXPECT_FALSE(materialMayCutOut("M.Gloss"));
     EXPECT_FALSE(materialMayCutOut("m.tbumpgloss"));
-    EXPECT_FALSE(materialMayCutOut("m.reflect"));
+    EXPECT_TRUE(materialMayCutOut("m.reflect"));  // documented: diffuse alpha = opacity
 }

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Trainz Route Viewer (TS2010 port)
+Name=@TRAINZ_DESKTOP_NAME@
 Comment=Fly around a TS2010 route, drawn from the game's own files
-Exec=trainz-route-viewer
+Exec="%%BINDIR%%/trainz-route-viewer"
 Terminal=true
 Categories=Game;Simulation;

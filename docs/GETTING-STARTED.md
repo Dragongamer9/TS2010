@@ -8,8 +8,12 @@ You need to install some building tools first. Open the terminal and run:
 
 ```sh
 sudo apt update
-sudo apt install cmake ninja-build g++ libsdl2-dev libgl-dev python3 pkg-config
+sudo apt install cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev python3 \
+  pkg-config libmpg123-dev libjpeg62-turbo-dev
 ```
+
+(This is the same list as in `RUNNING-VIEWERS.md`. `libmpg123-dev` and `libjpeg62-turbo-dev`
+are optional: without them it still builds, but MP3 sounds and `.jpg` pictures are refused.)
 
 ## Building the viewer
 
@@ -38,7 +42,9 @@ trainz-route-viewer --set-install /path/to/TS2010
 
 ## Using the viewer
 
-Find **Trainz Route Viewer (TS2010 port)** in your applications menu and click it. A terminal window will open, showing your routes and sessions. Pick one, and a new window will open where you can fly around and look at the route.
+Find **Trainz Route Viewer (TS2010 port)** in your applications menu and click it. A terminal window will open, showing your routes and sessions. Type a name (or part of one) and press Enter, and a new window will open where you can fly around and look at the route.
+
+From a terminal you can do it in one go: `trainz-route-viewer "Midday Manifest"` (a session's name, or a route's). If a name fits more than one, it lists them; use the one you mean, or its KUID.
 
 The viewer uses its own renderer, so expect roughly 5–15 frames per second. It’s for checking what the port reads, not for playing.
 

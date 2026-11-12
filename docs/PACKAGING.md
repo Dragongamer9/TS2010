@@ -94,17 +94,21 @@ still installed).
 /opt/trainz-native/<version>/share/applications/trainz-route-viewer.desktop
 ```
 
-Desktop menus do not scan `/opt` by default. To show one version in the menu,
-copy that file into `~/.local/share/applications/` (a name that includes the
-version helps when several are installed) and set `Exec=` to the **full path** of
-that version’s launcher, for example:
+It is written at install time with `Exec=` already set to the **full path** of that
+version's launcher (`Exec="/opt/trainz-native/<version>/bin/trainz-route-viewer"`) and a
+`Name=` that ends with the version (e.g. "Trainz Route Viewer (TS2010 port) <version>").
+Desktop menus do not scan `/opt`, so to show a version in the menu, copy its file unchanged
+under a name of its own:
 
-```text
-Exec=/opt/trainz-native/<version>/bin/trainz-route-viewer
+```sh
+cp /opt/trainz-native/<version>/share/applications/trainz-route-viewer.desktop \
+   ~/.local/share/applications/trainz-route-viewer-<version>.desktop
 ```
 
-Each menu entry then starts exactly one version; they do not share a single
-`/usr` path.
+Each menu entry then starts exactly one version; several can be in the menu side by side,
+and they do not share a single `/usr` path. (With `cmake --install build --prefix ~/.local`
+the entry lands in `~/.local/share/applications/` itself, pointing at `~/.local/bin`; CI
+checks both cases.)
 
 ## Build the .deb
 

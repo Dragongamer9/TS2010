@@ -170,9 +170,29 @@ foreach(viewer route-viewer model-viewer sound-player key-tester)
     install(TARGETS ${viewer} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
   endif()
 endforeach()
+# Version numbers are the owner's (see the CPack section at the end and docs/PACKAGING.md).
+set(TRAINZ_PACKAGE_VERSION "OWNER_SET_VERSION" CACHE STRING
+    "Debian package version (owner sets this; never invent one)")
 if(TARGET route-viewer)
   install(PROGRAMS tools/launcher/trainz-route-viewer DESTINATION ${CMAKE_INSTALL_BINDIR})
-  install(FILES tools/launcher/trainz-route-viewer.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+  # The menu entry runs the launcher by its full path (the menu does not search ~/.local/bin
+  # or /opt), so it is written at install time, when the real prefix is known: `cmake --install
+  # --prefix DIR` and CPack's /opt/trainz-native/<version> both work. Its name carries the
+  # package version when one is set, so several versions can sit in one menu.
+  if(TRAINZ_PACKAGE_VERSION STREQUAL "OWNER_SET_VERSION")
+    set(TRAINZ_DESKTOP_NAME "Trainz Route Viewer (TS2010 port)")
+  else()
+    set(TRAINZ_DESKTOP_NAME "Trainz Route Viewer (TS2010 port) ${TRAINZ_PACKAGE_VERSION}")
+  endif()
+  configure_file(tools/launcher/trainz-route-viewer.desktop.in
+                 ${CMAKE_CURRENT_BINARY_DIR}/launcher/trainz-route-viewer.desktop.in @ONLY)
+  install(CODE "
+    file(READ \"${CMAKE_CURRENT_BINARY_DIR}/launcher/trainz-route-viewer.desktop.in\" trainz_desktop)
+    string(REPLACE \"%%BINDIR%%\" \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\" trainz_desktop \"\${trainz_desktop}\")
+    file(WRITE \"${CMAKE_CURRENT_BINARY_DIR}/launcher/out/trainz-route-viewer.desktop\" \"\${trainz_desktop}\")
+    file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/applications\" TYPE FILE
+         FILES \"${CMAKE_CURRENT_BINARY_DIR}/launcher/out/trainz-route-viewer.desktop\")
+  ")
 endif()
 
 if(TRAINZ_BUILD_TESTS)
@@ -252,8 +272,7 @@ endif()
 # Each version is its own package name and lives under
 # /opt/trainz-native/<version>/, so an older install stays startable beside a
 # newer one (no shared paths, no Conflicts on the previous package).
-set(TRAINZ_PACKAGE_VERSION "OWNER_SET_VERSION" CACHE STRING
-    "Debian package version (owner sets this; never invent one)")
+# TRAINZ_PACKAGE_VERSION is defined with the install rules above.
 # Debian package *names* may not contain '~' (versions may). Map '~' → '-' in the name only.
 string(REPLACE "~" "-" TRAINZ_PACKAGE_NAME_VERSION "${TRAINZ_PACKAGE_VERSION}")
 set(CPACK_GENERATOR "DEB")
@@ -266,11 +285,15 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
 set(CPACK_PACKAGE_DESCRIPTION
     "Command-line tools and a route viewer that read a Trainz Simulator 2010 install. Not the playable game.")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/trainz-native/${TRAINZ_PACKAGE_VERSION}")
+# Install with CMAKE_INSTALL_PREFIX = that prefix and the staging folder as DESTDIR, so the
+# menu entry written at install time names /opt/trainz-native/<version>/bin, not the staging path.
+set(CPACK_SET_DESTDIR ON)
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Dragongamer9")
 set(CPACK_DEBIAN_PACKAGE_SECTION "games")
 set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+# Debian 13 renamed libmpg123-0 to libmpg123-0t64 (both names exist on Hearth OS).
 set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libsdl2-2.0-0, libgl1, libmpg123-0, libjpeg62-turbo")
+    "libsdl2-2.0-0, libgl1, libmpg123-0t64 | libmpg123-0, libjpeg62-turbo")
 # No Conflicts/Replaces on other trainz-native-* versions: they must coexist.
 include(CPack)

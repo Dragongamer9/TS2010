@@ -4,7 +4,7 @@
 
 `[███████░░░░░░░░░░░░░]`
 
-*Last updated: 2026-11-12, after the material survey (step 6).*
+*Last updated: 2026-11-12, after the Debian package (step 16).*
 
 This file is updated with every change that moves the project forward. The
 percentage is a **weighted estimate**, not a measurement: see
@@ -49,12 +49,12 @@ percentage is a **weighted estimate**, not a measurement: see
 | 13 | Train simulation: physics, brakes, coupling, signals, AI drivers | 15 | 0% | owner / other | **Not mapped at all yet**; it's in `trainz.exe` with no symbols. |
 | 14 | Game UI (menus, Surveyor, driver HUD) and the in-game HTML pages | 8 | 0% | owner / other | The game uses an embedded Gecko browser for its pages. |
 | 15 | Networking / Download Station / iTrainz chat | 3 | 0% | owner / other | Optional; 2010 servers probably gone (not checked). |
-| 16 | Packaging and launcher for Hearth OS (menu entry, data folder, settings) | 3 | 30% | Claude | `cmake --install` puts the tools in `PREFIX/bin` and a menu entry in `PREFIX/share/applications` (checked in CI). Launcher `trainz-route-viewer`: remembers the TS2010 folder only when told (`--set-install`, written to `~/.local/share/trainz-native/install-dir`), lists routes and sessions, opens one by name (tested). **Missing:** a Debian package, the game itself to launch, an update path that keeps the previous version startable. Must keep any previous version startable. |
+| 16 | Packaging and launcher for Hearth OS (menu entry, data folder, settings) | 3 | 55% | Claude | `cmake --install` puts the tools in `PREFIX/bin` and a menu entry in `PREFIX/share/applications` (checked in CI). Launcher `trainz-route-viewer`: remembers the TS2010 folder only when told (`--set-install`, written to `~/.local/share/trainz-native/install-dir`), lists routes and sessions, opens one by name (tested). **Debian package** (CPack, [`docs/PACKAGING.md`](docs/PACKAGING.md)): each version is its own package under `/opt/trainz-native/<version>/` with no shared `/usr` files, so older versions stay installed and startable; its menu entry names that version and runs its launcher by full path. Built and checked in CI with a CI-only version `0~ci`; the real version is the owner's. **Missing:** installing a package on a real system (not done yet), the game itself to launch, an updater. Must keep any previous version startable. |
 | 17 | Validation on Dad's PC (real-install tests, full archive verify, speed on the hard drive) | 4 | 40% | Claude + owner | **Started:** real game data in the private repo (`testdata/ts2010`), all `RealInstall.*` tests run in CI with a full decode. **Missing:** the same tests on Dad's full install, speed on his hard drive. **Whole disc surveyed** (170,167 Builtin entries plus Base/Data scans; [`docs/DISC-SURVEY.md`](docs/DISC-SURVEY.md)). |
 | | **Total** | **102** | | | |
 
-**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.65 + 4×0.85 + 8×0.65 + 6×0.10 + 4×0.60 + 10×0.85 + 4×0.50 + 2×0.60 + 4×0.60 + 3×0.30 + 4×0.40) ÷ 102 =
-37.35 ÷ 102 = 36.62% → **37%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
+**Overall** = Σ(weight × done) ÷ Σ(weight) = (2×0.65 + 3×0.90 + 3×0.85 + 4×0.65 + 4×0.85 + 8×0.65 + 6×0.10 + 4×0.60 + 10×0.85 + 4×0.50 + 2×0.60 + 4×0.60 + 3×0.55 + 4×0.40) ÷ 102 =
+38.10 ÷ 102 = 37.35% → **37%**. The parts Claude doesn't write (steps 12–15) carry 41 of the
 102 weight points.
 
 ---
@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-12 | 37% | Step 16 (30% → 55%): Debian package via CPack (Cursor): versioned package names and `/opt/trainz-native/<version>/` folders that never share files, so versions install side by side; CI builds it with the CI-only version `0~ci` and checks its contents. Checked and completed by Claude: the menu entry is now written at install time with the launcher's full path and the version in its name (it said `Exec=trainz-route-viewer`, which the menu cannot find in `/opt` or `~/.local/bin`), `CPACK_SET_DESTDIR` so it names `/opt/...` not the staging folder, the Debian 13 library name `libmpg123-0t64`. Getting-started guide for Dad (Mistral; its package list corrected to the one the build needs). `m.reflect` alpha treated as opacity after all, as documented (Perplexity's sources; all 3,897 disc `m.reflect` colour maps are solid or smooth, so nothing changes); `m.gloss`/`m.tbumpgloss` stay non-cut-out, now documented ([`docs/research/materials.md`](docs/research/materials.md)). Overall 37.35 → 38.10 ÷ 102 = 37.35% → 37%. |
 | 2026-11-12 | 37% | Step 6 (0% → 10%): material kinds surveyed on all 108,674 disc mesh parts (m.onetex 95,441, m.reflect 8,162, m.tbumptex 1,343, m.notex 822, m.gloss 422, m.tbumpgloss 172, none 312), with texture slots and colour-alpha samples. `m.gloss` alpha is mostly smooth (a gloss amount, inferred), and the cut-out rule would have cut holes in 113 sampled ones: gloss and reflect materials are never cut out now (`materialMayCutOut`). Overall 36.75 → 37.35 ÷ 102 = 36.62% → 37%. |
 | 2026-11-11 | 36% | No step change. Review fixes (ChatGPT): a tilted body is now placed so its tilted bogie points lie on the track in all three coordinates (off-centre points at −3/+7 m on a 10% slope sat 0.2 m high), and each bogie looks up the track under its tilted position. Test checks where the points end up (fails on the old code). Disc check re-run: 6,529 vehicles, same medians. |
 | 2026-11-11 | 36% | No step change. Vehicle bodies placed from their two bogie points (`placeOnBogies`): both onto the modelled track, body along the line between them, tilted by their heights. On 6,531 disc session vehicles the stored positions are a median 0.001 m from it (curves: 0.10 m against 0.14 m for centre-on-track) — closer, but within the curve model's error, so not proof of how the game does it. Tested on straight, sloped and curved track. |

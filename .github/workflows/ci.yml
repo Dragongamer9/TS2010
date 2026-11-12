@@ -56,6 +56,8 @@ jobs:
           cmake --install build --prefix "$RUNNER_TEMP/inst"
           for f in bin/route-tool bin/route-viewer bin/model-viewer bin/trainz-route-viewer; do test -x "$RUNNER_TEMP/inst/$f"; done
           test -f "$RUNNER_TEMP/inst/share/applications/trainz-route-viewer.desktop"
+          grep -Fx "Exec=\"$RUNNER_TEMP/inst/bin/trainz-route-viewer\"" "$RUNNER_TEMP/inst/share/applications/trainz-route-viewer.desktop"
+          grep -F "trainz-route-viewer.desktop" build/install_manifest.txt
           sh -n "$RUNNER_TEMP/inst/bin/trainz-route-viewer"
 
       - name: Check MP3 decoding was built in
@@ -100,6 +102,11 @@ jobs:
           grep -F './opt/trainz-native/0~ci/bin/route-viewer' deb-contents.txt
           grep -F './opt/trainz-native/0~ci/bin/trainz-route-viewer' deb-contents.txt
           grep -F './opt/trainz-native/0~ci/share/applications/trainz-route-viewer.desktop' deb-contents.txt
+          # The menu entry runs that version's launcher by full path and says which version it is.
+          dpkg-deb --fsys-tarfile "$deb" | tar -xO ./opt/trainz-native/0~ci/share/applications/trainz-route-viewer.desktop > deb-desktop.txt
+          cat deb-desktop.txt
+          grep -Fx 'Exec="/opt/trainz-native/0~ci/bin/trainz-route-viewer"' deb-desktop.txt
+          grep -Fx 'Name=Trainz Route Viewer (TS2010 port) 0~ci' deb-desktop.txt
           # Every packaged path must stay under /opt (no shared /usr files).
           if grep -E ' \./usr/' deb-contents.txt; then
             echo "package must not install under /usr"; exit 1

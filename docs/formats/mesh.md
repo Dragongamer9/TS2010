@@ -125,11 +125,17 @@ alpha columns sample up to 401 colour maps per kind at a 64 px mip: all solid, a
 | (no kind) | 312 | 1 (304), 8 (111), 9 (20) | 186 / 20 / 87 |
 | `m.tbumpgloss` | 172 | 1 (172), 8 (161), 9 (171) | 163 / 2 / 7 |
 
-**Inferred, not traced or documented here:** type 9 goes with reflection and gloss (an
-environment map?), type 8 with the bump kinds (a normal or bump map?); in `m.gloss` the colour
-map's alpha is mostly smooth, so it is taken as a gloss amount, not transparency. The 3D
-view therefore never draws `m.gloss`, `m.tbumpgloss` or `m.reflect` alpha as a cut-out
-(`materialMayCutOut`); without that, 113 sampled `m.gloss` textures would have had holes.
+**What the alpha means** (Trainz wiki material pages, unversioned legacy docs; sources and
+quotes in [`../research/materials.md`](../research/materials.md)): in `m.onetex`,
+`m.tbumptex` and `m.reflect` the diffuse alpha is opacity; in `m.gloss` and `m.tbumpgloss` it
+is a reflection strength/mask, and transparency comes from the material-wide opacity. The
+disc agrees: `m.gloss` colour alpha is mostly smooth. So the 3D view never draws `m.gloss` or
+`m.tbumpgloss` alpha as a cut-out (`materialMayCutOut`; without that, 113 sampled `m.gloss`
+textures would have had holes). All 3,897 `m.reflect` colour maps on the disc are fully solid
+(3,893) or smooth (4), so treating their alpha as opacity changes nothing here. A TRS2009
+guide makes `m.reflect` windows transparent with the material-wide opacity and a 24-bit
+diffuse texture; the port does not read material opacity yet. **Inferred:** slot 9 is the
+reflection map, slot 8 the normal map (the slot numbers are not documented).
 
 ## 4. `ATCH` – attachment points (checked on the whole disc)
 

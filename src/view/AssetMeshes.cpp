@@ -600,8 +600,8 @@ bool AssetMeshes::appendMesh(const JaArchive& archiveRef, const std::string& bas
             try {
                 if (auto st = loadSceneTexture(*from, *te)) {
                     if (st->alphaTest && !materialMayCutOut(part.material.kind)) {
-                        st->alphaTest = false;  // its alpha is gloss or reflection, not holes
-                        ++parts_["cut-out alpha ignored for gloss/reflect materials"];
+                        st->alphaTest = false;  // its alpha is a reflection mask, not holes
+                        ++parts_["cut-out alpha ignored for gloss materials"];
                     }
                     texture = static_cast<int>(out.textures.size());
                     out.textures.push_back(std::move(*st));
@@ -714,7 +714,7 @@ const PreparedMesh* AssetMeshes::get(const Kuid& kuid) {
 
 bool materialMayCutOut(const std::string& kind) {
     const std::string k = asciiLower(kind);
-    return k != "m.gloss" && k != "m.tbumpgloss" && k != "m.reflect";
+    return k != "m.gloss" && k != "m.tbumpgloss";
 }
 
 bool wantsAlphaTest(std::span<const std::uint8_t> rgba) {
