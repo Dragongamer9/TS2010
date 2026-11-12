@@ -29,6 +29,7 @@ struct TrackPoint {
 
 class TrackNetwork {
 public:
+    // Junctions start set as the layout stores them (content::junctionSetting, observed).
     explicit TrackNetwork(const trainz::content::TrackLayout& layout);
 
     // The piece's length along its curve (metres), or nullopt if it is not in the network.
@@ -51,6 +52,17 @@ public:
     std::vector<std::int32_t> exits(std::int32_t vertex, std::int32_t arrivingPiece) const;
 
     std::map<std::int32_t, std::int32_t> switches;  // vertex -> chosen piece at that junction
+
+    // The next junction a train at `p` would run through facing its trunk (so the switch decides
+    // its way), within `maxDistance` metres ahead along the current settings; nullopt if none.
+    struct JunctionAhead {
+        std::int32_t vertex = -1;
+        std::vector<std::int32_t> ways;  // the pieces it can be set to
+        double distance = 0;             // metres ahead
+    };
+    std::optional<JunctionAhead> junctionAhead(const TrackPosition& p, double maxDistance = 500) const;
+    // Sets that junction to its next way (wrapping), returning the piece now chosen.
+    std::int32_t toggle(const JunctionAhead& j);
 
     static constexpr int kSamples = 32;  // curve samples per piece for arc length
 

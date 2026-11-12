@@ -53,7 +53,9 @@ launcher and Debian package, all tested in CI on the real data. Recommendation:
    own notches, `dynamic-brake`, the air-brake keys (`pressure/*`, `brakeratio`), what the
    `motor` numbers mean, and why the curves look ~2.5× too strong if they are kN.
 2. **Junctions and signals in the route** (`mojunction` and signal objects in `.obs`):
-   switch settings and signal states, then a simple signal system.
+   switch settings and signal states, then a simple signal system. **Junctions started:**
+   settings read from the track vertices and switchable while driving (J). Left: what the
+   `jnOb` fields mean, a session's own junction settings, signals.
 3. **Sounds in the world**: engine and wheel sounds from the traincar assets (`soundscript`
    configs), positioned in 3D.
 4. **Cab views**: interior meshes and their controls (attachment points are already read).

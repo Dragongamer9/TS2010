@@ -10,8 +10,8 @@
 // NAME is a route's or session's name (or part of it, if only one matches) or its KUID.
 // --drive (with a session and --install): drive one of the session's trains on its route,
 // drawn with its own models: W/S throttle (or one notch up/down when the train has enginespec
-// throttle-power curves), Space brake, R reverser (when stopped), C chase or free camera, Esc
-// quit. --train N picks the train (1 = the first; default: the first one that stands on track).
+// throttle-power curves), Space brake, R reverser (when stopped), J switch the next junction in
+// front (junctions start as the route stores them), C chase or free camera, Esc quit. --train N picks the train (1 = the first; default: the first one that stands on track).
 // Physics: mass and notch curves from the install when present; resistance/brakes are presets.
 // Exit codes: 0 done, 1 error, 2 bad arguments, 3 no route/session matches NAME, 4 several do.
 //
@@ -357,6 +357,10 @@ int main(int argc, char** argv) {
                     if (driving.controls.notch > 0) {
                         --driving.controls.notch;
                     }
+                } else if (drive && ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_j && ev.key.repeat == 0) {
+                    if (const auto j = net->junctionAhead(driving.lead)) {  // the next junction in front
+                        net->toggle(*j);
+                    }
                 } else if (drive && ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_c) {
                     chase = !chase;
                     cam = trainz::view::FlyCamera::lookingAlong(trainz::game::chaseCamera(*net, driving.lead));
@@ -439,23 +443,36 @@ int main(int argc, char** argv) {
                 SDL_RenderClear(ren);
                 SDL_RenderCopy(ren, tex, nullptr, nullptr);
                 SDL_RenderPresent(ren);
-                char title[160];
+                char title[240];
+                char junction[64] = "";
+                if (drive) {
+                    if (const auto j = net->junctionAhead(driving.lead)) {
+                        const auto sw = net->switches.find(j->vertex);
+                        const auto way = sw == net->switches.end() ? j->ways.end() : std::find(j->ways.begin(), j->ways.end(), sw->second);
+                        if (way != j->ways.end()) {
+                            std::snprintf(junction, sizeof junction, "  junction in %.0f m: way %d of %zu", j->distance,
+                                          static_cast<int>(way - j->ways.begin()) + 1, j->ways.size());
+                        } else {
+                            std::snprintf(junction, sizeof junction, "  junction in %.0f m", j->distance);
+                        }
+                    }
+                }
                 if (drive) {
                     if (!driving.spec.notchCurvesN.empty()) {
                         const int maxN = static_cast<int>(driving.spec.notchCurvesN.size()) - 1;
                         std::snprintf(title, sizeof title,
-                                      "route-viewer  %.0f km/h  notch %d of %d  brake %s  %s%s  (%u ms per frame)",
+                                      "route-viewer  %.0f km/h  notch %d of %d  brake %s  %s%s%s  (%u ms per frame)",
                                       driving.speed * 3.6, driving.controls.notch, maxN,
                                       driving.controls.brake > 0 ? "on" : "off",
                                       driving.controls.reverser > 0 ? "forward" : "reverse",
-                                      driving.atBuffer ? "  (buffer!)" : "", static_cast<unsigned>(SDL_GetTicks() - t0));
+                                      driving.atBuffer ? "  (buffer!)" : "", junction, static_cast<unsigned>(SDL_GetTicks() - t0));
                     } else {
                         std::snprintf(title, sizeof title,
-                                      "route-viewer  %.0f km/h  throttle %.0f%%  brake %s  %s%s  (%u ms per frame)",
+                                      "route-viewer  %.0f km/h  throttle %.0f%%  brake %s  %s%s%s  (%u ms per frame)",
                                       driving.speed * 3.6, driving.controls.throttle * 100,
                                       driving.controls.brake > 0 ? "on" : "off",
                                       driving.controls.reverser > 0 ? "forward" : "reverse",
-                                      driving.atBuffer ? "  (buffer!)" : "", static_cast<unsigned>(SDL_GetTicks() - t0));
+                                      driving.atBuffer ? "  (buffer!)" : "", junction, static_cast<unsigned>(SDL_GetTicks() - t0));
                     }
                 } else {
                     std::snprintf(title, sizeof title, "route-viewer  x %.0f  y %.0f  z %.0f  (%u ms per frame)", cam.position.x,

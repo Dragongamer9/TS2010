@@ -133,8 +133,9 @@ nothing). Both are in "ECML Kings Cross - York" (`<kuid:447264:1019>`, `Builtin\
 33 and 129 exist only as vertex numbers in the second container; whether that is a
 coincidence or a different kind of link is not known. Slots used per vertex: 1 (211,040, line ends), 2 (182,491,
 along a line), 3 (12,242; junctions, guess: there are 10,138 `mojunction` objects), 4
-(421), 0 (13). The `flag` is not "start" or "end" of the piece but the side of the vertex (below); what
-`last` (0, 1 or 2) means is not known.
+(421), 0 (13). The `flag` is not "start" or "end" of the piece but the side of the vertex (below); `last`
+(0, 1 or 2) is a junction's setting: it picks one of the legs (observed, see
+[junctions-signals.md](junctions-signals.md)).
 
 `boardX/boardY` name the terrain section (baseboard) the vertex lies on; `x`/`y` are
 metres inside it (0..720, toward +x and +y); `z` is the height in metres. Evidence: 99.5%

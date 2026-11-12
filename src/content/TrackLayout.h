@@ -45,7 +45,7 @@ struct TrackVertex {
     float y = 0;  // metres inside the baseboard, toward +y
     float z = 0;  // height in metres
     std::vector<TrackLink> links;  // the non-empty slots, in order (1 = line end, 2 = along a line, 3+ = junction?)
-    std::uint8_t lastByte = 0;     // the byte after the 4 slots (0, 1 or 2 on the disc; meaning unknown)
+    std::uint8_t lastByte = 0;     // the byte after the 4 slots: a junction's setting (see junctionSetting)
     std::vector<std::uint8_t> rest;  // anything after that (empty in every disc file)
 
     double worldX() const { return boardX * kBaseboardSize + x; }
@@ -84,6 +84,24 @@ struct TrackLayout {
 
 // Decodes one item, or nullopt if it is not that class or too short.
 std::optional<TrackVertex> decodeTrackVertex(const ObjectItem& item);
+
+// A junction as stored at its vertex (OBSERVED on the disc, not traced; docs/formats/junctions-signals.md):
+//  - the trunk is the one link whose flag no other link shares, the legs share the other flag
+//    (9,238 of 9,238 junction objects' vertices that have one lone flag);
+//  - the vertex's last byte picks the leg it is set to, counting legs in slot order: 0, 1 at
+//    3-link vertices; 0, 1, 2 at 4-link ones (values above 0 occur almost only there: 3,544 of
+//    12,242 3-link vertices hold 1; 46 of 421 4-link ones hold 1 or 2; 227 of 393,763 others).
+//    Evidence: of 26 session trains standing across a junction, 25 stand on the leg it picks.
+//    At 96% of 3-link vertices the first leg in slot order is also the left one seen from the
+//    trunk, so "slot order" and "left = 0" are not yet told apart.
+struct JunctionSetting {
+    std::int32_t trunk = -1;           // piece
+    std::vector<std::int32_t> legs;    // pieces, in slot order
+    std::size_t selected = 0;          // index into legs
+};
+// nullopt for a vertex that is not a junction in that sense (fewer than 3 links, no single
+// lone flag, e.g. a crossing's two pairs) or whose byte is past the last leg.
+std::optional<JunctionSetting> junctionSetting(const TrackVertex& vertex);
 std::optional<TrackStretch> decodeTrackStretch(const ObjectItem& item);
 
 // Collects every vertex and stretch (tkSt and tkBr) of a parsed mapfile.trk.

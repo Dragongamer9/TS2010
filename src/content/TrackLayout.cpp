@@ -20,6 +20,34 @@ float f32At(const std::uint8_t* p) {
 
 }  // namespace
 
+std::optional<JunctionSetting> junctionSetting(const TrackVertex& v) {
+    if (v.links.size() < 3) {
+        return std::nullopt;
+    }
+    JunctionSetting j;
+    for (std::size_t k = 0; k < v.links.size(); ++k) {
+        std::size_t same = 0;
+        for (const auto& l : v.links) {
+            same += l.flag == v.links[k].flag ? 1 : 0;
+        }
+        if (same == 1) {
+            if (j.trunk >= 0) {
+                return std::nullopt;  // two lone flags: not a trunk with legs
+            }
+            j.trunk = v.links[k].item;
+        } else if (same + 1 != v.links.size()) {
+            return std::nullopt;  // e.g. a crossing: two pairs of flags
+        } else {
+            j.legs.push_back(v.links[k].item);
+        }
+    }
+    if (j.trunk < 0 || j.legs.size() < 2 || v.lastByte >= j.legs.size()) {
+        return std::nullopt;
+    }
+    j.selected = v.lastByte;
+    return j;
+}
+
 std::optional<TrackVertex> decodeTrackVertex(const ObjectItem& item) {
     if (item.tag != "tkVx" || item.payload.size() < 20) {
         return std::nullopt;

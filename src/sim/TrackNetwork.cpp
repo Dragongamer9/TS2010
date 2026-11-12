@@ -41,7 +41,51 @@ TrackNetwork::TrackNetwork(const TrackLayout& layout) {
                 links_[index].push_back({l.item, l.flag != 0 ? 1 : 0});
             }
         }
+        if (const auto j = trainz::content::junctionSetting(v); j && pieces_.count(j->legs[j->selected]) != 0) {
+            switches[index] = j->legs[j->selected];
+        }
     }
+}
+
+std::optional<TrackNetwork::JunctionAhead> TrackNetwork::junctionAhead(const TrackPosition& start, double maxDistance) const {
+    TrackPosition p = start;
+    double travelled = 0;
+    for (int guard = 0; guard < 10000 && travelled <= maxDistance; ++guard) {
+        const auto it = pieces_.find(p.piece);
+        if (it == pieces_.end()) {
+            return std::nullopt;
+        }
+        const Piece& pc = it->second;
+        const double len = pc.cumulative.back();
+        const double offset = std::clamp(p.offset, 0.0, len);
+        const bool forward = p.direction >= 0;
+        travelled += forward ? len - offset : offset;
+        if (travelled > maxDistance) {
+            return std::nullopt;
+        }
+        const std::int32_t vertex = forward ? pc.to : pc.from;
+        auto options = exits(vertex, p.piece);
+        if (options.size() > 1) {
+            return JunctionAhead{vertex, std::move(options), travelled};
+        }
+        if (options.empty()) {
+            return std::nullopt;
+        }
+        const Piece& np = pieces_.at(options.front());
+        p = np.from == vertex ? TrackPosition{options.front(), 0.0, +1} : TrackPosition{options.front(), np.cumulative.back(), -1};
+    }
+    return std::nullopt;
+}
+
+std::int32_t TrackNetwork::toggle(const JunctionAhead& j) {
+    if (j.ways.empty()) {
+        return -1;
+    }
+    const auto sw = switches.find(j.vertex);
+    auto at = sw == switches.end() ? j.ways.end() : std::find(j.ways.begin(), j.ways.end(), sw->second);
+    const std::int32_t next = at == j.ways.end() || at + 1 == j.ways.end() ? j.ways.front() : *(at + 1);
+    switches[j.vertex] = next;
+    return next;
 }
 
 std::optional<double> TrackNetwork::length(std::int32_t piece) const {

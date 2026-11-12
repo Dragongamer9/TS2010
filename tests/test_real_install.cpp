@@ -25,6 +25,7 @@
 #include "input/KeyBindings.h"
 #include "content/EngineSpec.h"
 #include "game/RouteDrive.h"
+#include "sim/TrackNetwork.h"
 #include "view/AssetMeshes.h"
 
 #include <gtest/gtest.h>
@@ -866,4 +867,40 @@ TEST_F(RealInstall, LocomotiveDrivesWithItsOwnEngineSpec) {
     const auto v = trainz::game::ownVehicleSpec(m, &e);
     EXPECT_TRUE(v.driven);
     EXPECT_NEAR(v.massKg, 190'508, 1);
+}
+
+// Junction settings on the disc's routes: every vertex with a trunk and legs gets a setting, and
+// the network starts with that leg chosen.
+TEST_F(RealInstall, RouteJunctionsHaveStoredSettings) {
+    std::size_t routes = 0, junctions = 0, set = 0, second = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        for (const auto& e : a.entries()) {
+            if (e.name.size() < 12 || e.name.substr(e.name.size() - 12) != "/mapfile.trk" || routes >= 6) {
+                continue;
+            }
+            TrackLayout layout;
+            try {
+                layout = readTrackLayout(parseRouteObjectFile(a.read(e)));
+            } catch (const ContentError&) {
+                continue;
+            }
+            ++routes;
+            const trainz::sim::TrackNetwork net(layout);
+            for (const auto& [index, v] : layout.vertices) {
+                if (const auto j = junctionSetting(v)) {
+                    ++junctions;
+                    second += j->selected > 0 ? 1 : 0;
+                    const auto sw = net.switches.find(index);
+                    set += sw != net.switches.end() && sw->second == j->legs[j->selected] ? 1 : 0;
+                }
+            }
+        }
+    }
+    if (routes == 0) {
+        GTEST_SKIP() << "no route in this install";
+    }
+    std::cout << "  " << routes << " routes, " << junctions << " junctions (" << second << " not on their first leg)\n";
+    EXPECT_GT(junctions, 0u);
+    EXPECT_GE(set * 100, junctions * 99);  // a few legs may be pieces the network could not build
 }

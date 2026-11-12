@@ -119,6 +119,58 @@ TEST(TrackNetwork, JunctionsTakeTheStraightWayUnlessSwitched) {
     EXPECT_EQ(r.piece, 2);
 }
 
+TEST(TrackLayout, JunctionSettingFromTheVertex) {
+    TrackVertex v;
+    v.links = {{10, 0}, {11, 1}, {12, 1}};  // trunk 10 (lone flag), legs 11 and 12
+    auto j = junctionSetting(v);
+    ASSERT_TRUE(j.has_value());
+    EXPECT_EQ(j->trunk, 10);
+    EXPECT_EQ(j->legs, (std::vector<std::int32_t>{11, 12}));
+    EXPECT_EQ(j->selected, 0u);
+    v.lastByte = 1;
+    EXPECT_EQ(junctionSetting(v)->selected, 1u);
+    v.links = {{11, 1}, {12, 1}, {10, 0}};  // trunk in the last slot: legs keep slot order
+    EXPECT_EQ(junctionSetting(v)->legs, (std::vector<std::int32_t>{11, 12}));
+    v.lastByte = 2;  // past the last leg
+    EXPECT_FALSE(junctionSetting(v).has_value());
+    v.links = {{1, 0}, {2, 1}, {3, 1}, {4, 1}};  // three-way: 0, 1, 2
+    EXPECT_EQ(junctionSetting(v)->selected, 2u);
+    v.links = {{1, 0}, {2, 0}, {3, 1}, {4, 1}};  // crossing: two pairs, no trunk
+    v.lastByte = 0;
+    EXPECT_FALSE(junctionSetting(v).has_value());
+    v.links = {{1, 0}, {2, 1}};  // not a junction
+    EXPECT_FALSE(junctionSetting(v).has_value());
+}
+
+TEST(TrackNetwork, JunctionsStartAsStoredAndToggleAhead) {
+    // As JunctionsTakeTheStraightWayUnlessSwitched, with the vertex set to its second leg (C).
+    Layout l;
+    l.vertex(0, 0, 0, {{1, 0}});
+    l.vertex(1, 100, 0, {{1, 0}, {2, 1}, {3, 1}});
+    l.t.vertices[1].lastByte = 1;
+    l.vertex(2, 200, 0, {{2, 0}});
+    l.vertex(3, 190, 40, {{3, 0}});
+    l.piece(1, 0, 1);
+    l.piece(2, 1, 2);
+    l.piece(3, 1, 3);
+    TrackNetwork n(l.t);
+    ASSERT_EQ(n.switches.count(1), 1u);
+    EXPECT_EQ(n.switches.at(1), 3);
+    TrackPosition p{1, 90, +1};
+    n.advance(p, 20);
+    EXPECT_EQ(p.piece, 3);  // the stored setting, not the straight way
+    const auto ahead = n.junctionAhead(TrackPosition{1, 30, +1});
+    ASSERT_TRUE(ahead.has_value());
+    EXPECT_EQ(ahead->vertex, 1);
+    EXPECT_NEAR(ahead->distance, 70, 1e-6);
+    EXPECT_EQ(ahead->ways, (std::vector<std::int32_t>{2, 3}));
+    EXPECT_EQ(n.toggle(*ahead), 2);  // wraps round to the first way
+    EXPECT_EQ(n.toggle(*ahead), 3);
+    EXPECT_FALSE(n.junctionAhead(TrackPosition{1, 30, +1}, 50).has_value());  // too far
+    EXPECT_FALSE(n.junctionAhead(TrackPosition{1, 30, -1}).has_value());      // behind: a line end
+    EXPECT_FALSE(n.junctionAhead(TrackPosition{2, 10, -1}).has_value());      // trailing: no choice
+}
+
 TEST(TrackNetwork, GradeAlongTheDirectionOfTravel) {
     Layout l;
     l.vertex(0, 0, 0, {{1, 0}}, 0);
