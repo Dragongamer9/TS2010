@@ -243,3 +243,34 @@ if(TRAINZ_BUILD_TESTS)
     gtest_discover_tests(sdl_input_tests DISCOVERY_MODE PRE_TEST)
   endif()
 endif()
+
+# ---------------------------------------------------------------------------
+# CPack — Debian .deb for Hearth OS
+# ---------------------------------------------------------------------------
+# Version numbers are the owner's. Do not invent, bump or apply one here.
+# Set TRAINZ_PACKAGE_VERSION when you configure, then run cpack -G DEB.
+# Each version is its own package name and lives under
+# /opt/trainz-native/<version>/, so an older install stays startable beside a
+# newer one (no shared paths, no Conflicts on the previous package).
+set(TRAINZ_PACKAGE_VERSION "OWNER_SET_VERSION" CACHE STRING
+    "Debian package version (owner sets this; never invent one)")
+# Debian package *names* may not contain '~' (versions may). Map '~' → '-' in the name only.
+string(REPLACE "~" "-" TRAINZ_PACKAGE_NAME_VERSION "${TRAINZ_PACKAGE_VERSION}")
+set(CPACK_GENERATOR "DEB")
+set(CPACK_PACKAGE_NAME "trainz-native-${TRAINZ_PACKAGE_NAME_VERSION}")
+set(CPACK_PACKAGE_VERSION "${TRAINZ_PACKAGE_VERSION}")
+set(CPACK_PACKAGE_VENDOR "Dragongamer9")
+set(CPACK_PACKAGE_CONTACT "Dragongamer9")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "TS2010 native tools and route viewer (read-only) for Hearth OS")
+set(CPACK_PACKAGE_DESCRIPTION
+    "Command-line tools and a route viewer that read a Trainz Simulator 2010 install. Not the playable game.")
+set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/trainz-native/${TRAINZ_PACKAGE_VERSION}")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Dragongamer9")
+set(CPACK_DEBIAN_PACKAGE_SECTION "games")
+set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_DEBIAN_PACKAGE_DEPENDS
+    "libsdl2-2.0-0, libgl1, libmpg123-0, libjpeg62-turbo")
+# No Conflicts/Replaces on other trainz-native-* versions: they must coexist.
+include(CPack)
