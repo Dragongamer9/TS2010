@@ -112,8 +112,9 @@ jobs:
             echo "package must not install under /usr"; exit 1
           fi
           grep -E ' \./opt/trainz-native/0~ci/' deb-contents.txt | head -1
-          # Paths from dpkg-deb -c (last field); used after remove to prove nothing is left.
-          awk '{ print $NF }' deb-contents.txt | sed 's|^\./|/|' | grep -vE '^/?$' > deb-paths.txt
+          # Files and symlinks only (dpkg-deb -c also lists dirs like ./opt/; those stay).
+          awk '/^[-l]/ { print $NF }' deb-contents.txt | sed 's|^\./|/|' > deb-paths.txt
+          test -s deb-paths.txt
           # Install it for real (CI runs as root in a throwaway container), run it, remove it.
           apt-get install -y --no-install-recommends "./$deb"
           /opt/trainz-native/0~ci/bin/route-tool > usage.txt 2>&1 || true
@@ -130,14 +131,17 @@ jobs:
           done < deb-paths.txt
           test "$leftover" -eq 0
 
+      # gcc/release only: clean job downloads this artifact (no rebuild there).
       - name: Upload Debian package
         if: matrix.compiler == 'gcc' && matrix.variant == 'release'
         uses: actions/upload-artifact@v4
         with:
           name: trainz-native-deb
           path: "build/trainz-native-0+tci_0~ci_amd64.deb"
+          if-no-files-found: error
 
-  # Fresh image: no -dev packages. apt must pull every runtime dependency from the .deb.
+  # Fresh debian:13 — no Mesa/xvfb/-dev preinstall. Only apt-get update, then the .deb;
+  # apt must pull every runtime dependency from the package's Depends.
   package-runtime:
     name: Debian package (clean install)
     needs: build-test
@@ -159,7 +163,10 @@ jobs:
           deb=$(ls deb/trainz-native-0+tci_0~ci_amd64.deb)
           test -f "$deb"
           dpkg-deb -c "$deb" | tee deb-contents.txt
-          awk '{ print $NF }' deb-contents.txt | sed 's|^\./|/|' | grep -vE '^/?$' > deb-paths.txt
+          # Files and symlinks only — not directories (/ and /opt always remain).
+          awk '/^[-l]/ { print $NF }' deb-contents.txt | sed 's|^\./|/|' > deb-paths.txt
+          test -s deb-paths.txt
+          # No other packages installed before this line.
           apt-get install -y --no-install-recommends "./$deb"
 
       - name: Run installed tools
@@ -169,7 +176,7 @@ jobs:
           SDL_VIDEODRIVER=offscreen /opt/trainz-native/0~ci/bin/route-viewer \
             --install testdata/ts2010 --route springfield --radius 100 --frames 1
 
-      - name: Remove package (every packaged file must be gone)
+      - name: Remove package (every packaged file/link must be gone)
         run: |
           apt-get remove -y trainz-native-0+tci
           leftover=0
