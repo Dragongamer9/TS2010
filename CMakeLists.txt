@@ -288,6 +288,7 @@ set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/trainz-native/${TRAINZ_PACKAGE_VERSION}
 # Install with CMAKE_INSTALL_PREFIX = that prefix and the staging folder as DESTDIR, so the
 # menu entry written at install time names /opt/trainz-native/<version>/bin, not the staging path.
 set(CPACK_SET_DESTDIR ON)
+set(CPACK_INSTALL_PREFIX "${CPACK_PACKAGING_INSTALL_PREFIX}")  # with SET_DESTDIR, CPack installs to this prefix
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Dragongamer9")
 set(CPACK_DEBIAN_PACKAGE_SECTION "games")
 set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
