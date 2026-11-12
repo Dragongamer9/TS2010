@@ -24,16 +24,22 @@ struct TrainSpec {
     double davisB = 120;    // N per m/s
     double davisC = 9;      // N per (m/s)^2
     // Optional: full-throttle tractive force (N) against speed (m/s), e.g. from the train's own
-    // enginespec curves (summed over its locomotives). When set it replaces the starting-force
-    // and power limits; the adhesion limit still applies; throttle scales it.
+    // enginespec curves (summed over its locomotives). When set (and notchCurvesN is empty) it
+    // replaces the starting-force and power limits; the adhesion limit still applies; throttle
+    // scales it.
     std::vector<std::pair<double, double>> tractiveCurveN;
+    // Optional: one curve per throttle notch (N vs m/s), summed over locomotives the same way as
+    // tractiveCurveN. When non-empty, Controls::notch selects the curve and the smooth throttle
+    // is ignored for traction.
+    std::vector<std::vector<std::pair<double, double>>> notchCurvesN;
     std::string source;     // where the numbers come from (or "uncalibrated")
 };
 
 struct Controls {
-    double throttle = 0;  // 0..1
+    double throttle = 0;  // 0..1 (smooth path when the train has no notch curves)
     double brake = 0;     // 0..1 of the full brake force
     int reverser = +1;    // +1 forward, -1 reverse, 0 neutral (no traction)
+    int notch = 0;        // index into TrainSpec::notchCurvesN (0 = first / idle notch)
 };
 
 // Advances the speed (m/s, signed: + along the train's facing) over `seconds` on a track
@@ -52,6 +58,7 @@ struct VehicleSpec {
     double brakeForceN = 0;                     // full brake
     bool driven = false, braked = true;
     std::vector<std::pair<double, double>> tractiveCurveN;  // optional (see TrainSpec)
+    std::vector<std::vector<std::pair<double, double>>> notchCurvesN;  // optional per-notch curves
     std::string source;
 };
 // Sums masses, resistances and forces; the adhesion coefficient is the given one.

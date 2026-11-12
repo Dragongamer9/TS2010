@@ -347,3 +347,59 @@ TEST(TrainPhysics, TractiveCurvesAddUpAndLimitSpeed) {
     EXPECT_GT(speed, 5);
     EXPECT_LT(speed, 20);
 }
+
+TEST(TrainPhysics, NotchCurvesSumPerNotchAndDrive) {
+    VehicleSpec a = freightWagon(80), b = freightWagon(80);
+    a.driven = b.driven = true;
+    // Notch 0 idle; notch 1 weak; notch 2 stronger. Speeds in m/s, forces in N.
+    a.notchCurvesN = {
+        {{0, 0}},
+        {{0, 50'000}, {20, 0}},
+        {{0, 100'000}, {20, 0}},
+    };
+    b.notchCurvesN = {
+        {{0, 0}},
+        {{0, 25'000}, {10, 0}},
+        {{0, 50'000}, {10, 50'000}, {30, 0}},
+    };
+    const auto t = makeTrain({a, b, freightWagon(40)});
+    ASSERT_EQ(t.notchCurvesN.size(), 3u);
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.notchCurvesN[0], 0), 0);
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.notchCurvesN[1], 0), 75'000);   // 50k + 25k
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.notchCurvesN[2], 0), 150'000);  // 100k + 50k
+    // Notch 1 at standstill pulls; notch 0 does not (smooth throttle ignored when notches exist).
+    double v0 = 0, v1 = 0;
+    stepTrain(v0, t, Controls{1.0, 0.0, 1, 0}, 0, 1.0);
+    stepTrain(v1, t, Controls{0.0, 0.0, 1, 1}, 0, 1.0);
+    EXPECT_DOUBLE_EQ(v0, 0);
+    EXPECT_GT(v1, 0);
+    // Higher notch reaches a higher speed before the curve ends.
+    double lo = 0, hi = 0;
+    for (int i = 0; i < 600; ++i) {
+        stepTrain(lo, t, Controls{0, 0, 1, 1}, 0, 1.0);
+        stepTrain(hi, t, Controls{0, 0, 1, 2}, 0, 1.0);
+    }
+    EXPECT_GT(hi, lo);
+    EXPECT_LT(hi, 30);
+    // Out-of-range notch: no traction (same as idle).
+    double bad = 0;
+    stepTrain(bad, t, Controls{1.0, 0.0, 1, 99}, 0, 1.0);
+    EXPECT_DOUBLE_EQ(bad, 0);
+}
+
+TEST(TrainPhysics, SmoothThrottleWhenNoNotchCurves) {
+    // No notchCurvesN: continuous throttle still uses starting force / power.
+    TrainSpec spec;
+    spec.massKg = 100'000;
+    spec.maxTractiveForceN = 50'000;
+    spec.maxPowerW = 1'000'000;
+    spec.drivenMassKg = 100'000;
+    spec.brakedMassKg = 100'000;
+    spec.davisA = 1'000;
+    double speed = 0;
+    stepTrain(speed, spec, Controls{1.0, 0.0, 1, 5}, 0, 1.0);  // notch ignored
+    EXPECT_GT(speed, 0);
+    double idle = 0;
+    stepTrain(idle, spec, Controls{0.0, 0.0, 1, 5}, 0, 1.0);
+    EXPECT_DOUBLE_EQ(idle, 0);
+}

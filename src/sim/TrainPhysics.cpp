@@ -10,7 +10,25 @@ namespace trainz::sim {
 
 namespace {
 constexpr double kG = 9.81;
+
+// Add `add` into `into` at every shared speed point (same rule as makeTrain's top curve).
+void addCurve(std::vector<std::pair<double, double>>& into, const std::vector<std::pair<double, double>>& add) {
+    if (add.empty()) {
+        return;
+    }
+    std::map<double, double> sum;
+    for (const auto& [s, f] : into) {
+        sum[s] = 0;
+    }
+    for (const auto& [s, f] : add) {
+        sum[s] = 0;
+    }
+    for (auto& [s, f] : sum) {
+        f = trainz::content::interpolateCurve(into, s) + trainz::content::interpolateCurve(add, s);
+    }
+    into.assign(sum.begin(), sum.end());
 }
+}  // namespace
 
 double stepTrain(double& speed, const TrainSpec& spec, const Controls& c, double grade, double seconds) {
     if (!std::isfinite(speed)) {
@@ -27,17 +45,25 @@ double stepTrain(double& speed, const TrainSpec& spec, const Controls& c, double
     const double mu = std::isfinite(spec.adhesion) ? std::clamp(spec.adhesion, 0.0, 1.0) : 0.0;
     const double tractionGrip = mu * kG * std::max(0.0, spec.drivenMassKg);
     const double brakeGrip = mu * kG * std::max(0.0, spec.brakedMassKg);
+    const bool useNotch = !spec.notchCurvesN.empty();
     double moved = 0;
     const int steps = std::max(1, static_cast<int>(std::ceil(dtTotal / 0.02)));
     const double dt = dtTotal / steps;
     for (int i = 0; i < steps; ++i) {
         const double v = speed, av = std::fabs(v);
-        // Traction: starting force, then power / speed, never more than the grip of the driven axles.
-        double traction = throttle * spec.maxTractiveForceN;
-        if (!spec.tractiveCurveN.empty()) {
+        // Traction: notch curve, or smooth throttle × (curve / starting force / power), then grip.
+        double traction = 0;
+        if (useNotch) {
+            if (c.notch >= 0 && static_cast<std::size_t>(c.notch) < spec.notchCurvesN.size()) {
+                traction = std::max(0.0, trainz::content::interpolateCurve(spec.notchCurvesN[static_cast<std::size_t>(c.notch)], av));
+            }
+        } else if (!spec.tractiveCurveN.empty()) {
             traction = throttle * std::max(0.0, trainz::content::interpolateCurve(spec.tractiveCurveN, av));
-        } else if (av > 0.1) {
-            traction = std::min(traction, throttle * spec.maxPowerW / av);
+        } else {
+            traction = throttle * spec.maxTractiveForceN;
+            if (av > 0.1) {
+                traction = std::min(traction, throttle * spec.maxPowerW / av);
+            }
         }
         traction = std::min(traction, tractionGrip) * rev;
         const double gravity = -spec.massKg * kG * gr;
@@ -74,18 +100,12 @@ TrainSpec makeTrain(const std::vector<VehicleSpec>& vehicles, double adhesion) {
         t.maxPowerW += v.powerW;
         t.maxBrakeForceN += v.brakeForceN;
         t.drivenMassKg += v.driven ? v.massKg : 0;
-        if (!v.tractiveCurveN.empty()) {  // locomotives' curves add up at every speed point
-            std::map<double, double> sum;
-            for (const auto& [s, f] : t.tractiveCurveN) {
-                sum[s] = 0;
-            }
-            for (const auto& [s, f] : v.tractiveCurveN) {
-                sum[s] = 0;
-            }
-            for (auto& [s, f] : sum) {
-                f = trainz::content::interpolateCurve(t.tractiveCurveN, s) + trainz::content::interpolateCurve(v.tractiveCurveN, s);
-            }
-            t.tractiveCurveN.assign(sum.begin(), sum.end());
+        addCurve(t.tractiveCurveN, v.tractiveCurveN);
+        if (t.notchCurvesN.size() < v.notchCurvesN.size()) {
+            t.notchCurvesN.resize(v.notchCurvesN.size());
+        }
+        for (std::size_t n = 0; n < v.notchCurvesN.size(); ++n) {
+            addCurve(t.notchCurvesN[n], v.notchCurvesN[n]);
         }
         t.brakedMassKg += v.braked ? v.massKg : 0;
         if (!v.source.empty() && t.source.find(v.source) == std::string::npos) {
