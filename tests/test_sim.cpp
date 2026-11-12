@@ -179,3 +179,68 @@ TEST(TrainPhysics, GradesBrakesAndBadInput) {
     EXPECT_DOUBLE_EQ(stepTrain(v2, spec, idle, 0, -1), 0);  // no time, no motion
     EXPECT_DOUBLE_EQ(v2, 5);
 }
+
+TEST(TrainPhysics, BrakesHoldOnlyUpToTheirForce) {
+    const TrainSpec spec;  // 400 t, full brake 0.12 g
+    double v = 0;
+    Controls full{0, 1, 0};
+    for (int i = 0; i < 20; ++i) {
+        stepTrain(v, spec, full, 0.15, 1.0);  // 15%: gravity 0.15 g, more than the brakes
+    }
+    EXPECT_LT(v, 0);  // it slides back despite full brake
+    double held = 0;
+    stepTrain(held, spec, full, 0.10, 5.0);  // 10%: within the brakes
+    EXPECT_DOUBLE_EQ(held, 0);
+}
+
+TEST(TrainPhysics, AdhesionLimitsTractionAndBraking) {
+    TrainSpec dry;
+    TrainSpec wet = dry;
+    wet.adhesion = 0.02;  // severe contamination
+    double vd = 0, vw = 0;
+    Controls go{1, 0, 1};
+    stepTrain(vd, dry, go, 0, 1.0);
+    stepTrain(vw, wet, go, 0, 1.0);
+    EXPECT_GT(vd, vw);
+    // On the wet rail the pull is the grip of the driven axles, less the resistance.
+    const double grip = 0.02 * 9.81 * wet.drivenMassKg;
+    EXPECT_NEAR(vw, (grip - wet.davisA) / wet.massKg * 1.0, 0.01);
+    // Braking from speed: the wet rail brakes far less.
+    double a = 30, b = 30;
+    Controls stop{0, 1, 1};
+    stepTrain(a, dry, stop, 0, 1.0);
+    stepTrain(b, wet, stop, 0, 1.0);
+    EXPECT_LT(a, b);
+}
+
+TEST(TrainPhysics, TrainsAreBuiltFromSourcedVehicles) {
+    const auto w = freightWagon(80, 4);
+    EXPECT_NEAR(w.davisA, 840, 1e-9);  // 6.5 x 80 + 80 x 4
+    EXPECT_NEAR(w.davisB, 13.248, 1e-9);
+    EXPECT_NEAR(w.davisC, 1.24416, 1e-12);
+    std::vector<VehicleSpec> consist = {electricLocomotive()};
+    for (int i = 0; i < 10; ++i) {
+        consist.push_back(freightWagon(80, 4));
+    }
+    const auto t = makeTrain(consist);
+    EXPECT_NEAR(t.massKg, 890'000, 1e-6);
+    EXPECT_NEAR(t.davisA, 8400 + electricLocomotive().davisA, 1e-6);  // total forces add up
+    EXPECT_NEAR(t.davisC, 12.4416 + electricLocomotive().davisC, 1e-9);
+    EXPECT_NEAR(t.maxPowerW, 6'400'000, 1e-6);
+    EXPECT_NEAR(t.drivenMassKg, 90'000, 1e-6);  // only the locomotive pulls
+    EXPECT_NE(t.source.find("RP-548"), std::string::npos);
+    EXPECT_NE(t.source.find("Vectron"), std::string::npos);
+    // The conversion agrees with the source formula in km/h at every speed:
+    // R = 6.5 m + 80 n + 0.046 V m + 0.096 V^2 (V in km/h) = 2,168 N at 100 km/h.
+    for (const double kmh : {0.0, 30.0, 100.0, 140.0}) {
+        const double v = kmh / 3.6;
+        EXPECT_NEAR(w.davisA + w.davisB * v + w.davisC * v * v, 6.5 * 80 + 80 * 4 + 0.046 * kmh * 80 + 0.096 * kmh * kmh, 1e-6);
+    }
+
+    const auto s = shinkansenSeries100();
+    EXPECT_DOUBLE_EQ(s.davisA, 11'060);
+    EXPECT_DOUBLE_EQ(s.davisB, 223.2);
+    EXPECT_DOUBLE_EQ(s.davisC, 15.6168);
+    EXPECT_NE(s.source.find("Scribd"), std::string::npos);  // says what it was checked against
+    EXPECT_DOUBLE_EQ(kPassengerBrakeNotchG[3], 0.12);
+}

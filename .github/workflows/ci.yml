@@ -149,13 +149,14 @@ jobs:
     container:
       image: debian:13
     steps:
+      # Checkout first: without git in the image it downloads the repo and may clear the folder.
+      - uses: actions/checkout@v4
+
       - name: Download Debian package
         uses: actions/download-artifact@v4
         with:
           name: trainz-native-deb
           path: deb
-
-      - uses: actions/checkout@v4
 
       - name: Install package (apt resolves dependencies)
         run: |
