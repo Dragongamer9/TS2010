@@ -7,6 +7,7 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace trainz::sim {
@@ -22,6 +23,10 @@ struct TrainSpec {
     double davisA = 6'000;  // N
     double davisB = 120;    // N per m/s
     double davisC = 9;      // N per (m/s)^2
+    // Optional: full-throttle tractive force (N) against speed (m/s), e.g. from the train's own
+    // enginespec curves (summed over its locomotives). When set it replaces the starting-force
+    // and power limits; the adhesion limit still applies; throttle scales it.
+    std::vector<std::pair<double, double>> tractiveCurveN;
     std::string source;     // where the numbers come from (or "uncalibrated")
 };
 
@@ -46,6 +51,7 @@ struct VehicleSpec {
     double tractiveForceN = 0, powerW = 0;      // 0 for unpowered vehicles
     double brakeForceN = 0;                     // full brake
     bool driven = false, braked = true;
+    std::vector<std::pair<double, double>> tractiveCurveN;  // optional (see TrainSpec)
     std::string source;
 };
 // Sums masses, resistances and forces; the adhesion coefficient is the given one.

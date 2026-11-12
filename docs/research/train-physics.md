@@ -51,3 +51,21 @@ Claude. Used by `src/sim/TrainPhysics` (the presets name their source in `source
 - Dry 0.25–0.30, wet 0.18–0.20 (M.-S. Kim, Int. J. of Mechanics 9 (2015) 198–205, reported
   comparisons); a severe oxide/water paste as low as 0.02 (Tribology Letters 2021, laboratory).
   The game's presets: dry 0.25, wet 0.18, severe 0.02 (choices within those ranges).
+
+## The trains' own data (`enginespec`), as read from the disc
+
+Observed on the disc (2026-11-12): all 1,203 traincar configs have `mass` (kg) and an
+`enginespec` KUID; the 187 enginespec assets have kind `engine` (163) or `steam-engine` (24).
+Locomotive enginespecs carry `throttle-power`: one container per notch, each a list of
+`speed force` pairs. Example, the SD40-2 (`<kuid:-12:3534>`, mass 190,508) with
+`<kuid:-1:42004221>`: notch 1 = 0 → 165, 2.2 → 83, 4.4 → 55, 6.6 → 41, 8.8 → 33, 13.0 → 0;
+notch 6 starts at 990. Wagon enginespecs (e.g. `<kuid:-1:42004201>`) have only `motor`.
+
+How the port uses it (`src/content/EngineSpec`, `game::ownVehicleSpec`): speed in m/s and force
+in kN, as the Trainz wiki documents (see [public-formats.md](public-formats.md)); the top
+notch is the full-throttle curve, interpolated linearly, 0 past its end; curves of several
+locomotives add up. **Unresolved:** read as kN, 990 kN at a standstill is about 2.5× a real
+SD40-2's starting tractive effort (~400 kN), so either the unit or the game's use of the
+curve differs; the adhesion limit (0.25 × the driven mass × g, a preset) decides the start
+for now. The `motor` values (`max-accel`, `max-decel`, `brakeratio`, `resistance`, …) are read
+but not used: their units are not established.

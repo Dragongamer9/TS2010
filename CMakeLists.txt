@@ -38,6 +38,7 @@ add_library(trainz_content
   src/content/AssetIndex.cpp
   src/content/CfilCodec.cpp
   src/content/JaArchive.cpp
+  src/content/EngineSpec.cpp
   src/content/GroundFile.cpp
   src/content/ImageFile.cpp
   src/content/JirfFile.cpp

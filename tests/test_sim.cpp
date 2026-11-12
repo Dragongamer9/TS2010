@@ -1,12 +1,16 @@
 // The game's own simulation core: driving along track and train physics. No game files.
 #include "sim/TrackNetwork.h"
 #include "sim/TrainPhysics.h"
+#include "content/AssetConfig.h"
+#include "content/EngineSpec.h"
 
 #include <gtest/gtest.h>
 
 #include <cmath>
 #include <limits>
 #include <numbers>
+#include <string>
+#include <vector>
 
 using namespace trainz::content;
 using namespace trainz::sim;
@@ -243,4 +247,103 @@ TEST(TrainPhysics, TrainsAreBuiltFromSourcedVehicles) {
     EXPECT_DOUBLE_EQ(s.davisC, 15.6168);
     EXPECT_NE(s.source.find("Scribd"), std::string::npos);  // says what it was checked against
     EXPECT_DOUBLE_EQ(kPassengerBrakeNotchG[3], 0.12);
+}
+
+// --- enginespec ------------------------------------------------------------------------
+namespace {
+trainz::content::ConfigNode configOf(const std::string& s) {
+    return trainz::content::parseConfigText(std::vector<std::uint8_t>(s.begin(), s.end())).root;
+}
+}  // namespace
+
+TEST(EngineSpec, ReadsMotorAndNotchCurves) {
+    // Shaped like the SD40-2's enginespec <kuid:-1:42004221> on the disc (trimmed).
+    const auto e = parseEngineSpec(configOf(R"(kind "engine"
+motor
+{
+  adhesion 2.3
+  maxspeed 35
+  max-accel 25000
+  axle-count 6
+}
+throttle-power
+{
+  0
+  {
+    0 0
+  }
+  1
+  {
+    0 165
+    2.2 83
+    13.0 0
+  }
+  2
+  {
+    4.4 200
+    0 330
+    22.2 0
+  }
+  junk
+  {
+    0 1
+  }
+}
+dynamic-brake
+{
+  1
+  {
+    0 0
+    10 120
+  }
+}
+)"));
+    ASSERT_TRUE(e.adhesion && e.maxSpeed && e.maxAccel && e.axleCount);
+    EXPECT_FLOAT_EQ(static_cast<float>(*e.adhesion), 2.3f);  // config values are 32-bit floats
+    EXPECT_EQ(*e.axleCount, 6);
+    ASSERT_EQ(e.throttlePower.size(), 3u);
+    ASSERT_EQ(e.throttlePower[2].size(), 3u);
+    EXPECT_FLOAT_EQ(static_cast<float>(e.throttlePower[2][1].first), 4.4f);  // sorted by speed
+    EXPECT_DOUBLE_EQ(e.tractiveForceN(1, 0), 165'000);
+    EXPECT_NEAR(e.tractiveForceN(1, 1.1), 124'000, 1);  // halfway between 165 and 83 kN
+    EXPECT_NEAR(e.tractiveForceN(1, -1.1), 124'000, 1); // either direction
+    EXPECT_DOUBLE_EQ(e.tractiveForceN(1, 20), 0);      // past the curve's end
+    EXPECT_DOUBLE_EQ(e.tractiveForceN(9, 1), 0);       // no such notch
+    const auto full = e.fullThrottleCurveN();
+    ASSERT_EQ(full.size(), 3u);
+    EXPECT_DOUBLE_EQ(full.front().second, 330'000);
+    ASSERT_EQ(e.dynamicBrake.size(), 2u);
+    EXPECT_EQ(e.dynamicBrake[1].size(), 2u);
+}
+
+TEST(EngineSpec, WagonOnlyMotorAndOddInput) {
+    const auto wagon = parseEngineSpec(configOf("motor\n{\n  max-accel 3500\n  axle-count 4\n}\n"));
+    EXPECT_TRUE(wagon.throttlePower.empty());
+    EXPECT_TRUE(wagon.fullThrottleCurveN().empty());
+    EXPECT_FALSE(wagon.adhesion.has_value());
+    const auto none = parseEngineSpec(configOf("motor 3\nthrottle-power 4\n"));  // not groups
+    EXPECT_FALSE(none.maxAccel.has_value());
+    EXPECT_TRUE(none.throttlePower.empty());
+    EXPECT_DOUBLE_EQ(interpolateCurve({}, 1), 0);
+    EXPECT_DOUBLE_EQ(interpolateCurve({{0, 5}}, 3), 5);
+    EXPECT_DOUBLE_EQ(interpolateCurve({{0, 5}, {2, 1}}, std::numeric_limits<double>::quiet_NaN()), 0);
+}
+
+TEST(TrainPhysics, TractiveCurvesAddUpAndLimitSpeed) {
+    VehicleSpec a = freightWagon(100), b = freightWagon(100);
+    a.driven = b.driven = true;
+    a.tractiveCurveN = {{0, 200'000}, {10, 0}};
+    b.tractiveCurveN = {{0, 100'000}, {5, 100'000}, {20, 0}};
+    const auto t = makeTrain({a, b, freightWagon(50)});
+    // Summed at every point of either curve.
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.tractiveCurveN, 0), 300'000);
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.tractiveCurveN, 5), 200'000);
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.tractiveCurveN, 10), 100'000 * 10.0 / 15 + 0);
+    // Full throttle on the level: it speeds up but never past the curves' end (20 m/s).
+    double speed = 0;
+    for (int i = 0; i < 3600; ++i) {
+        stepTrain(speed, t, Controls{1.0, 0.0, 1}, 0, 1.0);
+    }
+    EXPECT_GT(speed, 5);
+    EXPECT_LT(speed, 20);
 }

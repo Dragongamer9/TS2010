@@ -6,7 +6,10 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
 #include <numbers>
+#include <optional>
+#include <string>
 
 using namespace trainz;
 
@@ -166,4 +169,28 @@ TEST(RouteDrive, VehiclesFromTheirModelsOnTheirBogies) {
         }
     }
     EXPECT_NEAR(0.5 * (lo + hi), fx, 0.01);
+}
+
+TEST(RouteDrive, VehicleSpecFromItsOwnData) {
+    trainz::content::EngineSpec loco;
+    loco.axleCount = 6;
+    loco.throttlePower = {{}, {{0, 165}, {13, 0}}, {{0, 330}, {22, 0}}};
+    const auto l = trainz::game::ownVehicleSpec(190'508.0, &loco);
+    EXPECT_DOUBLE_EQ(l.massKg, 190'508);
+    EXPECT_TRUE(l.driven);
+    ASSERT_EQ(l.tractiveCurveN.size(), 2u);
+    EXPECT_DOUBLE_EQ(l.tractiveCurveN.front().second, 330'000);  // the top notch, kN -> N
+    EXPECT_DOUBLE_EQ(l.davisA, 6.5 * 190.508 + 80 * 6);            // RP-548 with its own axles
+
+    trainz::content::EngineSpec wagon;  // a wagon's enginespec: motor only
+    const auto w = trainz::game::ownVehicleSpec(30'000.0, &wagon);
+    EXPECT_FALSE(w.driven);
+    EXPECT_DOUBLE_EQ(w.massKg, 30'000);
+    for (const auto bad : {std::optional<double>{}, std::optional<double>{-5.0}, std::optional<double>{1e9},
+                           std::optional<double>{std::numeric_limits<double>::quiet_NaN()}}) {
+        const auto f = trainz::game::ownVehicleSpec(bad, nullptr);
+        EXPECT_DOUBLE_EQ(f.massKg, 40'000);
+        EXPECT_FALSE(f.driven);
+        EXPECT_NE(f.source.find("no usable mass"), std::string::npos);
+    }
 }

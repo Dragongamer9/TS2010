@@ -117,6 +117,10 @@ public:
     // a .lm with no .im beside it, damaged files, over the triangle limit). Why is recorded.
     const PreparedMesh* get(const trainz::content::Kuid& kuid);
 
+    // The asset's config (the same copy of the asset `get` would draw), or nothing if it is
+    // not in the index, not in an archive, or unreadable.
+    std::optional<trainz::content::ConfigNode> config(const trainz::content::Kuid& kuid);
+
     // Counts of why assets had no model, for reporting.
     const std::map<std::string, std::size_t>& misses() const { return misses_; }
     // Counts of mesh-table entries drawn and skipped (attachments, shadows, .lm, …).

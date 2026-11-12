@@ -247,6 +247,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
             std::vector<trainz::sim::VehicleSpec> specs;
+            std::size_t ownMass = 0, powered = 0;
             for (const auto& v : trains[chosen].vehicles) {
                 const auto* body = meshes->get(v.kuid);
                 if (body == nullptr) {
@@ -259,20 +260,43 @@ int main(int argc, char** argv) {
                     }
                 }
                 vehicles.push_back(trainz::game::routeVehicle(*body, bog[0], bog[1]));
-                specs.push_back(specs.empty() ? trainz::sim::electricLocomotive() : trainz::sim::freightWagon(40));
+                // Its own physics data: the traincar's mass and its enginespec's curves.
+                std::optional<double> mass;
+                std::optional<trainz::content::EngineSpec> engine;
+                if (const auto cfg = meshes->config(v.kuid)) {
+                    if (const auto* m = cfg->child("mass"); m != nullptr && (!m->floats.empty() || !m->ints.empty())) {
+                        mass = m->floats.empty() ? m->ints[0] : m->floats[0];
+                    }
+                    if (const auto* es = cfg->child("enginespec")) {
+                        if (const auto ek = trainz::view::configKuid(*es)) {
+                            if (const auto ecfg = meshes->config(*ek)) {
+                                engine = trainz::content::parseEngineSpec(*ecfg);
+                            }
+                        }
+                    }
+                }
+                ownMass += mass ? 1 : 0;
+                specs.push_back(trainz::game::ownVehicleSpec(mass, engine ? &*engine : nullptr));
+                powered += specs.back().driven ? 1 : 0;
             }
             if (vehicles.empty()) {
                 std::cerr << "none of that train's vehicles has a model the port can read\n";
                 return 1;
             }
             driving.lead = *where;
+            if (powered == 0) {  // no enginespec curves read: the first vehicle pulls as the preset locomotive
+                const auto keepMass = specs.front().massKg;
+                specs.front() = trainz::sim::electricLocomotive();
+                specs.front().massKg = keepMass;
+            }
             driving.spec = trainz::sim::makeTrain(specs);
             const auto p = net->point(*where);
             if (!atX && p) {
                 atX = p->x, atY = p->y;
             }
-            std::printf("driving train %zu of %zu: %zu vehicles with models (physics uncalibrated)\n", chosen + 1, trains.size(),
-                        vehicles.size());
+            std::printf("driving train %zu of %zu: %zu vehicles with models, %zu with their own mass, %zu powered by their "
+                        "enginespec (%.0f t; resistance and brakes are presets)\n",
+                        chosen + 1, trains.size(), vehicles.size(), ownMass, powered, driving.spec.massKg / 1000);
         }
         trainz::view::RouteSceneInput in;
         in.ground = &ground;

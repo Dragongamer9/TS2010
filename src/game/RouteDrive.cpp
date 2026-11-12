@@ -8,6 +8,22 @@
 
 namespace trainz::game {
 
+trainz::sim::VehicleSpec ownVehicleSpec(std::optional<double> massKg, const trainz::content::EngineSpec* engine) {
+    const int axles = engine != nullptr && engine->axleCount && *engine->axleCount >= 2 ? *engine->axleCount : 4;
+    const bool massOk = massKg && std::isfinite(*massKg) && *massKg >= 1000 && *massKg <= 200'000;
+    auto v = trainz::sim::freightWagon(massOk ? *massKg / 1000 : 40, axles);
+    v.name = "vehicle";
+    v.source = massOk ? "mass from its config; " + v.source : "no usable mass: 40 t preset; " + v.source;
+    if (engine != nullptr) {
+        v.tractiveCurveN = engine->fullThrottleCurveN();
+        v.driven = !v.tractiveCurveN.empty();
+        if (v.driven) {
+            v.source += "; traction from its enginespec's top throttle-power notch (kN read as written)";
+        }
+    }
+    return v;
+}
+
 using namespace trainz::content;
 using namespace trainz::sim;
 using namespace trainz::view;

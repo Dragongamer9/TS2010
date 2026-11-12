@@ -28,8 +28,9 @@ run or patched. The original program (`trainz.exe` and its DLLs) is studied, nev
 **First goal reached (2026-11-12): load one route and drive one train.**
 `route-viewer --install DIR --session "Midday Manifest" --drive` drives that session's first
 train (31 vehicles, each with its own model and bogies) on its own route, with throttle, brake
-and reverser. Limits: physics numbers are uncalibrated defaults (not read from the train's
-`enginespec`), junctions always take the straightest way, no signals, no sound, software
+and reverser. Since then each vehicle's mass comes from its config and the locomotive's pulling
+force from its own `enginespec` curve; resistance, brakes and adhesion are still presets.
+Other limits: junctions always take the straightest way, no signals, no sound, software
 rendering at about 6 frames a second.
 
 ## Engine: stay with C++ (decided), move drawing to the GPU next
@@ -47,7 +48,10 @@ launcher and Debian package, all tested in CI on the real data. Recommendation:
 ## What to decode next, in order
 
 1. **The train's own physics data**: `enginespec` assets and traincar config keys (mass,
-   traction, brakes), so trains drive like themselves. (Known: `mass` is in traincar configs.)
+   traction, brakes), so trains drive like themselves. **Started:** `mass` and the
+   `throttle-power` curves are read and used (`src/content/EngineSpec`). Left: the throttle's
+   own notches, `dynamic-brake`, the air-brake keys (`pressure/*`, `brakeratio`), what the
+   `motor` numbers mean, and why the curves look ~2.5× too strong if they are kN.
 2. **Junctions and signals in the route** (`mojunction` and signal objects in `.obs`):
    switch settings and signal states, then a simple signal system.
 3. **Sounds in the world**: engine and wheel sounds from the traincar assets (`soundscript`

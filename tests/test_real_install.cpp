@@ -23,6 +23,8 @@
 #include "content/TrackLayout.h"
 #include "content/TextureFile.h"
 #include "input/KeyBindings.h"
+#include "content/EngineSpec.h"
+#include "game/RouteDrive.h"
 #include "view/AssetMeshes.h"
 
 #include <gtest/gtest.h>
@@ -837,4 +839,31 @@ TEST_F(RealInstall, ReskinUsesItsOwnTextures) {
     ASSERT_NE(a, nullptr);
     ASSERT_NE(b, nullptr);
     EXPECT_NE(a->rgba, b->rgba);
+}
+
+// The SD40-2 (<kuid:-12:3534>) on the disc: its config's mass and its enginespec's curves.
+TEST_F(RealInstall, LocomotiveDrivesWithItsOwnEngineSpec) {
+    const AssetIndex idx = AssetIndex::scanInstall(root);
+    trainz::view::AssetMeshes meshes(idx);
+    const auto cfg = meshes.config(Kuid{-12, 3534, std::nullopt});
+    if (!cfg) {
+        GTEST_SKIP() << "no SD40-2 <kuid:-12:3534> in this install";
+    }
+    const auto* mass = cfg->child("mass");
+    const auto* es = cfg->child("enginespec");
+    ASSERT_NE(mass, nullptr);
+    ASSERT_NE(es, nullptr);
+    const auto ek = trainz::view::configKuid(*es);
+    ASSERT_TRUE(ek.has_value());
+    const auto ecfg = meshes.config(*ek);
+    ASSERT_TRUE(ecfg.has_value());
+    const auto e = parseEngineSpec(*ecfg);
+    ASSERT_TRUE(e.axleCount.has_value());
+    EXPECT_EQ(*e.axleCount, 6);
+    ASSERT_GE(e.throttlePower.size(), 9u);  // notches 0-8
+    EXPECT_DOUBLE_EQ(e.tractiveForceN(1, 0), 165'000);
+    const double m = mass->floats.empty() ? mass->ints.at(0) : mass->floats.at(0);
+    const auto v = trainz::game::ownVehicleSpec(m, &e);
+    EXPECT_TRUE(v.driven);
+    EXPECT_NEAR(v.massKg, 190'508, 1);
 }

@@ -2,7 +2,9 @@
 // where the train stands, and drawing its own vehicle and bogie models along the track.
 #pragma once
 
+#include "content/EngineSpec.h"
 #include "content/SessionFile.h"
+#include "sim/TrainPhysics.h"
 #include "sim/TrackNetwork.h"
 #include "view/AssetMeshes.h"
 #include "view/SceneRender.h"
@@ -17,6 +19,14 @@ namespace trainz::game {
 // vehicle (vehicles are stored front to back; with one vehicle, toward the piece's `to` end).
 // Found from the stored positions (not the stored trackPiece/direction, whose meaning is not
 // fully known). nullopt if the first vehicle is more than maxDistance from any track.
+// A vehicle's physics from its own files: `massKg` is the traincar's `mass`, `engine` its
+// enginespec (null if unknown). Resistance is AAR RP-548 for that mass and the enginespec's
+// axle count (4 when not given) and the brake the freight-wagon emergency equivalent, as in
+// sim::freightWagon (neither is read from the files yet). A vehicle whose enginespec has
+// throttle-power curves is driven, with its highest notch as the full-throttle curve.
+// Without a usable mass it falls back to the 40 t wagon preset (and says so in `source`).
+trainz::sim::VehicleSpec ownVehicleSpec(std::optional<double> massKg, const trainz::content::EngineSpec* engine);
+
 std::optional<trainz::sim::TrackPosition> trainStart(const trainz::sim::TrackNetwork& net, const trainz::content::Train& train,
                                                      double maxDistance = 5.0);
 

@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
+
+#include "content/EngineSpec.h"
 
 namespace trainz::sim {
 
@@ -31,7 +34,9 @@ double stepTrain(double& speed, const TrainSpec& spec, const Controls& c, double
         const double v = speed, av = std::fabs(v);
         // Traction: starting force, then power / speed, never more than the grip of the driven axles.
         double traction = throttle * spec.maxTractiveForceN;
-        if (av > 0.1) {
+        if (!spec.tractiveCurveN.empty()) {
+            traction = throttle * std::max(0.0, trainz::content::interpolateCurve(spec.tractiveCurveN, av));
+        } else if (av > 0.1) {
             traction = std::min(traction, throttle * spec.maxPowerW / av);
         }
         traction = std::min(traction, tractionGrip) * rev;
@@ -69,6 +74,19 @@ TrainSpec makeTrain(const std::vector<VehicleSpec>& vehicles, double adhesion) {
         t.maxPowerW += v.powerW;
         t.maxBrakeForceN += v.brakeForceN;
         t.drivenMassKg += v.driven ? v.massKg : 0;
+        if (!v.tractiveCurveN.empty()) {  // locomotives' curves add up at every speed point
+            std::map<double, double> sum;
+            for (const auto& [s, f] : t.tractiveCurveN) {
+                sum[s] = 0;
+            }
+            for (const auto& [s, f] : v.tractiveCurveN) {
+                sum[s] = 0;
+            }
+            for (auto& [s, f] : sum) {
+                f = trainz::content::interpolateCurve(t.tractiveCurveN, s) + trainz::content::interpolateCurve(v.tractiveCurveN, s);
+            }
+            t.tractiveCurveN.assign(sum.begin(), sum.end());
+        }
         t.brakedMassKg += v.braked ? v.massKg : 0;
         if (!v.source.empty() && t.source.find(v.source) == std::string::npos) {
             t.source += (t.source.empty() ? "" : "; ") + v.source;

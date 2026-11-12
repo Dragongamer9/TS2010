@@ -331,6 +331,31 @@ const JaArchive* AssetMeshes::archive(const std::filesystem::path& path) {
     return slot.get();
 }
 
+std::optional<ConfigNode> AssetMeshes::config(const Kuid& kuid) {
+    auto records = index_.find(kuid);
+    if (records.empty()) {
+        records = index_.allVersions(kuid.user, kuid.content);
+        if (!records.empty()) {
+            records.assign(1, records.back());
+        }
+    }
+    if (records.empty() || records.front()->where.container != AssetLocation::Container::Archive) {
+        return std::nullopt;
+    }
+    const AssetRecord& rec = *records.front();
+    try {
+        const JaArchive* a = archive(rec.where.source);
+        const std::string base = rec.where.folder.empty() ? std::string() : rec.where.folder + "/";
+        const JaEntry* ce = a->find(base + rec.where.configName);
+        if (ce == nullptr) {
+            return std::nullopt;
+        }
+        return parseAssetConfig(a->readLimited(*ce, std::size_t{16} << 20)).root;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
 std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid, const TextureOverride* reskin) {
     auto records = index_.find(kuid);
     if (records.empty()) {
