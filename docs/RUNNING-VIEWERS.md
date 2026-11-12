@@ -127,6 +127,17 @@ None of this is the game's own controls; these are the viewer's.
 
 The window title shows the camera position and how long the last frame took.
 
+### Driving a train
+
+```sh
+build/route-viewer --install /path/to/TS2010 --session "Midday Manifest" --drive
+```
+
+drives that session's first train on its route (`--train N` for another). Keys: W/S throttle,
+Space brake, R reverser (when stopped), C chase or free camera, Esc quit. The window title
+shows the speed. For now the train's physics are general defaults, not its own (`enginespec`
+is not read yet), junctions take the straightest way, and there are no signals or sounds.
+
 ### Finding a route and a session
 
 `--list` prints every route (assets of kind `map`) with its sessions (kind `profile`,

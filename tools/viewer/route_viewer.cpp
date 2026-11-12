@@ -8,10 +8,15 @@
 //                [--at X Y] [--radius M] [--frames N]
 //
 // NAME is a route's or session's name (or part of it, if only one matches) or its KUID.
+// --drive (with a session and --install): drive one of the session's trains on its route,
+// drawn with its own models: W/S throttle, Space brake, R reverser (when stopped), C chase or
+// free camera, Esc quit. --train N picks the train (1 = the first; default: the first one that
+// stands on track). Physics numbers are uncalibrated defaults (src/sim) for now.
 // Exit codes: 0 done, 1 error, 2 bad arguments, 3 no route/session matches NAME, 4 several do.
 //
-// --frames N: draw N frames (turning a little each time) and quit, for testing; with
-// SDL_VIDEODRIVER=offscreen no window appears.
+// --frames N: draw N frames (turning a little each time; in drive mode at full throttle) and
+// quit, for testing; with SDL_VIDEODRIVER=offscreen no window appears. --png saves the last
+// frame under ~/.local/share/trainz-native/routes/.
 // Keys: W/S or Up/Down forward/back, A/D sideways, Left/Right turn, PgUp/PgDn look up/down,
 // Q/E down/up, Shift = 5x faster, R = back to the start view, Esc = quit.
 // Mouse: hold the right button and drag to look; the wheel moves forward/back.
@@ -19,12 +24,17 @@
 // Start = back to the start view.
 // Read-only: it opens the archives for reading and writes nothing.
 
+#include "common/DataDirs.h"
+#include "common/PngWriter.h"
+#include "common/SafeOutput.h"
 #include "common/StrictNumber.h"
 #include "content/AssetIndex.h"
 #include "content/ContentError.h"
 #include "content/GroundFile.h"
 #include "content/JaArchive.h"
 #include "input/SdlGamepad.h"
+#include "game/Drive.h"
+#include "game/RouteDrive.h"
 #include "view/FlyCamera.h"
 #include "view/RouteCatalog.h"
 #include "view/RouteLoader.h"
@@ -32,7 +42,13 @@
 
 #include <SDL.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <unistd.h>
+#include <stdexcept>
+#include <cstring>
+#include <cerrno>
 #include <exception>
 #include <iostream>
 #include <map>
@@ -60,6 +76,8 @@ int main(int argc, char** argv) {
     std::optional<double> atX, atY;
     double radius = 600;
     long frames = -1;  // -1: until Esc
+    bool drive = false, png = false;
+    long trainNumber = 0;  // 0: the first that stands on track
     for (int i = byName ? 1 : 3; i < argc; ++i) {
         const std::string opt = argv[i];
         if (opt == "--session" && !byName && i + 2 < argc) {
@@ -80,6 +98,17 @@ int main(int argc, char** argv) {
                 std::cerr << "--at needs two numbers (world metres)\n";
                 return 2;
             }
+        } else if (opt == "--png") {
+            png = true;
+        } else if (opt == "--drive") {
+            drive = true;
+        } else if (opt == "--train" && i + 1 < argc) {
+            const auto n = strictNumber(argv[++i]);
+            if (!n || *n < 1 || *n > 100000 || *n != static_cast<double>(static_cast<long>(*n))) {
+                std::cerr << "--train needs a whole number, 1 or more\n";
+                return 2;
+            }
+            trainNumber = static_cast<long>(*n);
         } else if (opt == "--frames" && i + 1 < argc) {
             const auto n = strictNumber(argv[++i]);
             if (!n || *n < 1 || *n > 100000 || *n != static_cast<double>(static_cast<long>(*n))) {
@@ -192,11 +221,64 @@ int main(int argc, char** argv) {
         std::printf("reading the route...\n");
         const GroundFile ground = parseGround(archive.readLimited(*ge, std::size_t{1} << 30));
         auto extras = trainz::view::loadRouteExtras(archive, routeFolder, sessionArchive, sessionFolder);
+        // Drive mode: the train, its place on the track and its own vehicle models.
+        std::optional<trainz::sim::TrackNetwork> net;
+        trainz::game::Drive driving;
+        std::vector<trainz::game::RouteVehicle> vehicles;
+        if (drive) {
+            if (!extras.trains || !extras.track || !meshes) {
+                std::cerr << "--drive needs a session (--session) with its route's track, and --install DIR\n";
+                return 2;
+            }
+            net.emplace(*extras.track);
+            const auto& trains = *extras.trains;
+            std::optional<trainz::sim::TrackPosition> where;
+            std::size_t chosen = 0;
+            for (std::size_t t = 0; t < trains.size() && !where; ++t) {
+                if (trainNumber == 0 || static_cast<long>(t + 1) == trainNumber) {
+                    where = trainz::game::trainStart(*net, trains[t]);
+                    chosen = t;
+                }
+            }
+            if (!where) {
+                std::cerr << (trainNumber > 0 ? "that train does not stand on track (or there is no such train)"
+                                              : "no train of the session stands on track")
+                          << " (" << trains.size() << " trains)\n";
+                return 1;
+            }
+            std::vector<trainz::sim::VehicleSpec> specs;
+            for (const auto& v : trains[chosen].vehicles) {
+                const auto* body = meshes->get(v.kuid);
+                if (body == nullptr) {
+                    continue;  // a vehicle without a model the port can read: left out
+                }
+                const trainz::view::PreparedMesh* bog[2] = {nullptr, nullptr};
+                for (int k = 0; k < 2; ++k) {
+                    if (const auto b = body->bogeyFor(k == 0 ? "a.bog0" : "a.bog1")) {
+                        bog[k] = meshes->get(b->kuid);
+                    }
+                }
+                vehicles.push_back(trainz::game::routeVehicle(*body, bog[0], bog[1]));
+                specs.push_back(specs.empty() ? trainz::sim::electricLocomotive() : trainz::sim::freightWagon(40));
+            }
+            if (vehicles.empty()) {
+                std::cerr << "none of that train's vehicles has a model the port can read\n";
+                return 1;
+            }
+            driving.lead = *where;
+            driving.spec = trainz::sim::makeTrain(specs);
+            const auto p = net->point(*where);
+            if (!atX && p) {
+                atX = p->x, atY = p->y;
+            }
+            std::printf("driving train %zu of %zu: %zu vehicles with models (physics uncalibrated)\n", chosen + 1, trains.size(),
+                        vehicles.size());
+        }
         trainz::view::RouteSceneInput in;
         in.ground = &ground;
         in.track = extras.track ? &*extras.track : nullptr;
         in.objects = &extras.objects;
-        in.trains = extras.trains ? &*extras.trains : nullptr;
+        in.trains = extras.trains && !drive ? &*extras.trains : nullptr;  // in drive mode the train is drawn each frame
         in.meshes = meshes ? &*meshes : nullptr;
         in.groundTextures = groundTextures ? &*groundTextures : nullptr;
         std::printf("building the scene (radius %.0f m)...\n", radius);
@@ -221,16 +303,24 @@ int main(int argc, char** argv) {
         }
         const auto start = trainz::view::FlyCamera::lookingAlong(view.camera);
         auto cam = start;
-        bool dirty = true, running = true;
+        bool dirty = true, running = true, chase = drive;
         Uint32 last = SDL_GetTicks();
         trainz::input::GamepadSlot pads;  // the first gamepad SDL knows, if any
         pads.openIfNone();
+        std::vector<std::uint8_t> rgba;  // the last frame (saved by --png)
         while (running) {
             trainz::view::FlyControls ctl;
             SDL_Event ev;
             while (SDL_PollEvent(&ev)) {
                 if (ev.type == SDL_QUIT || (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE)) {
                     running = false;
+                } else if (drive && ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_r) {
+                    if (std::fabs(driving.speed) < 0.1) {
+                        driving.controls.reverser = driving.controls.reverser > 0 ? -1 : 1;
+                    }
+                } else if (drive && ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_c) {
+                    chase = !chase;
+                    cam = trainz::view::FlyCamera::lookingAlong(trainz::game::chaseCamera(*net, driving.lead));
                 } else if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_r) {
                     cam = start, dirty = true;
                 } else if (ev.type == SDL_WINDOWEVENT) {
@@ -268,23 +358,50 @@ int main(int argc, char** argv) {
                          stickAxis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT));
                 ctl.fast = ctl.fast || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A) != 0;
             }
-            if (frames > 0) {  // test mode: turn a little every frame
-                cam.turn(0.05, 0);
+            if (drive) {
+                if (frames > 0) {  // test mode: full throttle, half a second per frame
+                    driving.controls.throttle = 1, driving.controls.brake = 0;
+                } else if (chase) {
+                    driving.controls.throttle = std::clamp(driving.controls.throttle + ctl.forward * 0.5 * dt, 0.0, 1.0);
+                    driving.controls.brake = k[SDL_SCANCODE_SPACE] ? 1.0 : 0.0;
+                }
+                driving.step(*net, frames > 0 ? 0.5 : dt);
                 dirty = true;
-            }
-            if (trainz::view::applyFlyControls(cam, ctl, dt)) {
-                dirty = true;
+                if (!chase && trainz::view::applyFlyControls(cam, ctl, dt)) {
+                    dirty = true;
+                }
+            } else {
+                if (frames > 0) {  // test mode: turn a little every frame
+                    cam.turn(0.05, 0);
+                    dirty = true;
+                }
+                if (trainz::view::applyFlyControls(cam, ctl, dt)) {
+                    dirty = true;
+                }
             }
             if (dirty) {
                 const Uint32 t0 = SDL_GetTicks();
-                const auto rgba = trainz::view::renderScene(view.scene, cam.camera(), kW, kH);
+                if (drive) {
+                    trainz::view::Scene scene = view.scene;
+                    trainz::game::addRouteTrain(scene, *net, driving.lead, vehicles);
+                    rgba = trainz::view::renderScene(scene, chase ? trainz::game::chaseCamera(*net, driving.lead) : cam.camera(), kW, kH);
+                } else {
+                    rgba = trainz::view::renderScene(view.scene, cam.camera(), kW, kH);
+                }
                 SDL_UpdateTexture(tex, nullptr, rgba.data(), kW * 4);
                 SDL_RenderClear(ren);
                 SDL_RenderCopy(ren, tex, nullptr, nullptr);
                 SDL_RenderPresent(ren);
                 char title[160];
-                std::snprintf(title, sizeof title, "route-viewer  x %.0f  y %.0f  z %.0f  (%u ms per frame)", cam.position.x,
-                              cam.position.y, cam.position.z, static_cast<unsigned>(SDL_GetTicks() - t0));
+                if (drive) {
+                    std::snprintf(title, sizeof title, "route-viewer  %.0f km/h  throttle %.0f%%  brake %s  %s%s  (%u ms per frame)",
+                                  driving.speed * 3.6, driving.controls.throttle * 100, driving.controls.brake > 0 ? "on" : "off",
+                                  driving.controls.reverser > 0 ? "forward" : "reverse", driving.atBuffer ? "  (buffer!)" : "",
+                                  static_cast<unsigned>(SDL_GetTicks() - t0));
+                } else {
+                    std::snprintf(title, sizeof title, "route-viewer  x %.0f  y %.0f  z %.0f  (%u ms per frame)", cam.position.x,
+                                  cam.position.y, cam.position.z, static_cast<unsigned>(SDL_GetTicks() - t0));
+                }
                 SDL_SetWindowTitle(win, title);
                 dirty = false;
                 if (frames > 0 && --frames == 0) {
@@ -296,6 +413,26 @@ int main(int argc, char** argv) {
             }
         }
         pads.close();
+        if (png && !rgba.empty()) {  // the last frame, under ~/.local/share/trainz-native/routes/
+            const auto bytes = trainz::common::encodePngRgba(kW, kH, rgba);
+            const auto out = trainz::common::SafeOutputDir::open(trainz::common::portDataDir() / "routes",
+                                                                 trainz::common::protectedDirsFor(archivePath));
+            const std::string file = "route-viewer-" + std::to_string(static_cast<long>(::time(nullptr))) + ".png";
+            out.createFile(file, [&](int fd) {
+                std::size_t done = 0;
+                while (done < bytes.size()) {
+                    const ssize_t n = ::write(fd, bytes.data() + done, bytes.size() - done);
+                    if (n <= 0) {
+                        if (n < 0 && errno == EINTR) {
+                            continue;
+                        }
+                        throw std::runtime_error(std::string("write failed: ") + std::strerror(errno));
+                    }
+                    done += static_cast<std::size_t>(n);
+                }
+            });
+            std::printf("wrote %s\n", (out.path() / file).c_str());
+        }
         SDL_DestroyTexture(tex);
         SDL_DestroyRenderer(ren);
         SDL_DestroyWindow(win);

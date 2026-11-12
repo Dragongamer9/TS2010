@@ -1,6 +1,7 @@
 // The own game's generated world and driving. No game files are read.
 #include "game/Drive.h"
 #include "game/GeneratedWorld.h"
+#include "game/RouteDrive.h"
 
 #include <gtest/gtest.h>
 
@@ -106,4 +107,63 @@ TEST(Drive, TheConsistIsLaidBehindTheLead) {
     // The models are the game's own boxes, each with two bogie points.
     EXPECT_EQ(loco.attachments.size(), 2U);
     EXPECT_FALSE(loco.placeholder);
+}
+
+TEST(RouteDrive, LocateTrainStartAndFacing) {
+    const auto w = game::generateWorld(1);
+    const sim::TrackNetwork net(w.track);
+    const auto at = net.locate(0, -149);  // 1 m off the south straight, x 0
+    ASSERT_TRUE(at);
+    EXPECT_EQ(at->piece, w.startPiece + 1);  // the turnout is at x -100
+    EXPECT_NEAR(net.point(*at)->x, 0, 1e-6);
+    EXPECT_FALSE(net.locate(0, 0));  // the middle of the oval: no track within 5 m
+    // A train: vehicles stored front to back (here the front is at x 0, the next at x -15).
+    content::Train t;
+    auto vehicle = [](double x, double y) {
+        content::Vehicle v;
+        v.boardX = static_cast<std::int16_t>(std::floor(x / content::kBaseboardSize));
+        v.boardY = static_cast<std::int16_t>(std::floor(y / content::kBaseboardSize));
+        v.x = static_cast<float>(x - v.boardX * content::kBaseboardSize);
+        v.y = static_cast<float>(y - v.boardY * content::kBaseboardSize);
+        return v;
+    };
+    t.vehicles = {vehicle(0, -150), vehicle(-15, -150)};
+    const auto s = game::trainStart(net, t);
+    ASSERT_TRUE(s);
+    EXPECT_NEAR(std::cos(net.point(*s)->heading), 1, 1e-6);  // runs east, away from the second
+    t.vehicles = {vehicle(-15, -150), vehicle(0, -150)};
+    const auto r = game::trainStart(net, t);
+    ASSERT_TRUE(r);
+    EXPECT_NEAR(std::cos(net.point(*r)->heading), -1, 1e-6);  // runs west
+    t.vehicles = {vehicle(0, 0)};
+    EXPECT_FALSE(game::trainStart(net, t));
+    t.vehicles.clear();
+    EXPECT_FALSE(game::trainStart(net, t));
+}
+
+TEST(RouteDrive, VehiclesFromTheirModelsOnTheirBogies) {
+    const auto w = game::generateWorld(1);
+    const sim::TrackNetwork net(w.track);
+    const auto wagon = game::boxWagon({1, 2, 3}), bogie = game::boxBogie();
+    const auto v = game::routeVehicle(wagon, &bogie, &bogie);
+    EXPECT_NEAR(v.length, 14, 1e-4);  // the model's extent along y
+    EXPECT_TRUE(v.onBogies);
+    EXPECT_NEAR(v.bogieY[0], -14.0 / 3, 1e-4);
+    EXPECT_NEAR(v.bogieY[1], 14.0 / 3, 1e-4);
+    view::PreparedMesh plain = wagon;
+    plain.attachments.clear();
+    EXPECT_FALSE(game::routeVehicle(plain, nullptr, nullptr).onBogies);
+    view::Scene s;
+    const sim::TrackPosition front{w.startPiece + 1, 200, +1};
+    EXPECT_EQ(game::addRouteTrain(s, net, front, {v, v, game::routeVehicle(plain, nullptr, nullptr)}), 3);
+    EXPECT_EQ(s.triangles.size(), 3 * wagon.triangles.size() + 4 * bogie.triangles.size());  // 2 wagons with 2 bogies each
+    // On straight track the first body is centred on `front` (its bogie points' middle).
+    const double fx = net.point(front)->x;
+    double lo = 1e9, hi = -1e9;
+    for (std::size_t i = 0; i < wagon.triangles.size(); ++i) {
+        for (const auto& p : s.triangles[i].p) {
+            lo = std::min(lo, p.x), hi = std::max(hi, p.x);
+        }
+    }
+    EXPECT_NEAR(0.5 * (lo + hi), fx, 0.01);
 }

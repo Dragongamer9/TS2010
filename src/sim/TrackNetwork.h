@@ -43,6 +43,10 @@ public:
     // index in `switches` (by vertex) picks the way, else the one that turns least.
     Move advance(TrackPosition& p, double metres) const;
 
+    // The track position nearest to a world point (x, y), facing toward the piece's `to` end,
+    // or nullopt if no piece comes within maxDistance metres. Checks every piece's samples.
+    std::optional<TrackPosition> locate(double x, double y, double maxDistance = 5.0) const;
+
     // Which way a train leaving `vertex` on this side may go: the pieces on the other side.
     std::vector<std::int32_t> exits(std::int32_t vertex, std::int32_t arrivingPiece) const;
 

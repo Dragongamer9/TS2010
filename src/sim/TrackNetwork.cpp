@@ -84,6 +84,32 @@ std::optional<TrackPoint> TrackNetwork::point(const TrackPosition& p) const {
     return t;
 }
 
+std::optional<TrackPosition> TrackNetwork::locate(double x, double y, double maxDistance) const {
+    if (!std::isfinite(x) || !std::isfinite(y) || !(maxDistance > 0)) {
+        return std::nullopt;
+    }
+    std::optional<TrackPosition> best;
+    double bestD = maxDistance;
+    for (const auto& [index, pc] : pieces_) {
+        double prev[3];
+        pc.curve.point(0, prev);
+        for (int k = 1; k <= kSamples; ++k) {
+            double q[3];
+            pc.curve.point(static_cast<double>(k) / kSamples, q);
+            const double dx = q[0] - prev[0], dy = q[1] - prev[1], l2 = dx * dx + dy * dy;
+            const double f = l2 > 0 ? std::clamp(((x - prev[0]) * dx + (y - prev[1]) * dy) / l2, 0.0, 1.0) : 0.0;
+            const double d = std::hypot(x - (prev[0] + f * dx), y - (prev[1] + f * dy));
+            if (d < bestD) {
+                bestD = d;
+                const double a = pc.cumulative[static_cast<std::size_t>(k - 1)], b = pc.cumulative[static_cast<std::size_t>(k)];
+                best = TrackPosition{index, a + f * (b - a), +1};
+            }
+            std::copy(q, q + 3, prev);
+        }
+    }
+    return best;
+}
+
 std::vector<std::int32_t> TrackNetwork::exits(std::int32_t vertex, std::int32_t arrivingPiece) const {
     std::vector<std::int32_t> out;
     const auto it = links_.find(vertex);

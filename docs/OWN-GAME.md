@@ -1,21 +1,10 @@
-# The own game: a train simulator that runs without the original files
+# The engine's own parts, and a test world
 
-The owner's end goal is a game of its own: it must start and be playable with **no
-Trainz Simulator 2010 files at all**. This page is the plan for that. The TS2010 readers
-(`src/content`) stay, as an optional way to look at Dad's own installed copy, but the game
-never depends on them.
-
-## Rules
-
-- **Original content only.** The game ships nothing from TS2010 or any other game: no
-  models, textures, sounds, routes, names, logos or look copied, converted or traced from
-  them. Its world, trains and sounds are made for it (by hand, procedurally, or from freely
-  licensed sources whose licence is recorded next to the file).
-- **Its own name.** Not "Trainz"; the name is the owner's choice (still to be picked).
-- **Genre, not a copy.** It is a train simulator; its mechanics (driving, signals, timetables)
-  are common to the genre, but its design is its own.
-- The repo's `testdata/ts2010` (Dad's files, private repo) is for testing the readers only;
-  nothing in the game may load it.
+> **Goal, clarified by the owner (2026-11-12):** an OpenMW-style remake: **our engine
+> playing the original TS2010 files** from the install (read only). See [PLAN.md](PLAN.md).
+> This page covers the engine parts that are our own code (simulation, driving) and
+> `drive-demo`, a small generated test world for them that needs no game files. Content for the
+> real game comes from the original files, not from here.
 
 ## What carries over
 

@@ -69,12 +69,13 @@ A milestone reaches **100%** only when **all** of these are true:
 
 Until then it stays below 100%, so none of steps 1–7 is at 100% yet.
 
-## The own game (no original files)
+## Engine milestones (our engine playing the original files)
 
-The owner's end goal is a game that runs **without any TS2010 files**, with original content
-and its own name (to be picked by the owner): plan and rules in
-[`docs/OWN-GAME.md`](docs/OWN-GAME.md). It is tracked here separately; the percentage above
-stays the TS2010 port's.
+The owner's goal, clarified 2026-11-12: an OpenMW-style remake, our engine reading the
+original files (read only): [`docs/PLAN.md`](docs/PLAN.md). **First goal reached:** load one
+route and drive one train (`route-viewer --drive`). These milestones are tracked here
+separately; the percentage above stays the format work's. `drive-demo` is a generated test
+world for the simulation, needing no game files ([`docs/OWN-GAME.md`](docs/OWN-GAME.md)).
 
 | # | Milestone | State |
 |---|---|---|
@@ -104,6 +105,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-12 | 37% | No step change. **First goal reached: load one route and drive one train.** `route-viewer --drive` (with a session) drives one of its trains on its own route, every vehicle with its own model and bogie models placed at the model's `a.bog0`/`a.bog1` along the track; where the train stands and which way it faces come from the stored vehicle positions. Midday Manifest's first train: 31 vehicles. Physics uncalibrated for now. Goal clarified by the owner (OpenMW-style: our engine, the original files): [`docs/PLAN.md`](docs/PLAN.md). |
 | 2026-11-12 | 37% | No step change. G2 started: `drive-demo`, the first thing that runs with **no TS2010 files at all**: generated hills, a 2.1 km oval (lap within 1% of its design) with a turnout into a buffered siding, a box locomotive and wagons placed on their bogies, driven by the G1 physics with throttle, brake, reverser and the turnout, chase camera. 5 unit tests and a CLI test run from an empty folder. CI: the package removal check now uses the archive's member names (a symlink line's target was taken before; ChatGPT review). |
 | 2026-11-12 | 37% | No step change. G1: traction and braking limited by adhesion on the driven/braked axles (brakes now visibly fail to hold a 15% grade); trains summed from vehicles (total forces, not per-tonne); presets with sources (Perplexity's research, converted and checked: RP-548 freight wagon, Vectron traction, Shinkansen Series 100, passenger brake notches), unsourced parts marked uncalibrated. CI (Cursor): the package removal checks every packaged file, and a clean `debian:13` job installs the `.deb` artifact with nothing pre-installed; checkout moved before the artifact download. |
 | 2026-11-12 | 37% | No step change. New goal from the owner: a game of its own that runs without the original files ([`docs/OWN-GAME.md`](docs/OWN-GAME.md), tracked as milestones G1–G8). G1 started: `sim::TrackNetwork` (drive along track by arc length, through vertices onto the far side, junctions straight on unless switched, line ends stop) and `sim::stepTrain` (traction limited by force and power, brakes that hold but never reverse, Davis resistance, gradients); 7 tests, no game files. |

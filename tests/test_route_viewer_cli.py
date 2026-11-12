@@ -53,6 +53,14 @@ def main():
     r = subprocess.run([tool, "--install", str(data), "--route", "no such route"], env=env, capture_output=True, text=True,
                        timeout=300)
     assert r.returncode == 3 and "no single route" in r.stderr, (r.returncode, r.stderr)
+    # Drive mode needs a session with track and --install; refused clearly otherwise.
+    r = subprocess.run([tool, str(archive), ROUTE, "--drive"], env=env, capture_output=True, text=True, timeout=300)
+    assert r.returncode == 2 and "--drive needs" in r.stderr, (r.returncode, r.stderr)
+    r = subprocess.run([tool, "--install", str(data), "--route", "springfield", "--drive"], env=env, capture_output=True,
+                       text=True, timeout=300)
+    assert r.returncode == 2 and "--drive needs" in r.stderr, (r.returncode, r.stderr)
+    r = subprocess.run([tool, str(archive), ROUTE, "--train", "0"], env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 2, (r.returncode, r.stderr)
     for bad in (["--route", "x"], ["--install", str(data)]):
         r = subprocess.run([tool, *bad], env=env, capture_output=True, text=True, timeout=300)
         assert r.returncode == 2, (bad, r.returncode, r.stderr)

@@ -56,6 +56,7 @@ add_library(trainz_content
   src/input/KeyBindings.cpp
   src/game/Drive.cpp
   src/game/GeneratedWorld.cpp
+  src/game/RouteDrive.cpp
   src/sim/TrackNetwork.cpp
   src/sim/TrainPhysics.cpp
   src/view/AssetMeshes.cpp
