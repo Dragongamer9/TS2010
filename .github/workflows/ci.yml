@@ -90,12 +90,18 @@ jobs:
       - name: Debian package (cpack)
         if: matrix.compiler == 'gcc' && matrix.variant == 'release'
         run: |
-          # CI-only version string so cpack can run; the owner sets the real one.
-          cmake -S . -B build -DTRAINZ_PACKAGE_VERSION=ci
+          # CI-only version: starts with a digit (dpkg requires that) and is not a release.
+          # Owner sets the real TRAINZ_PACKAGE_VERSION; never invent one for shipping.
+          cmake -S . -B build -DTRAINZ_PACKAGE_VERSION='0~ci'
           cpack --config build/CPackConfig.cmake -G DEB
-          deb=$(ls build/trainz-native-ci_ci_amd64.deb)
+          deb=$(ls build/trainz-native-0-ci_0~ci_amd64.deb)
           test -f "$deb"
           dpkg-deb -c "$deb" | tee deb-contents.txt
-          grep -F './opt/trainz-native/ci/bin/route-viewer' deb-contents.txt
-          grep -F './opt/trainz-native/ci/bin/trainz-route-viewer' deb-contents.txt
-          grep -F './opt/trainz-native/ci/share/applications/trainz-route-viewer.desktop' deb-contents.txt
+          grep -F './opt/trainz-native/0~ci/bin/route-viewer' deb-contents.txt
+          grep -F './opt/trainz-native/0~ci/bin/trainz-route-viewer' deb-contents.txt
+          grep -F './opt/trainz-native/0~ci/share/applications/trainz-route-viewer.desktop' deb-contents.txt
+          # Every packaged path must stay under /opt (no shared /usr files).
+          if grep -E ' \./usr/' deb-contents.txt; then
+            echo "package must not install under /usr"; exit 1
+          fi
+          grep -E ' \./opt/trainz-native/0~ci/' deb-contents.txt | head -1

@@ -254,8 +254,10 @@ endif()
 # newer one (no shared paths, no Conflicts on the previous package).
 set(TRAINZ_PACKAGE_VERSION "OWNER_SET_VERSION" CACHE STRING
     "Debian package version (owner sets this; never invent one)")
+# Debian package *names* may not contain '~' (versions may). Map '~' → '-' in the name only.
+string(REPLACE "~" "-" TRAINZ_PACKAGE_NAME_VERSION "${TRAINZ_PACKAGE_VERSION}")
 set(CPACK_GENERATOR "DEB")
-set(CPACK_PACKAGE_NAME "trainz-native-${TRAINZ_PACKAGE_VERSION}")
+set(CPACK_PACKAGE_NAME "trainz-native-${TRAINZ_PACKAGE_NAME_VERSION}")
 set(CPACK_PACKAGE_VERSION "${TRAINZ_PACKAGE_VERSION}")
 set(CPACK_PACKAGE_VENDOR "Dragongamer9")
 set(CPACK_PACKAGE_CONTACT "Dragongamer9")
