@@ -38,8 +38,8 @@ u8  rest[]              Class-specific payload (partly observed)
 ```
 
 **Observed Geometric Properties:**
-- **Terrain Alignment**: 79–88% of `jnOb` junction objects and 75–82% of `sgOb` signals sit within 1.0 m of the terrain surface (or nearest track vertex).
-- **Yaw = 0.0**: Unlike buildings and scenery objects whose `yaw` stores rotation in radians, signals and junctions store `0.0`. They derive their orientation dynamically from the track they attach to.
+- **Terrain Alignment**: 75–82% of `sgOb` signals sit within 1.0 m of the ground; for five classes counted together (`jnOb`, `obCr`, `mIND`, `mFXT`, `ttOb`), 79–97% sit within 1.0 m of the nearest track vertex (the source does not measure `jnOb` alone).
+- **Yaw = 0.0**: Unlike buildings and scenery objects whose `yaw` stores rotation in radians, signals and junctions store `0.0` (they presumably take their direction from the track, a guess).
 - **Names in Payload**: Inspection of `jnOb` payloads shows ASCII names embedded later in the record (e.g. `"Single Track"`, `"Airport Junction 2"`).
 
 ---
@@ -95,7 +95,7 @@ In `src/sim/TrackNetwork.{h,cpp}`:
 | **`sgOb` / `mosignal` registration** | **Known** | `trainz.exe` factory registration at `0x807eb0` | Factory binds tag `sgOb` to class `mosignal`. 13,806 objects on disc. |
 | **Class base block & position** | **Known** | `src/content/PlacedObject.{h,cpp}`, verified on 50 disc routes | 8-byte header (`0x03`, `0xff000000`), board coordinates, x/y/z offsets. 75–88% sit within 1 m of ground. |
 | **Signal/junction yaw convention** | **Known** | Disc survey across all 10,138 junctions and 13,806 signals | Always stored as `0.0`. Rotation is not stored in the object record. |
-| **Junction vertex topology** | **Known** | `src/content/TrackLayout.{h,cpp}`, verified on all 50 routes | Vertices with $\ge 3$ links represent junctions (12,242 3-way, 421 4-way on disc; 38 on test route). |
+| **Junction vertex topology** | **Guess** | `src/content/TrackLayout.{h,cpp}`, verified on all 50 routes | Vertices with $\ge 3$ links represent junctions (12,242 3-way, 421 4-way on disc; 38 on test route; "3 links = junction" is a guess). |
 | **Turnout diverging legs** | **Known** | Disc survey of 13,387 same-flag vertex link pairs | Same link flag denotes pieces branching from the same side of the vertex (83% within 30°). |
 | **Simulation switch branching** | **Known** | `src/sim/TrackNetwork.{h,cpp}`, unit tests, `drive-demo` | `net.switches[vertex] = piece` routes trains through turnouts; default selects straightest exit. |
 | **Session junction initialization** | **Known** | `src/content/SessionFile.{h,cpp}`, disc survey of 138 sessions | `BHVR` rules include `"Set Junctions"` with embedded `.chump` settings. |
