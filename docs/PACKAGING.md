@@ -33,6 +33,27 @@ binary, the launcher, and the `.desktop` file live in that tree. There are **no*
 shared paths in `/usr` (no `/usr/bin`, no `/usr/share/applications`), so two
 versions never fight over the same file.
 
+## How the viewer finds its files (not baked at build time)
+
+Paths are **not** fixed from `CMAKE_INSTALL_PREFIX` when the binaries are
+compiled. Nothing in the C++ tools or the launcher embeds the install prefix.
+After install they work like this:
+
+| What | How it is found |
+|---|---|
+| `route-viewer` (from the launcher) | Same folder as `trainz-route-viewer` (`dirname` of the script), else `PATH`, else `$TRAINZ_ROUTE_VIEWER` |
+| Port settings / PNGs / exports | `~/.local/share/trainz-native/` (or `$XDG_DATA_HOME/trainz-native`) at **run** time |
+| The TS2010 game folder | `$TRAINZ_INSTALL`, or the path stored by `--set-install` in that data folder |
+| The `.desktop` file | Only a menu shortcut; the programs do not load assets from `share/` |
+
+So a build configured with the default prefix (for example `/usr/local`) can still
+be packed with CPack into `/opt/trainz-native/<version>/`. CPack’s
+`CPACK_PACKAGING_INSTALL_PREFIX` only decides where files land **inside the
+`.deb`**; it does not need to match the prefix used at compile time, because the
+programs never look that prefix up. The launcher under
+`/opt/trainz-native/<version>/bin/` finds `route-viewer` next to itself in that
+same `bin/` folder.
+
 ## Side-by-side installs (previous version stays startable)
 
 Each package is named `trainz-native-<version-with-tildes-as-dashes>` and owns
