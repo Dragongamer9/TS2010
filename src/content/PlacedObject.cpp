@@ -1,5 +1,7 @@
 #include "PlacedObject.h"
 
+#include <algorithm>
+
 #include "ByteOrder.h"
 #include "TrackLayout.h"  // kBaseboardSize
 
@@ -63,6 +65,27 @@ std::optional<PlacedObject> decodePlacedObject(const ObjectItem& item) {
     }
     o.rest.assign(item.payload.begin() + static_cast<std::ptrdiff_t>(*header + kBaseSize), item.payload.end());
     return o;
+}
+
+std::optional<TrackAttachment> trackAttachment(const PlacedObject& o) {
+    constexpr std::size_t kTail = 23;
+    if (o.rest.size() < kTail) {
+        return std::nullopt;
+    }
+    const std::uint8_t* t = o.rest.data() + (o.rest.size() - kTail);
+    static constexpr std::uint8_t kHead[9] = {2, 0, 0, 0, 0, 0, 0, 0, 0};
+    if (!std::equal(kHead, kHead + 9, t) || t[17] > 1) {
+        return std::nullopt;
+    }
+    TrackAttachment a;
+    std::memcpy(&a.piece, t + 9, 4);
+    std::memcpy(&a.distance, t + 13, 4);
+    if (!std::isfinite(a.distance) || a.piece < 0) {
+        return std::nullopt;
+    }
+    a.alongPiece = t[17] == 1;
+    std::copy(t + 18, t + 23, a.tail);
+    return a;
 }
 
 }  // namespace trainz::content

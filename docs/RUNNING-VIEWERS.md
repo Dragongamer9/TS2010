@@ -138,7 +138,8 @@ notch up/down (a smooth throttle if the train has no notch data), Space brake, R
 (when stopped), J switch the next junction ahead, C chase or free camera, Esc quit. The window title shows the speed and the
 notch. Each vehicle's mass and the locomotives' pulling force come from their own files
 (`mass`, `enginespec`); resistance and brakes are still general defaults. Junctions start as the route sets
-them. There are no signals or sounds yet.
+them. The title also shows the next signal and its aspect (stop, caution or clear), worked
+out by the port's own simple rules. The lights are not drawn yet, and there are no sounds.
 
 ### Finding a route and a session
 

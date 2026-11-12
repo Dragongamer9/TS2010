@@ -103,8 +103,8 @@ In `src/sim/TrackNetwork.{h,cpp}`:
 | **`jnOb` vertex tie mechanism** | **Observed, partly** | Section 5 | The record's tail names one track piece; in 98% it is one of the nearest 3-link vertex's pieces (trunk in 5,110, a leg in 4,128). The lever's own meaning of that piece is not known. |
 | **Switch setting** | **Observed** (not traced) | Section 5 | Stored at the vertex, not in `jnOb`: the vertex's last byte picks a leg in slot order (0/1; 0/1/2 at 4-link vertices). 25 of 26 session trains standing across a junction stand on the leg it picks. Used by `sim::TrackNetwork`. |
 | **Switch stand mesh & animation** | **Left** | To be mapped from asset configs (`kind "junction"`) | Lever meshes (`a.lever`), switch lanterns, and target animations. |
-| **`sgOb` track attachment tie** | **Left** | To be decoded from `sgOb` payload | How `sgOb` identifies the track stretch and distance offset it guards. |
-| **Signal aspects and logic** | **Left** | Asset configs (`kind "signal"`) and engine scripts | Aspect states (stop, caution, proceed), light attachments, and block occupancy propagation. |
+| **`sgOb` track attachment** | **Observed** (not traced) | Section 6 | The record's last 23 bytes give piece, distance and direction of travel; 98% of signals stand within 3 m of that point. |
+| **Signal aspects and logic** | **Left** (the port has its own simple block rules, section 6) | Asset configs (`kind "signal"`) and engine scripts | Aspect states (stop, caution, proceed), light attachments, and block occupancy propagation. |
 | **AI junction path reservation** | **Left** | Untraced in `trainz.exe` | How AI drivers request and lock junction switches along a path. |
 
 ## 5. Decoded from the disc (2026-11-12, observed, not traced)
@@ -154,3 +154,40 @@ rule); not decoded.
 `sim::TrackNetwork` starts every junction set as stored. In `route-viewer --drive`, **J**
 switches the next junction in front of the train, and the window title shows its distance
 and setting.
+
+## 6. Signals: where they attach (2026-11-12, observed, not traced)
+
+Every `sgOb` record (12,229 on the disc; 12,073 with this tail) ends with 23 bytes:
+
+```
+u32 2   u32 0   u8 0   i32 piece   f32 distance   u8 direction   5 bytes (not known)
+```
+
+- **Position:** with direction 1 the distance runs from the piece's `from` vertex; with 0
+  it runs from its `to` vertex. The signal then stands within 3 m of that point for 11,919
+  of 12,155 (98%), and within 6 m for 99.6%. The gap is 1.5–2.5 m for most, which fits the
+  `trackside` sideways offset that the public docs describe.
+- **Direction of travel:** seen along the direction the distance runs, the signals of a route
+  keep to one side of the track. On 33 of the 43 routes with at least 30 signals, 90% or more
+  are on one side: left on the British ECML (94%), right on most others. So the byte is read as
+  the direction of travel the signal is for. Not traced; a few mixed routes (59–84%) remain
+  unexplained.
+- **Name:** before the tail, after 8 or 9 zero bytes, a `u32` length and the text
+  (`"Sig 4AT BR Post Std LHS 18"`), often empty.
+- The same tail ends 15,992 `tsO2` objects (other trackside items, not looked at further).
+
+**In the port** (`content::trackAttachment`, `game::routeSignals`, `sim::SignalSystem`): the
+signals are placed on the track network. Their aspects come from **the port's own simple
+rules**, not the game's (TS2010's signal logic, aspect lists and scripts are not decoded):
+
+- a signal's block runs to the next signal for the same direction, following the junctions;
+- **stop** if a train is in the block, **caution** if the next signal is at stop, **clear**
+  otherwise.
+
+The session's other trains count as standing still. `route-viewer --drive` shows the next
+signal, its distance and its aspect in the window title. Left:
+
+- the signal's own aspect list and lights (asset `signals`/`lights` containers);
+- drawing the lights;
+- what the 5 unknown bytes hold;
+- AI trains.

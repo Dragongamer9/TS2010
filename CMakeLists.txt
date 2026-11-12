@@ -59,6 +59,7 @@ add_library(trainz_content
   src/game/GeneratedWorld.cpp
   src/game/RouteDrive.cpp
   src/sim/TrackNetwork.cpp
+  src/sim/Signals.cpp
   src/sim/TrainPhysics.cpp
   src/view/AssetMeshes.cpp
   src/view/FlyCamera.cpp

@@ -4,6 +4,8 @@
 
 #include "content/EngineSpec.h"
 #include "content/SessionFile.h"
+#include "content/PlacedObject.h"
+#include "sim/Signals.h"
 #include "sim/TrainPhysics.h"
 #include "sim/TrackNetwork.h"
 #include "view/AssetMeshes.h"
@@ -26,6 +28,21 @@ namespace trainz::game {
 // throttle-power curves is driven, with its highest notch as the full-throttle curve and every
 // notch's curve in notchCurvesN (in N).
 // Without a usable mass it falls back to the 40 t wagon preset (and says so in `source`).
+// The route's signals (sgOb objects with a track attachment on a piece of `net`), each for the
+// direction of travel its attachment gives, named by the name in its record when it has one.
+std::vector<trainz::sim::Signal> routeSignals(const trainz::sim::TrackNetwork& net,
+                                              const std::vector<trainz::content::PlacedObject>& objects);
+
+// Points a train takes on the track: from its front `lead` back over `length` metres, one
+// every `step` metres and at both ends.
+std::vector<trainz::sim::Occupied> trainOccupies(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& lead,
+                                                 double length, double step = 5.0);
+
+// Points taken by a session's standing trains (each vehicle's stored position, if it lies
+// within 5 m of a piece), leaving out train number `except` (0-based; -1 for none).
+std::vector<trainz::sim::Occupied> standingTrains(const trainz::sim::TrackNetwork& net,
+                                                  const std::vector<trainz::content::Train>& trains, long except);
+
 trainz::sim::VehicleSpec ownVehicleSpec(std::optional<double> massKg, const trainz::content::EngineSpec* engine);
 
 std::optional<trainz::sim::TrackPosition> trainStart(const trainz::sim::TrackNetwork& net, const trainz::content::Train& train,

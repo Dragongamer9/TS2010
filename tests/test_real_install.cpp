@@ -904,3 +904,57 @@ TEST_F(RealInstall, RouteJunctionsHaveStoredSettings) {
     EXPECT_GT(junctions, 0u);
     EXPECT_GE(set * 100, junctions * 99);  // a few legs may be pieces the network could not build
 }
+
+// Signals on the disc's routes attach to their track: each one's attachment point lies near it.
+TEST_F(RealInstall, RouteSignalsSitBesideTheirAttachment) {
+    std::size_t routes = 0, signals = 0, near = 0;
+    for (const auto& path : archives) {
+        const auto a = JaArchive::open(path);
+        for (const auto& e : a.entries()) {
+            if (e.name.size() < 12 || e.name.substr(e.name.size() - 12) != "/mapfile.trk" || routes >= 6) {
+                continue;
+            }
+            const JaEntry* oe = a.find(e.name.substr(0, e.name.size() - 4) + ".obs");
+            if (oe == nullptr) {
+                continue;
+            }
+            TrackLayout layout;
+            std::vector<PlacedObject> objects;
+            try {
+                layout = readTrackLayout(parseRouteObjectFile(a.read(e)));
+                for (const auto& c : parseRouteObjectFile(a.read(*oe)).containers) {
+                    for (const auto& it : c.items) {
+                        if (it.tag == "sgOb") {
+                            if (auto p = decodePlacedObject(it)) {
+                                objects.push_back(*p);
+                            }
+                        }
+                    }
+                }
+            } catch (const ContentError&) {
+                continue;
+            }
+            ++routes;
+            const trainz::sim::TrackNetwork net(layout);
+            const auto found = trainz::game::routeSignals(net, objects);
+            std::size_t k = 0;
+            for (const auto& o : objects) {  // same order: routeSignals keeps the objects it can place
+                const auto at = trackAttachment(o);
+                if (!at || k >= found.size()) {
+                    continue;
+                }
+                const auto pt = net.point(found[k].at);
+                if (pt && found[k].at.piece == at->piece) {
+                    ++signals;
+                    near += std::hypot(pt->x - o.worldX(), pt->y - o.worldY()) < 6 ? 1 : 0;
+                    ++k;
+                }
+            }
+        }
+    }
+    if (signals == 0) {
+        GTEST_SKIP() << "no signals in this install";
+    }
+    std::cout << "  " << routes << " routes, " << signals << " signals, " << near << " within 6 m of their attachment\n";
+    EXPECT_GE(near * 100, signals * 95);
+}

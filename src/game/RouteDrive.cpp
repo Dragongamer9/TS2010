@@ -3,10 +3,88 @@
 #include "content/TrackLayout.h"
 
 #include <algorithm>
+#include <string>
+#include <cstring>
 #include <cmath>
 #include <numbers>
 
 namespace trainz::game {
+
+namespace {
+// The name in a signal's record: after 8 or 9 zero bytes a u32 length and the text, ending
+// where the 23-byte track attachment starts (observed). "" if it doesn't fit.
+std::string signalName(const trainz::content::PlacedObject& o) {
+    const auto& r = o.rest;
+    if (r.size() < 23 + 12) {
+        return {};
+    }
+    const std::size_t tail = r.size() - 23;
+    for (std::size_t at : {std::size_t{8}, std::size_t{9}}) {
+        std::uint32_t n = 0;
+        std::memcpy(&n, r.data() + at, 4);
+        if (at + 4 + n == tail) {
+            std::string name(r.begin() + static_cast<std::ptrdiff_t>(at + 4), r.begin() + static_cast<std::ptrdiff_t>(tail));
+            name.erase(std::find(name.begin(), name.end(), '\0'), name.end());
+            return name;
+        }
+    }
+    return {};
+}
+}  // namespace
+
+std::vector<trainz::sim::Signal> routeSignals(const trainz::sim::TrackNetwork& net,
+                                              const std::vector<trainz::content::PlacedObject>& objects) {
+    std::vector<trainz::sim::Signal> out;
+    for (const auto& o : objects) {
+        if (o.tag != "sgOb") {
+            continue;
+        }
+        const auto a = trainz::content::trackAttachment(o);
+        const auto len = a ? net.length(a->piece) : std::nullopt;
+        if (!a || !len || a->distance < -0.01 || a->distance > *len + 0.01) {
+            continue;
+        }
+        const double d = std::clamp(static_cast<double>(a->distance), 0.0, *len);
+        out.push_back({trainz::sim::TrackPosition{a->piece, a->alongPiece ? d : *len - d, a->alongPiece ? +1 : -1}, signalName(o)});
+    }
+    return out;
+}
+
+std::vector<trainz::sim::Occupied> trainOccupies(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& lead,
+                                                 double length, double step) {
+    std::vector<trainz::sim::Occupied> out{{lead.piece, lead.offset}};
+    if (!(length > 0) || !(step > 0) || !std::isfinite(length)) {
+        return out;
+    }
+    trainz::sim::TrackPosition p = lead;
+    for (double done = 0; done < length;) {
+        const double s = std::min(step, length - done);
+        const auto m = net.advance(p, -s);
+        out.push_back({p.piece, p.offset});
+        if (m.stoppedAtEnd || std::fabs(m.moved) < 1e-9) {
+            break;
+        }
+        done += s;
+    }
+    return out;
+}
+
+std::vector<trainz::sim::Occupied> standingTrains(const trainz::sim::TrackNetwork& net,
+                                                  const std::vector<trainz::content::Train>& trains, long except) {
+    std::vector<trainz::sim::Occupied> out;
+    for (std::size_t t = 0; t < trains.size(); ++t) {
+        if (static_cast<long>(t) == except) {
+            continue;
+        }
+        for (const auto& v : trains[t].vehicles) {
+            const double x = v.boardX * trainz::content::kBaseboardSize + v.x, y = v.boardY * trainz::content::kBaseboardSize + v.y;
+            if (const auto at = net.locate(x, y, 5.0)) {
+                out.push_back({at->piece, at->offset});
+            }
+        }
+    }
+    return out;
+}
 
 trainz::sim::VehicleSpec ownVehicleSpec(std::optional<double> massKg, const trainz::content::EngineSpec* engine) {
     const int axles = engine != nullptr && engine->axleCount && *engine->axleCount >= 2 ? *engine->axleCount : 4;

@@ -11,7 +11,8 @@
 // --drive (with a session and --install): drive one of the session's trains on its route,
 // drawn with its own models: W/S throttle (or one notch up/down when the train has enginespec
 // throttle-power curves), Space brake, R reverser (when stopped), J switch the next junction in
-// front (junctions start as the route stores them), C chase or free camera, Esc quit. --train N picks the train (1 = the first; default: the first one that stands on track).
+// front (junctions start as the route stores them), C chase or free camera, Esc quit. The
+// title shows the next signal ahead and its aspect (the port's simple block rules). --train N picks the train (1 = the first; default: the first one that stands on track).
 // Physics: mass and notch curves from the install when present; resistance/brakes are presets.
 // Exit codes: 0 done, 1 error, 2 bad arguments, 3 no route/session matches NAME, 4 several do.
 //
@@ -224,6 +225,10 @@ int main(int argc, char** argv) {
         auto extras = trainz::view::loadRouteExtras(archive, routeFolder, sessionArchive, sessionFolder);
         // Drive mode: the train, its place on the track and its own vehicle models.
         std::optional<trainz::sim::TrackNetwork> net;
+        std::optional<trainz::sim::SignalSystem> signals;  // drive mode: the route's signals (uses *net)
+        std::vector<trainz::sim::Occupied> standing;       // drive mode: the other trains, standing still
+        double trainLength = 0;
+        double signalClock = 1e9;  // seconds since the aspects were last worked out
         trainz::game::Drive driving;
         std::vector<trainz::game::RouteVehicle> vehicles;
         if (drive) {
@@ -299,6 +304,13 @@ int main(int argc, char** argv) {
             std::printf("driving train %zu of %zu: %zu vehicles, %zu with models, %zu with their own mass, %zu powered by their "
                         "enginespec (%.0f t; resistance and brakes are presets)\n",
                         chosen + 1, trains.size(), specs.size(), vehicles.size(), ownMass, powered, driving.spec.massKg / 1000);
+            signals.emplace(*net, trainz::game::routeSignals(*net, extras.objects));
+            standing = trainz::game::standingTrains(*net, trains, static_cast<long>(chosen));
+            for (const auto& v : vehicles) {
+                trainLength += v.length + 0.5;
+            }
+            std::printf("%zu signals on the track, %zu points taken by the session's other trains\n", signals->signals().size(),
+                        standing.size());
         }
         trainz::view::RouteSceneInput in;
         in.ground = &ground;
@@ -417,6 +429,14 @@ int main(int argc, char** argv) {
                     driving.controls.brake = k[SDL_SCANCODE_SPACE] ? 1.0 : 0.0;
                 }
                 driving.step(*net, frames > 0 ? 0.5 : dt);
+                signalClock += frames > 0 ? 0.5 : dt;
+                if (signals && signalClock >= 0.5) {  // aspects twice a second
+                    auto taken = standing;
+                    const auto own = trainz::game::trainOccupies(*net, driving.lead, trainLength);
+                    taken.insert(taken.end(), own.begin(), own.end());
+                    signals->update(taken);
+                    signalClock = 0;
+                }
                 dirty = true;
                 if (!chase && trainz::view::applyFlyControls(cam, ctl, dt)) {
                     dirty = true;
@@ -443,17 +463,26 @@ int main(int argc, char** argv) {
                 SDL_RenderClear(ren);
                 SDL_RenderCopy(ren, tex, nullptr, nullptr);
                 SDL_RenderPresent(ren);
-                char title[240];
-                char junction[64] = "";
+                char title[400];
+                char junction[160] = "";
+                if (drive && signals) {
+                    if (const auto sg = signals->nextSignal(driving.lead)) {
+                        const auto& name = signals->signals()[sg->index].name;
+                        std::snprintf(junction, sizeof junction, "  signal%s%s in %.0f m: %s", name.empty() ? "" : " ",
+                                      name.c_str(), sg->distance, trainz::sim::aspectName(signals->aspect(sg->index)));
+                    }
+                }
                 if (drive) {
                     if (const auto j = net->junctionAhead(driving.lead)) {
                         const auto sw = net->switches.find(j->vertex);
                         const auto way = sw == net->switches.end() ? j->ways.end() : std::find(j->ways.begin(), j->ways.end(), sw->second);
                         if (way != j->ways.end()) {
-                            std::snprintf(junction, sizeof junction, "  junction in %.0f m: way %d of %zu", j->distance,
+                            const std::size_t used = std::strlen(junction);
+                            std::snprintf(junction + used, sizeof junction - used, "  junction in %.0f m: way %d of %zu", j->distance,
                                           static_cast<int>(way - j->ways.begin()) + 1, j->ways.size());
                         } else {
-                            std::snprintf(junction, sizeof junction, "  junction in %.0f m", j->distance);
+                            const std::size_t used = std::strlen(junction);
+                            std::snprintf(junction + used, sizeof junction - used, "  junction in %.0f m", j->distance);
                         }
                     }
                 }

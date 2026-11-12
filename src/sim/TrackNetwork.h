@@ -9,6 +9,7 @@
 #include "content/TrackLayout.h"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <vector>
@@ -64,9 +65,25 @@ public:
     // Sets that junction to its next way (wrapping), returning the piece now chosen.
     std::int32_t toggle(const JunctionAhead& j);
 
+    // Walks the track ahead of `start` along the current junction settings (the way `advance`
+    // would go), calling `visit` for each stretch of a piece: entry and exit offsets, the
+    // direction (+1: offsets grow) and the metres from `start` at entry. Stops when `visit`
+    // returns false, at a line end or after maxDistance metres.
+    struct Span {
+        std::int32_t piece = -1;
+        double from = 0, to = 0;
+        int direction = +1;
+        double startDistance = 0;
+    };
+    void walk(const TrackPosition& start, double maxDistance, const std::function<bool(const Span&)>& visit) const;
+
     static constexpr int kSamples = 32;  // curve samples per piece for arc length
 
 private:
+    // The way out of `vertex` for a train arriving as `arrivingAt`: the switch setting if it is
+    // one of `options`, else the one that turns least.
+    std::int32_t chooseExit(std::int32_t vertex, const TrackPosition& arrivingAt, const std::vector<std::int32_t>& options) const;
+
     struct Piece {
         std::int32_t from = 0, to = 0;
         trainz::content::TrackCurve curve;

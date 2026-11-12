@@ -1,6 +1,8 @@
 // The game's own simulation core: driving along track and train physics. No game files.
 #include "sim/TrackNetwork.h"
 #include "sim/TrainPhysics.h"
+#include "sim/Signals.h"
+#include "content/PlacedObject.h"
 #include "content/AssetConfig.h"
 #include "content/EngineSpec.h"
 
@@ -530,4 +532,87 @@ TEST(TrainPhysics, LocomotivesWithDifferentNotchCountsShareTheRange) {
         EXPECT_GE(interpolateCurve(c, 0), prev);
         prev = interpolateCurve(c, 0);
     }
+}
+
+// --- signals -----------------------------------------------------------------------------
+TEST(TrackAttachment, ReadsPieceDistanceAndDirection) {
+    PlacedObject o;
+    o.tag = "sgOb";
+    o.rest = {0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0};  // 8 zeros, name length 1, "\0"
+    const std::uint8_t tail[23] = {2, 0, 0, 0, 0, 0, 0, 0, 0, 0xb2, 0x0b, 0, 0, 0, 0, 0x80, 0x40, 1, 0, 0, 0, 2, 8};
+    o.rest.insert(o.rest.end(), tail, tail + 23);
+    auto a = trackAttachment(o);
+    ASSERT_TRUE(a.has_value());
+    EXPECT_EQ(a->piece, 0x0bb2);
+    EXPECT_FLOAT_EQ(a->distance, 4.0f);
+    EXPECT_TRUE(a->alongPiece);
+    EXPECT_EQ(a->tail[3], 2);
+    EXPECT_EQ(a->tail[4], 8);
+    o.rest[o.rest.size() - 23 + 17] = 0;
+    EXPECT_FALSE(trackAttachment(o)->alongPiece);
+    o.rest[o.rest.size() - 23 + 17] = 2;  // not a direction
+    EXPECT_FALSE(trackAttachment(o).has_value());
+    o.rest[o.rest.size() - 23 + 17] = 1;
+    o.rest[o.rest.size() - 23] = 3;  // the tail doesn't start 2
+    EXPECT_FALSE(trackAttachment(o).has_value());
+    o.rest.resize(10);
+    EXPECT_FALSE(trackAttachment(o).has_value());
+}
+
+TEST(Signals, BlocksStopCautionAndClear) {
+    // A 1 km line 0 -> 1 -> 2 -> 3 (pieces 1, 2, 3 of ~333 m) with signals at the start of each
+    // piece for +x travel, and one for -x travel on piece 2.
+    Layout l;
+    l.vertex(0, 0, 0, {{1, 0}});
+    l.vertex(1, 333, 0, {{1, 0}, {2, 1}});
+    l.vertex(2, 666, 0, {{2, 0}, {3, 1}});
+    l.vertex(3, 999, 0, {{3, 0}});
+    l.piece(1, 0, 1);
+    l.piece(2, 1, 2);
+    l.piece(3, 2, 3);
+    TrackNetwork n(l.t);
+    SignalSystem s(n, {{{1, 10, +1}, "A"}, {{2, 10, +1}, "B"}, {{3, 10, +1}, "C"}, {{2, 300, -1}, "back"}});
+    s.update({});
+    for (std::size_t i = 0; i < 4; ++i) {
+        EXPECT_EQ(s.aspect(i), Aspect::Clear) << i;
+    }
+    s.update({{3, 100}});  // something in C's block
+    EXPECT_EQ(s.aspect(2), Aspect::Stop);
+    EXPECT_EQ(s.aspect(1), Aspect::Caution);  // B: clear block, but C at stop
+    EXPECT_EQ(s.aspect(0), Aspect::Clear);
+    EXPECT_EQ(s.aspect(3), Aspect::Clear);  // for the other direction: its block runs back toward 0
+    s.update({{2, 100}});  // in B's block, and in "back"'s block (between it and the line end)
+    EXPECT_EQ(s.aspect(1), Aspect::Stop);
+    EXPECT_EQ(s.aspect(0), Aspect::Caution);
+    EXPECT_EQ(s.aspect(3), Aspect::Stop);
+    // The next signal ahead, only for the direction of travel.
+    const auto ahead = s.nextSignal(TrackPosition{1, 100, +1});
+    ASSERT_TRUE(ahead.has_value());
+    EXPECT_EQ(ahead->index, 1u);
+    EXPECT_NEAR(ahead->distance, n.length(1).value() - 100 + 10, 1e-6);
+    const auto back = s.nextSignal(TrackPosition{3, 100, -1});
+    ASSERT_TRUE(back.has_value());
+    EXPECT_EQ(back->index, 3u);
+    EXPECT_FALSE(s.nextSignal(TrackPosition{3, 100, +1}).has_value());  // nothing further on
+    EXPECT_FALSE(s.nextSignal(TrackPosition{1, 100, +1}, 50).has_value());  // too far
+}
+
+TEST(Signals, BlockFollowsTheJunction) {
+    // Signal on the trunk; the occupied leg only matters when the junction is set to it.
+    Layout l;
+    l.vertex(0, 0, 0, {{1, 0}});
+    l.vertex(1, 100, 0, {{1, 0}, {2, 1}, {3, 1}});
+    l.vertex(2, 200, 0, {{2, 0}});
+    l.vertex(3, 190, 40, {{3, 0}});
+    l.piece(1, 0, 1);
+    l.piece(2, 1, 2);
+    l.piece(3, 1, 3);
+    TrackNetwork n(l.t);
+    SignalSystem s(n, {{{1, 10, +1}, ""}});
+    n.switches[1] = 2;
+    s.update({{3, 50}});
+    EXPECT_EQ(s.aspect(0), Aspect::Clear);
+    n.switches[1] = 3;
+    s.update({{3, 50}});
+    EXPECT_EQ(s.aspect(0), Aspect::Stop);
 }

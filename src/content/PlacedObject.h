@@ -53,4 +53,21 @@ std::optional<std::size_t> placedObjectHeaderSize(const std::string& tag);
 // than 0/1, or a position that is not finite or not inside 0..720.
 std::optional<PlacedObject> decodePlacedObject(const ObjectItem& item);
 
+// Where a trackside object (a signal, sgOb) is attached to the track: the record's last 23
+// bytes are  u32 2, u32 0, u8 0, i32 piece, f32 distance, u8 direction, 5 bytes (not known).
+// OBSERVED on the disc, not traced: with direction 1 the distance runs from the piece's
+// `from` vertex, with 0 from its `to` vertex, and the signal then stands within 3 m of that
+// point for 11,919 of 12,155 signals (98%; within 6 m 99.6%), beside the track by 1.5-2.5 m
+// (the `trackside` offset). Per route the signals keep to one side of the track relative to
+// that direction (90% or more on 33 of the 43 routes with 30+ signals: left on the British ECML, right
+// on most others), so the direction is read as the direction of travel the signal is for.
+// The same layout ends 15,992 tsO2 objects. nullopt if the tail doesn't start 2, 0, 0.
+struct TrackAttachment {
+    std::int32_t piece = -1;
+    float distance = 0;         // metres along the piece, from the end trains enter by
+    bool alongPiece = true;     // true: for travel from `from` to `to`
+    std::uint8_t tail[5] = {};  // the last 5 bytes (meaning not known)
+};
+std::optional<TrackAttachment> trackAttachment(const PlacedObject& object);
+
 }  // namespace trainz::content

@@ -47,6 +47,69 @@ TrackNetwork::TrackNetwork(const TrackLayout& layout) {
     }
 }
 
+std::int32_t TrackNetwork::chooseExit(std::int32_t vertex, const TrackPosition& arrivingAt,
+                                      const std::vector<std::int32_t>& options) const {
+    std::int32_t next = options.front();
+    if (const auto sw = switches.find(vertex);
+        sw != switches.end() && std::find(options.begin(), options.end(), sw->second) != options.end()) {
+        return sw->second;
+    }
+    if (options.size() > 1) {
+        // The way that turns least from the direction of arrival.
+        const auto arriving = point(arrivingAt);
+        double best = 1e9;
+        for (const std::int32_t o : options) {
+            const Piece& op = pieces_.at(o);
+            TrackPosition leave{o, op.from == vertex ? 0.0 : op.cumulative.back(), op.from == vertex ? 1 : -1};
+            const auto lp = point(leave);
+            if (!arriving || !lp) {
+                continue;
+            }
+            const double turn = std::fabs(std::remainder(lp->heading - arriving->heading, 2 * std::numbers::pi));
+            if (turn < best) {
+                best = turn, next = o;
+            }
+        }
+    }
+    return next;
+}
+
+void TrackNetwork::walk(const TrackPosition& start, double maxDistance, const std::function<bool(const Span&)>& visit) const {
+    TrackPosition p = start;
+    double travelled = 0;
+    for (int guard = 0; guard < 100000; ++guard) {
+        const auto it = pieces_.find(p.piece);
+        if (it == pieces_.end()) {
+            return;
+        }
+        const Piece& pc = it->second;
+        const double len = pc.cumulative.back();
+        const double offset = std::clamp(p.offset, 0.0, len);
+        const bool forward = p.direction >= 0;
+        const double room = forward ? len - offset : offset;
+        const double left = maxDistance - travelled;
+        if (!(left >= 0)) {
+            return;
+        }
+        const double step = std::min(room, left);
+        if (!visit(Span{p.piece, offset, forward ? offset + step : offset - step, forward ? 1 : -1, travelled})) {
+            return;
+        }
+        travelled += step;
+        if (room >= left) {
+            return;
+        }
+        const std::int32_t vertex = forward ? pc.to : pc.from;
+        const auto options = exits(vertex, p.piece);
+        if (options.empty()) {
+            return;
+        }
+        const std::int32_t next = chooseExit(vertex, TrackPosition{p.piece, forward ? len : 0.0, forward ? 1 : -1}, options);
+        const Piece& np = pieces_.at(next);
+        p = np.from == vertex ? TrackPosition{next, 0.0, +1} : TrackPosition{next, np.cumulative.back(), -1};
+    }
+}
+
 std::optional<TrackNetwork::JunctionAhead> TrackNetwork::junctionAhead(const TrackPosition& start, double maxDistance) const {
     TrackPosition p = start;
     double travelled = 0;
@@ -203,29 +266,9 @@ TrackNetwork::Move TrackNetwork::advance(TrackPosition& p, double metres) const 
             m.stoppedAtEnd = true;
             break;
         }
-        std::int32_t next = options.front();
-        if (const auto sw = switches.find(vertex);
-            sw != switches.end() && std::find(options.begin(), options.end(), sw->second) != options.end()) {
-            next = sw->second;
-        } else if (options.size() > 1) {
-            // The way that turns least from the direction of arrival.
-            TrackPosition here = p;
-            here.direction = along;
-            const auto arriving = point(here);
-            double best = 1e9;
-            for (const std::int32_t o : options) {
-                const Piece& op = pieces_.at(o);
-                TrackPosition leave{o, op.from == vertex ? 0.0 : op.cumulative.back(), op.from == vertex ? 1 : -1};
-                const auto lp = point(leave);
-                if (!arriving || !lp) {
-                    continue;
-                }
-                const double turn = std::fabs(std::remainder(lp->heading - arriving->heading, 2 * std::numbers::pi));
-                if (turn < best) {
-                    best = turn, next = o;
-                }
-            }
-        }
+        TrackPosition here = p;
+        here.direction = along;
+        const std::int32_t next = chooseExit(vertex, here, options);
         const Piece& np = pieces_.at(next);
         const int newAlong = np.from == vertex ? 1 : -1;
         p.piece = next;
