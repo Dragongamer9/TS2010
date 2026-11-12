@@ -22,9 +22,19 @@ CI only uses `0~ci`: it starts with a digit (so dpkg accepts it) and is clearly
 **not** a real release. That string is for the packaging check in GitHub Actions
 alone; it is not a version for Dad to install as a release.
 
-The Debian *package name* may not contain `~`, so CMake turns `~` into `-` in
-the name only (version and install folder keep your string as given). Example:
-version `0~ci` → package `trainz-native-0-ci`, files under `/opt/trainz-native/0~ci/`.
+A Debian *package name* allows fewer characters than a version (only `a-z 0-9 + - .`),
+so CMake maps the version for the name only, in a way where two different versions can
+never get the same name (`cmake/TrainzPackageName.cmake`, tested by CTest
+`PackageName.Mapping`): lower-case letters, digits and `.` stay; `-` becomes `+m`, `~` `+t`,
+`+` `+p`, `:` `+c`, and an upper-case letter `+u` and the letter. The version and the install
+folder keep your string as given. Examples: `0~ci` → package `trainz-native-0+tci`, files
+under `/opt/trainz-native/0~ci/`; `1~rc1` and `1-rc1` → `trainz-native-1+trc1` and
+`trainz-native-1+mrc1`, two packages that can be installed side by side. A character a Debian
+version cannot hold stops the configure with an error.
+
+CI installs the `0~ci` package for real in its throwaway container (`apt-get install
+./…deb`), runs the tools from `/opt/trainz-native/0~ci/bin/`, removes it again and checks the
+files are gone.
 
 ## Every file under `/opt` (nothing in `/usr`)
 

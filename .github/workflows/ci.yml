@@ -96,7 +96,7 @@ jobs:
           # Owner sets the real TRAINZ_PACKAGE_VERSION; never invent one for shipping.
           cmake -S . -B build -DTRAINZ_PACKAGE_VERSION='0~ci'
           cpack --config build/CPackConfig.cmake -G DEB -B build  # the .deb goes into build/
-          deb=$(ls build/trainz-native-0-ci_0~ci_amd64.deb)
+          deb=$(ls build/trainz-native-0+tci_0~ci_amd64.deb)
           test -f "$deb"
           dpkg-deb -c "$deb" | tee deb-contents.txt
           grep -F './opt/trainz-native/0~ci/bin/route-viewer' deb-contents.txt
@@ -112,3 +112,11 @@ jobs:
             echo "package must not install under /usr"; exit 1
           fi
           grep -E ' \./opt/trainz-native/0~ci/' deb-contents.txt | head -1
+          # Install it for real (CI runs as root in a throwaway container), run it, remove it.
+          apt-get install -y --no-install-recommends "./$deb"
+          /opt/trainz-native/0~ci/bin/route-tool > usage.txt 2>&1 || true
+          grep -q usage usage.txt
+          /opt/trainz-native/0~ci/bin/trainz-route-viewer --set-install /nonexistent && exit 1 || true
+          SDL_VIDEODRIVER=offscreen /opt/trainz-native/0~ci/bin/route-viewer --install testdata/ts2010 --route springfield --radius 100 --frames 1
+          apt-get remove -y trainz-native-0+tci
+          test ! -e /opt/trainz-native/0~ci/bin/route-viewer

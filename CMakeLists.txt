@@ -199,6 +199,7 @@ if(TRAINZ_BUILD_TESTS)
   enable_testing()
   find_package(GTest REQUIRED)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME PackageName.Mapping COMMAND ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/package_name_test.cmake")
   add_test(NAME RouteHeights.Cli
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_route_heights_cli.py"
@@ -273,8 +274,14 @@ endif()
 # /opt/trainz-native/<version>/, so an older install stays startable beside a
 # newer one (no shared paths, no Conflicts on the previous package).
 # TRAINZ_PACKAGE_VERSION is defined with the install rules above.
-# Debian package *names* may not contain '~' (versions may). Map '~' → '-' in the name only.
-string(REPLACE "~" "-" TRAINZ_PACKAGE_NAME_VERSION "${TRAINZ_PACKAGE_VERSION}")
+# Debian package *names* allow fewer characters than versions: map without collisions
+# (cmake/TrainzPackageName.cmake; e.g. 0~ci -> 0+tci, 1-rc1 -> 1+mrc1).
+include(cmake/TrainzPackageName.cmake)
+if(TRAINZ_PACKAGE_VERSION STREQUAL "OWNER_SET_VERSION")
+  set(TRAINZ_PACKAGE_NAME_VERSION "owner+mset+mversion")  # a placeholder; the owner sets the real one
+else()
+  trainz_package_name_part("${TRAINZ_PACKAGE_VERSION}" TRAINZ_PACKAGE_NAME_VERSION)
+endif()
 set(CPACK_GENERATOR "DEB")
 set(CPACK_PACKAGE_NAME "trainz-native-${TRAINZ_PACKAGE_NAME_VERSION}")
 set(CPACK_PACKAGE_VERSION "${TRAINZ_PACKAGE_VERSION}")
