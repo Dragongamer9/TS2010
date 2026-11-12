@@ -250,17 +250,6 @@ int main(int argc, char** argv) {
             std::vector<trainz::sim::VehicleSpec> specs;
             std::size_t ownMass = 0, powered = 0;
             for (const auto& v : trains[chosen].vehicles) {
-                const auto* body = meshes->get(v.kuid);
-                if (body == nullptr) {
-                    continue;  // a vehicle without a model the port can read: left out
-                }
-                const trainz::view::PreparedMesh* bog[2] = {nullptr, nullptr};
-                for (int k = 0; k < 2; ++k) {
-                    if (const auto b = body->bogeyFor(k == 0 ? "a.bog0" : "a.bog1")) {
-                        bog[k] = meshes->get(b->kuid);
-                    }
-                }
-                vehicles.push_back(trainz::game::routeVehicle(*body, bog[0], bog[1]));
                 // Its own physics data: the traincar's mass and its enginespec's curves.
                 std::optional<double> mass;
                 std::optional<trainz::content::EngineSpec> engine;
@@ -278,17 +267,19 @@ int main(int argc, char** argv) {
                 }
                 ownMass += mass ? 1 : 0;
                 specs.push_back(trainz::game::ownVehicleSpec(mass, engine ? &*engine : nullptr));
-                // Per-notch curves (N) so W/S can step notches; kN → N as EngineSpec::tractiveForceN.
-                if (engine && !engine->throttlePower.empty()) {
-                    auto& notches = specs.back().notchCurvesN;
-                    notches.resize(engine->throttlePower.size());
-                    for (std::size_t ni = 0; ni < engine->throttlePower.size(); ++ni) {
-                        for (const auto& [sp, kn] : engine->throttlePower[ni]) {
-                            notches[ni].push_back({sp, 1000.0 * kn});
-                        }
+                powered += specs.back().driven ? 1 : 0;
+                // Drawn only with a model the port can read; its mass, brakes and pull count anyway.
+                const auto* body = meshes->get(v.kuid);
+                if (body == nullptr) {
+                    continue;
+                }
+                const trainz::view::PreparedMesh* bog[2] = {nullptr, nullptr};
+                for (int k = 0; k < 2; ++k) {
+                    if (const auto b = body->bogeyFor(k == 0 ? "a.bog0" : "a.bog1")) {
+                        bog[k] = meshes->get(b->kuid);
                     }
                 }
-                powered += specs.back().driven ? 1 : 0;
+                vehicles.push_back(trainz::game::routeVehicle(*body, bog[0], bog[1]));
             }
             if (vehicles.empty()) {
                 std::cerr << "none of that train's vehicles has a model the port can read\n";
@@ -305,9 +296,9 @@ int main(int argc, char** argv) {
             if (!atX && p) {
                 atX = p->x, atY = p->y;
             }
-            std::printf("driving train %zu of %zu: %zu vehicles with models, %zu with their own mass, %zu powered by their "
+            std::printf("driving train %zu of %zu: %zu vehicles, %zu with models, %zu with their own mass, %zu powered by their "
                         "enginespec (%.0f t; resistance and brakes are presets)\n",
-                        chosen + 1, trains.size(), vehicles.size(), ownMass, powered, driving.spec.massKg / 1000);
+                        chosen + 1, trains.size(), specs.size(), vehicles.size(), ownMass, powered, driving.spec.massKg / 1000);
         }
         trainz::view::RouteSceneInput in;
         in.ground = &ground;

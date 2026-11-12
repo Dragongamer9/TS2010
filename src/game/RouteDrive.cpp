@@ -16,6 +16,14 @@ trainz::sim::VehicleSpec ownVehicleSpec(std::optional<double> massKg, const trai
     v.source = massOk ? "mass from its config; " + v.source : "no usable mass: 40 t preset; " + v.source;
     if (engine != nullptr) {
         v.tractiveCurveN = engine->fullThrottleCurveN();
+        if (!v.tractiveCurveN.empty()) {
+            for (const auto& notch : engine->throttlePower) {  // kN -> N, as tractiveForceN
+                auto& out = v.notchCurvesN.emplace_back();
+                for (const auto& [speed, kn] : notch) {
+                    out.push_back({speed, 1000.0 * kn});
+                }
+            }
+        }
         v.driven = !v.tractiveCurveN.empty();
         if (v.driven) {
             v.source += "; traction from its enginespec's top throttle-power notch (kN read as written)";

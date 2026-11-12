@@ -55,7 +55,7 @@ Track geometry in `mapfile.trk` consists of stretches (`tkSt`, `tkBr`) connectin
 - **Slot Distribution on Disc**:
   - `1 link`: 211,040 vertices (track line ends / buffer stops).
   - `2 links`: 182,491 vertices (continuous track along a line).
-  - `3 links`: 12,242 vertices (standard turnouts / junctions).
+  - `3 links`: 12,242 vertices (probably turnouts; a guess, see the junction correlation below).
   - `4 links`: 421 vertices (crossings / double slips).
   - `0 links`: 13 vertices.
 - **Junction Correlation**: 12,242 three-link vertices against 10,138 `jnOb`. Why the numbers differ is not yet known (guesses: routes without lever objects, junctions built from several pieces).
@@ -79,7 +79,7 @@ In `src/sim/TrackNetwork.{h,cpp}`:
 
 ### 3.1 Junction Rules (`BHVR`)
 - Session profiles (`profile.dat`, [`session.md`](session.md)) contain `BHVR` blocks holding rule definitions and embedded `config.chump` data.
-- Among the most common rules on the disc is `"Set Junctions"`, which configures initial turnout directions for a session.
+- Among the most common rules on the disc is `"Set Junctions"`; by its name it probably sets turnout directions for a session (a guess: its settings are not decoded).
 - Sub-rules and trigger checks (`"Trigger Check"`) monitor train movements over junctions.
 
 ### 3.2 Session Objects
@@ -94,11 +94,11 @@ In `src/sim/TrackNetwork.{h,cpp}`:
 | **`jnOb` / `mojunction` registration** | **Known** | `trainz.exe` factory registration at `0x807eb0` | Factory binds tag `jnOb` to class `mojunction`. 10,138 objects on disc. |
 | **`sgOb` / `mosignal` registration** | **Known** | `trainz.exe` factory registration at `0x807eb0` | Factory binds tag `sgOb` to class `mosignal`. 13,806 objects on disc. |
 | **Class base block & position** | **Known** | `src/content/PlacedObject.{h,cpp}`, verified on 50 disc routes | 8-byte header (`0x03`, `0xff000000`), board coordinates, x/y/z offsets (75–82% for signals near ground; 79–97% for five classes together near nearest vertex). |
-| **Signal/junction yaw convention** | **Known** | Disc survey across all 10,138 junctions and 13,806 signals | Always stored as `0.0`. Rotation is not stored in the object record. |
+| **Signal/junction yaw convention** | **Observed** | `route-objects.md` ("signals and junctions store 0 here"; no per-object count given) | Stored as `0.0`. Whether rotation is stored elsewhere in the record is not known. |
 | **Junction vertex topology** | **Guess** | `src/content/TrackLayout.{h,cpp}`, verified on all 50 routes | Vertices with $\ge 3$ links represent junctions (12,242 3-way, 421 4-way on disc; 38 on test route; "3 links = junction" is a guess). |
-| **Turnout diverging legs** | **Known** | Disc survey of 13,387 same-flag vertex link pairs | Same link flag denotes pieces branching from the same side of the vertex (83% within 30°). |
-| **Simulation switch branching** | **Known** | `src/sim/TrackNetwork.{h,cpp}`, unit tests, `drive-demo` | `net.switches[vertex] = piece` routes trains through turnouts; default selects straightest exit. |
-| **Session junction initialization** | **Known** | `src/content/SessionFile.{h,cpp}`, disc survey of 138 sessions | `BHVR` rules include `"Set Junctions"` with embedded `.chump` settings. |
+| **Turnout diverging legs** | **Observed** (not traced) | Disc survey of 13,387 same-flag vertex link pairs | Same link flag denotes pieces branching from the same side of the vertex (83% within 30°). |
+| **Simulation switch branching** | **Known** (the port's own rule, not the game's) | `src/sim/TrackNetwork.{h,cpp}`, unit tests, `drive-demo` | `net.switches[vertex] = piece` routes trains through turnouts; default selects straightest exit. |
+| **Session junction initialization** | **Guess** | `docs/formats/session.md` (rule names on the disc) | `BHVR` rules named `"Set Junctions"` exist, with embedded `.chump` settings; that they set initial turnout directions is a guess from the name (settings not decoded). |
 | **Track-relative orientation** | **Guess** | Inferred from `yaw = 0.0` and proximity to track vertices | Signals and junction switch stands orient themselves along the vector of the attached track piece. |
 | **`jnOb` vertex tie mechanism** | **Left** | To be decoded from `jnOb` payload | How `jnOb` links to its `tkVx` vertex (e.g. by vertex index, coordinates, or distance). |
 | **`jnOb` switch direction state** | **Left** | To be decoded from `jnOb` payload | How initial switch alignment (left vs right vs straight) is encoded. |

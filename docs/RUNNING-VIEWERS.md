@@ -133,10 +133,12 @@ The window title shows the camera position and how long the last frame took.
 build/route-viewer --install /path/to/TS2010 --session "Midday Manifest" --drive
 ```
 
-drives that session's first train on its route (`--train N` for another). Keys: W/S throttle,
-Space brake, R reverser (when stopped), C chase or free camera, Esc quit. The window title
-shows the speed. For now the train's physics are general defaults, not its own (`enginespec`
-is not read yet), junctions take the straightest way, and there are no signals or sounds.
+drives that session's first train on its route (`--train N` for another). Keys: W/S one throttle
+notch up/down (a smooth throttle if the train has no notch data), Space brake, R reverser
+(when stopped), C chase or free camera, Esc quit. The window title shows the speed and the
+notch. Each vehicle's mass and the locomotives' pulling force come from their own files
+(`mass`, `enginespec`); resistance and brakes are still general defaults, junctions take the
+straightest way, and there are no signals or sounds.
 
 ### Finding a route and a session
 

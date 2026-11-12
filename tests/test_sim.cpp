@@ -403,3 +403,79 @@ TEST(TrainPhysics, SmoothThrottleWhenNoNotchCurves) {
     stepTrain(idle, spec, Controls{0.0, 0.0, 1, 5}, 0, 1.0);
     EXPECT_DOUBLE_EQ(idle, 0);
 }
+
+// ChatGPT review of 1d045e1, finding 3: a curve that ends with a force must stop at its end
+// when summed with a longer one, not spread over the gap to the other curve's next point.
+TEST(TrainPhysics, SummedCurveKeepsAForceThatEndsAbruptly) {
+    VehicleSpec a = freightWagon(50), b = freightWagon(50);
+    a.tractiveCurveN = {{0, 100}, {10, 100}};
+    b.tractiveCurveN = {{0, 50}, {20, 0}};
+    const auto t = makeTrain({a, b});
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.tractiveCurveN, 5), 100 + 37.5);
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.tractiveCurveN, 10), 100 + 25);
+    EXPECT_NEAR(interpolateCurve(t.tractiveCurveN, 15), 12.5, 1e-9);  // was 62.5
+}
+
+// Finding 4: a locomotive with curves and one without (starting force/power) both pull.
+TEST(TrainPhysics, MixedLocomotivesBothPull) {
+    VehicleSpec curved = freightWagon(90);
+    curved.driven = true;
+    curved.tractiveCurveN = {{0, 100'000}, {30, 0}};
+    curved.notchCurvesN = {{{0, 0}}, {{0, 100'000}, {30, 0}}};
+    const VehicleSpec preset = electricLocomotive();
+    auto pulled = [](const TrainSpec& t, const Controls& c) {
+        double v = 0;
+        stepTrain(v, t, c, 0, 0.02);  // one step from a standstill: (pull - resistance) / mass
+        return v * t.massKg / 0.02 + t.davisA;
+    };
+    TrainSpec both = makeTrain({curved, preset}, 1.0);  // plenty of grip
+    EXPECT_NEAR(pulled(both, Controls{0, 0, 1, 1}), 100'000 + 300'000, 1);  // top notch: both in full
+    double idle = 0;
+    stepTrain(idle, both, Controls{0, 0, 1, 0}, 0, 1.0);  // idle: neither pulls
+    EXPECT_DOUBLE_EQ(idle, 0);
+    both.notchCurvesN.clear();                                               // smooth throttle path
+    EXPECT_NEAR(pulled(both, Controls{0.5, 0, 1, 0}), 0.5 * (100'000 + 300'000), 1);
+}
+
+// Finding 2: bad numbers in a spec give finite results and never push the wrong way.
+TEST(TrainPhysics, BadSpecValuesStayFiniteAndNeverReverse) {
+    TrainSpec t = makeTrain({electricLocomotive(), freightWagon(40)});
+    TrainSpec inf = t;
+    inf.massKg = std::numeric_limits<double>::infinity();
+    double v = 0;
+    EXPECT_DOUBLE_EQ(stepTrain(v, inf, Controls{1, 0, 1, 0}, 0, 1.0), 0);
+    EXPECT_DOUBLE_EQ(v, 0);
+    TrainSpec neg = t;
+    neg.maxTractiveForceN = -1e6, neg.maxPowerW = -1e6, neg.maxBrakeForceN = -1e6;
+    neg.davisA = -1e5, neg.davisB = std::numeric_limits<double>::quiet_NaN();
+    v = 0;
+    stepTrain(v, neg, Controls{1, 1, 1, 0}, 0, 1.0);
+    EXPECT_TRUE(std::isfinite(v));
+    EXPECT_GE(v, 0);  // no backwards pull with the reverser forward
+    v = 10;
+    stepTrain(v, neg, Controls{0, 1, 1, 0}, 0, 1.0);
+    EXPECT_TRUE(std::isfinite(v));
+    EXPECT_LE(v, 10);  // negative brakes/resistance don't speed it up
+}
+
+// Cursor's open question: a 2-notch locomotive with an 8-notch one. The short one follows at
+// the same fraction of its range, so both reach their top notch together.
+TEST(TrainPhysics, LocomotivesWithDifferentNotchCountsShareTheRange) {
+    VehicleSpec two = freightWagon(80), eight = freightWagon(80);
+    two.driven = eight.driven = true;
+    two.notchCurvesN = {{{0, 0}}, {{0, 1000}, {50, 0}}};
+    for (int n = 0; n < 8; ++n) {
+        eight.notchCurvesN.push_back({{0, 100.0 * n}, {50, 0}});
+    }
+    const auto t = makeTrain({two, eight});
+    ASSERT_EQ(t.notchCurvesN.size(), 8u);
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.notchCurvesN[0], 0), 0);
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.notchCurvesN[3], 0), 300);         // 3/7 rounds to the short one's notch 0
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.notchCurvesN[4], 0), 1000 + 400);  // 4/7 rounds to its notch 1
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.notchCurvesN[7], 0), 1000 + 700);  // both at the top
+    double prev = -1;
+    for (const auto& c : t.notchCurvesN) {  // never weaker one notch up
+        EXPECT_GE(interpolateCurve(c, 0), prev);
+        prev = interpolateCurve(c, 0);
+    }
+}

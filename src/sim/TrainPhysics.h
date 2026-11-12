@@ -24,13 +24,14 @@ struct TrainSpec {
     double davisB = 120;    // N per m/s
     double davisC = 9;      // N per (m/s)^2
     // Optional: full-throttle tractive force (N) against speed (m/s), e.g. from the train's own
-    // enginespec curves (summed over its locomotives). When set (and notchCurvesN is empty) it
-    // replaces the starting-force and power limits; the adhesion limit still applies; throttle
-    // scales it.
+    // enginespec curves (summed over its locomotives). Used (scaled by the throttle) when
+    // notchCurvesN is empty. Locomotives without curves add their starting-force/power pull
+    // (maxTractiveForceN, maxPowerW) on top; the adhesion limit applies to the total.
     std::vector<std::pair<double, double>> tractiveCurveN;
-    // Optional: one curve per throttle notch (N vs m/s), summed over locomotives the same way as
-    // tractiveCurveN. When non-empty, Controls::notch selects the curve and the smooth throttle
-    // is ignored for traction.
+    // Optional: one curve per throttle notch (N vs m/s), summed over locomotives (one with fewer
+    // notches follows at the same fraction of its range; see makeTrain). When non-empty,
+    // Controls::notch selects the curve, the smooth throttle is ignored, and locomotives without
+    // curves pull at notch ÷ top notch of their starting force/power.
     std::vector<std::vector<std::pair<double, double>>> notchCurvesN;
     std::string source;     // where the numbers come from (or "uncalibrated")
 };
@@ -61,7 +62,9 @@ struct VehicleSpec {
     std::vector<std::vector<std::pair<double, double>>> notchCurvesN;  // optional per-notch curves
     std::string source;
 };
-// Sums masses, resistances and forces; the adhesion coefficient is the given one.
+// Sums masses, resistances and forces; the adhesion coefficient is the given one. Negative or
+// non-finite forces, masses and resistances in a spec count as 0 in stepTrain, and a train with
+// a non-finite mass does not move.
 TrainSpec makeTrain(const std::vector<VehicleSpec>& vehicles, double adhesion = 0.25);
 
 // Presets. Each says where its numbers come from in `source`.

@@ -23,7 +23,8 @@ namespace trainz::game {
 // enginespec (null if unknown). Resistance is AAR RP-548 for that mass and the enginespec's
 // axle count (4 when not given) and the brake the freight-wagon emergency equivalent, as in
 // sim::freightWagon (neither is read from the files yet). A vehicle whose enginespec has
-// throttle-power curves is driven, with its highest notch as the full-throttle curve.
+// throttle-power curves is driven, with its highest notch as the full-throttle curve and every
+// notch's curve in notchCurvesN (in N).
 // Without a usable mass it falls back to the 40 t wagon preset (and says so in `source`).
 trainz::sim::VehicleSpec ownVehicleSpec(std::optional<double> massKg, const trainz::content::EngineSpec* engine);
 

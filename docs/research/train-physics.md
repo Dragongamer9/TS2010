@@ -69,3 +69,8 @@ SD40-2's starting tractive effort (~400 kN), so either the unit or the game's us
 curve differs; the adhesion limit (0.25 × the driven mass × g, a preset) decides the start
 for now. The `motor` values (`max-accel`, `max-decel`, `brakeratio`, `resistance`, …) are read
 but not used: their units are not established.
+
+Notches: each `throttle-power` notch is its own curve (W/S step them in `route-viewer --drive`).
+A consist whose locomotives have different notch counts gets as many notches as the one with
+the most; the others follow at the same fraction of their own range (rounded), so all reach
+the top together. That is the port's choice: how the game drives a mixed consist is not known.

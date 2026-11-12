@@ -181,6 +181,9 @@ TEST(RouteDrive, VehicleSpecFromItsOwnData) {
     ASSERT_EQ(l.tractiveCurveN.size(), 2u);
     EXPECT_DOUBLE_EQ(l.tractiveCurveN.front().second, 330'000);  // the top notch, kN -> N
     EXPECT_DOUBLE_EQ(l.davisA, 6.5 * 190.508 + 80 * 6);            // RP-548 with its own axles
+    ASSERT_EQ(l.notchCurvesN.size(), 3u);  // every notch, kN -> N
+    EXPECT_TRUE(l.notchCurvesN[0].empty());
+    EXPECT_DOUBLE_EQ(l.notchCurvesN[1].front().second, 165'000);
 
     trainz::content::EngineSpec wagon;  // a wagon's enginespec: motor only
     const auto w = trainz::game::ownVehicleSpec(30'000.0, &wagon);

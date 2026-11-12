@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
+#include <limits>
 #include <map>
 
 #include "content/EngineSpec.h"
@@ -11,17 +13,26 @@ namespace trainz::sim {
 namespace {
 constexpr double kG = 9.81;
 
-// Add `add` into `into` at every shared speed point (same rule as makeTrain's top curve).
-void addCurve(std::vector<std::pair<double, double>>& into, const std::vector<std::pair<double, double>>& add) {
+using Curve = std::vector<std::pair<double, double>>;
+
+// A force or mass from a spec: finite and not negative, else 0.
+double nonNegative(double v) { return std::isfinite(v) && v > 0 ? v : 0; }
+
+// Adds `add` into `into`: the sum is evaluated at every point of either curve, plus just past
+// the end of a curve that ends with a force, so that force stops at its end instead of being
+// spread over the gap to the next point (a curve gives 0 beyond its end; interpolateCurve).
+void addCurve(Curve& into, const Curve& add) {
     if (add.empty()) {
         return;
     }
     std::map<double, double> sum;
-    for (const auto& [s, f] : into) {
-        sum[s] = 0;
-    }
-    for (const auto& [s, f] : add) {
-        sum[s] = 0;
+    for (const Curve* c : std::initializer_list<const Curve*>{&into, &add}) {
+        for (const auto& [s, f] : *c) {
+            sum[s] = 0;
+        }
+        if (c->size() > 1 && c->back().second != 0) {
+            sum[std::nextafter(c->back().first, std::numeric_limits<double>::infinity())] = 0;
+        }
     }
     for (auto& [s, f] : sum) {
         f = trainz::content::interpolateCurve(into, s) + trainz::content::interpolateCurve(add, s);
@@ -34,7 +45,7 @@ double stepTrain(double& speed, const TrainSpec& spec, const Controls& c, double
     if (!std::isfinite(speed)) {
         speed = 0;
     }
-    if (!(seconds > 0) || !std::isfinite(seconds) || !(spec.massKg > 0)) {
+    if (!(seconds > 0) || !std::isfinite(seconds) || !(spec.massKg > 0) || !std::isfinite(spec.massKg)) {
         return 0;
     }
     const double dtTotal = std::min(seconds, 1.0);
@@ -43,9 +54,19 @@ double stepTrain(double& speed, const TrainSpec& spec, const Controls& c, double
     const double gr = std::isfinite(grade) ? std::clamp(grade, -0.5, 0.5) : 0.0;
     const int rev = c.reverser > 0 ? 1 : c.reverser < 0 ? -1 : 0;
     const double mu = std::isfinite(spec.adhesion) ? std::clamp(spec.adhesion, 0.0, 1.0) : 0.0;
-    const double tractionGrip = mu * kG * std::max(0.0, spec.drivenMassKg);
-    const double brakeGrip = mu * kG * std::max(0.0, spec.brakedMassKg);
+    const double tractionGrip = mu * kG * std::min(nonNegative(spec.drivenMassKg), spec.massKg);
+    const double brakeGrip = mu * kG * std::min(nonNegative(spec.brakedMassKg), spec.massKg);
+    const double startForce = nonNegative(spec.maxTractiveForceN), power = nonNegative(spec.maxPowerW);
+    const double brakeForce = nonNegative(spec.maxBrakeForceN);
+    const double dA = nonNegative(spec.davisA), dB = nonNegative(spec.davisB), dC = nonNegative(spec.davisC);
     const bool useNotch = !spec.notchCurvesN.empty();
+    const bool notchOk = c.notch >= 0 && static_cast<std::size_t>(c.notch) < spec.notchCurvesN.size();
+    // Locomotives without curves (starting force and power) pull alongside those with curves:
+    // by the throttle, or by the notch as a fraction of the top notch.
+    const double presetShare = useNotch ? (notchOk && spec.notchCurvesN.size() > 1
+                                               ? static_cast<double>(c.notch) / static_cast<double>(spec.notchCurvesN.size() - 1)
+                                               : 0.0)
+                                        : throttle;
     double moved = 0;
     const int steps = std::max(1, static_cast<int>(std::ceil(dtTotal / 0.02)));
     const double dt = dtTotal / steps;
@@ -54,21 +75,21 @@ double stepTrain(double& speed, const TrainSpec& spec, const Controls& c, double
         // Traction: notch curve, or smooth throttle × (curve / starting force / power), then grip.
         double traction = 0;
         if (useNotch) {
-            if (c.notch >= 0 && static_cast<std::size_t>(c.notch) < spec.notchCurvesN.size()) {
-                traction = std::max(0.0, trainz::content::interpolateCurve(spec.notchCurvesN[static_cast<std::size_t>(c.notch)], av));
+            if (notchOk) {
+                traction = nonNegative(trainz::content::interpolateCurve(spec.notchCurvesN[static_cast<std::size_t>(c.notch)], av));
             }
         } else if (!spec.tractiveCurveN.empty()) {
-            traction = throttle * std::max(0.0, trainz::content::interpolateCurve(spec.tractiveCurveN, av));
-        } else {
-            traction = throttle * spec.maxTractiveForceN;
-            if (av > 0.1) {
-                traction = std::min(traction, throttle * spec.maxPowerW / av);
-            }
+            traction = throttle * nonNegative(trainz::content::interpolateCurve(spec.tractiveCurveN, av));
         }
+        double preset = presetShare * startForce;
+        if (av > 0.1) {
+            preset = std::min(preset, presetShare * power / av);
+        }
+        traction += preset;
         traction = std::min(traction, tractionGrip) * rev;
         const double gravity = -spec.massKg * kG * gr;
-        const double braking = std::min(brake * spec.maxBrakeForceN, brakeGrip);
-        const double opposing = braking + spec.davisA + spec.davisB * av + spec.davisC * av * av;
+        const double braking = std::min(brake * brakeForce, brakeGrip);
+        const double opposing = braking + dA + dB * av + dC * av * av;
         const double driving = traction + gravity;
         double force;
         if (av < 1e-6) {
@@ -101,15 +122,23 @@ TrainSpec makeTrain(const std::vector<VehicleSpec>& vehicles, double adhesion) {
         t.maxBrakeForceN += v.brakeForceN;
         t.drivenMassKg += v.driven ? v.massKg : 0;
         addCurve(t.tractiveCurveN, v.tractiveCurveN);
-        if (t.notchCurvesN.size() < v.notchCurvesN.size()) {
-            t.notchCurvesN.resize(v.notchCurvesN.size());
-        }
-        for (std::size_t n = 0; n < v.notchCurvesN.size(); ++n) {
-            addCurve(t.notchCurvesN[n], v.notchCurvesN[n]);
-        }
+        t.notchCurvesN.resize(std::max(t.notchCurvesN.size(), v.notchCurvesN.size()));
         t.brakedMassKg += v.braked ? v.massKg : 0;
         if (!v.source.empty() && t.source.find(v.source) == std::string::npos) {
             t.source += (t.source.empty() ? "" : "; ") + v.source;
+        }
+    }
+    // Notches: the train has as many as its locomotive with the most. A locomotive with fewer
+    // follows at the same fraction of its own range (train notch k of 0..N-1 -> its notch
+    // round(k (n-1) / (N-1))), so all reach their top notch together. The port's choice; how
+    // the game drives a mixed consist is not known.
+    const std::size_t top = t.notchCurvesN.size();
+    for (const auto& v : vehicles) {
+        const std::size_t n = v.notchCurvesN.size();
+        for (std::size_t k = 0; k < top && n > 0; ++k) {
+            const std::size_t own =
+                top == 1 ? 0 : static_cast<std::size_t>(std::lround(static_cast<double>(k * (n - 1)) / static_cast<double>(top - 1)));
+            addCurve(t.notchCurvesN[k], v.notchCurvesN[std::min(own, n - 1)]);
         }
     }
     return t;
