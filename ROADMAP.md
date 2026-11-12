@@ -69,6 +69,24 @@ A milestone reaches **100%** only when **all** of these are true:
 
 Until then it stays below 100%, so none of steps 1–7 is at 100% yet.
 
+## The own game (no original files)
+
+The owner's end goal is a game that runs **without any TS2010 files**, with original content
+and its own name (to be picked by the owner): plan and rules in
+[`docs/OWN-GAME.md`](docs/OWN-GAME.md). It is tracked here separately; the percentage above
+stays the TS2010 port's.
+
+| # | Milestone | State |
+|---|---|---|
+| G1 | Simulation core: driving along track (`sim::TrackNetwork`), train physics (`sim::stepTrain`) | started: both written and unit-tested on hand-built track |
+| G2 | A first drivable world, generated (terrain, a loop, simple original trains, drive mode) | not started |
+| G3 | Own content formats (routes, trains), saving | not started |
+| G4 | Driver view and controls, HUD | not started |
+| G5 | Signals and rules | not started |
+| G6 | Scenarios, save/load | not started |
+| G7 | Sound (own or freely licensed) | not started |
+| G8 | Track editor | not started |
+
 ## How the percentage works
 
 - **Weight:** a rough size estimate per milestone (bigger = more work). The
@@ -86,6 +104,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-12 | 37% | No step change. New goal from the owner: a game of its own that runs without the original files ([`docs/OWN-GAME.md`](docs/OWN-GAME.md), tracked as milestones G1–G8). G1 started: `sim::TrackNetwork` (drive along track by arc length, through vertices onto the far side, junctions straight on unless switched, line ends stop) and `sim::stepTrain` (traction limited by force and power, brakes that hold but never reverse, Davis resistance, gradients); 7 tests, no game files. |
 | 2026-11-12 | 37% | No step change. Review fixes (ChatGPT): package names map the version without collisions (`1~rc1` and `1-rc1` were both `…-1-rc1`, so one would replace the other; now `+t`/`+m` codes, CTest `PackageName.Mapping`); step 6 text names only `m.gloss`/`m.tbumpgloss`. CI now also installs the `.deb` for real, runs the tools from `/opt`, and removes it. |
 | 2026-11-12 | 37% | Step 16 (30% → 55%): Debian package via CPack (Cursor): versioned package names and `/opt/trainz-native/<version>/` folders that never share files, so versions install side by side; CI builds it with the CI-only version `0~ci` and checks its contents. Checked and completed by Claude: the menu entry is now written at install time with the launcher's full path and the version in its name (it said `Exec=trainz-route-viewer`, which the menu cannot find in `/opt` or `~/.local/bin`), `CPACK_SET_DESTDIR` so it names `/opt/...` not the staging folder, the Debian 13 library name `libmpg123-0t64`. Getting-started guide for Dad (Mistral; its package list corrected to the one the build needs). `m.reflect` alpha treated as opacity after all, as documented (Perplexity's sources; all 3,897 disc `m.reflect` colour maps are solid or smooth, so nothing changes); `m.gloss`/`m.tbumpgloss` stay non-cut-out, now documented ([`docs/research/materials.md`](docs/research/materials.md)). Overall 37.35 → 38.10 ÷ 102 = 37.35% → 37%. |
 | 2026-11-12 | 37% | Step 6 (0% → 10%): material kinds surveyed on all 108,674 disc mesh parts (m.onetex 95,441, m.reflect 8,162, m.tbumptex 1,343, m.notex 822, m.gloss 422, m.tbumpgloss 172, none 312), with texture slots and colour-alpha samples. `m.gloss` alpha is mostly smooth (a gloss amount, inferred), and the cut-out rule would have cut holes in 113 sampled ones: gloss and reflect materials are never cut out now (`materialMayCutOut`). Overall 36.75 → 37.35 ÷ 102 = 36.62% → 37%. |

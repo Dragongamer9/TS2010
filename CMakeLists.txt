@@ -54,6 +54,8 @@ add_library(trainz_content
   src/content/TrackLayout.cpp
   src/input/ActionMap.cpp
   src/input/KeyBindings.cpp
+  src/sim/TrackNetwork.cpp
+  src/sim/TrainPhysics.cpp
   src/view/AssetMeshes.cpp
   src/view/FlyCamera.cpp
   src/view/GroundTextures.cpp
@@ -248,6 +250,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_safe_output.cpp
     tests/test_scene_render.cpp
     tests/test_session.cpp
+    tests/test_sim.cpp
     tests/test_sound.cpp
     tests/test_texture.cpp
     tests/test_texture_descriptor.cpp
