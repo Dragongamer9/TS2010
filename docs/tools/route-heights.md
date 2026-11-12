@@ -154,8 +154,13 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   the bogie is turned by its point's rotation alone. Not traced in the exe. Bare numbers are user −1 (the disc's bogie folders, e.g. `kuid _1 100008`,
   confirm it). A bogie's `asset-filename` often exists only as a `.pm` (286 disc assets),
   which is used when there is no `.im`. Each bogie also turns to the modelled track under its own point (within ±90° of
-  the body), as the game's wiki describes `a.bog0`/`a.bog1` locating the vehicle on the
-  track; the body itself is not yet placed from its two bogies. That height is a **preview approximation, not a decoded vehicle elevation**: a
+  the body). A body with both `a.bog0` and `a.bog1` is **placed from them** (as the game's wiki
+  says those two points locate the vehicle on the track): both points go onto the modelled
+  track, the body lies along the line between them and tilts by their height difference.
+  Checked on 6,531 disc session vehicles: the stored positions are a median 0.001 m from this
+  placement (90% within 0.08 m); on curves (1,105 vehicles) a median 0.10 m against 0.14 m for
+  putting the centre itself on the track. That is closer, but within the curve model's own
+  error, so it does not show that the game places vehicles this way. That height is a **preview approximation, not a decoded vehicle elevation**: a
   vehicle's own stored `z` is often 0.3, and what it means is not known.
 
 `--eye DX DY DZ` puts the camera that many metres from the centre's ground point (for

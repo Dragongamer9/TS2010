@@ -188,10 +188,10 @@ int main(int argc, char** argv) {
             rgba = trainz::view::renderScene(view.scene, view.camera, w, h);
             std::printf("view: centre %.0f, %.0f, radius %.0f m; %zu sections, %zu triangles, %zu track lines, "
                         "%zu dots (objects green, signals magenta, trains orange); objects as models %zu, as dots %zu; "
-                        "vehicles as models %zu (bogies %zu; on the modelled track: %zu vehicles, %zu bogies); track curves by the port's model\n",
+                        "vehicles as models %zu (bogies %zu; on the modelled track: %zu vehicles, %zu bogies, %zu bodies on their bogies); track curves by the port's model\n",
                         view.centreX, view.centreY, radius, view.sections, view.scene.triangles.size(),
                         view.scene.lines.size(), view.scene.dots.size(), view.objectsAsMeshes, view.objectsAsDots,
-                        view.vehiclesAsMeshes, view.bogiesAsMeshes, view.vehiclesOnTrack, view.bogiesOnTrack);
+                        view.vehiclesAsMeshes, view.bogiesAsMeshes, view.vehiclesOnTrack, view.bogiesOnTrack, view.vehiclesOnBogies);
             if (groundTextures) {
                 std::printf("  ground: %zu of %zu sections textured (tile size assumed: %g cell)\n", view.texturedSections,
                             view.sections, trainz::view::kGroundTileCells);

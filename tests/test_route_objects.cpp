@@ -554,3 +554,67 @@ TEST(TrackLocator, HugeCoordinatesAreLeftOutSafely) {
     EXPECT_FALSE(loc.nearest(-1e300, 1e300));
     EXPECT_FALSE(loc.nearest(std::numeric_limits<double>::infinity(), 0));
 }
+
+#include "view/RouteScene.h"
+
+TEST(TrackLocator, BodyPlacedOnItsBogies) {
+    using trainz::view::placeOnBogies;
+    // A straight piece along +x rising 10 m over 100 m.
+    Builder b;
+    b.vertex(0, 0, 0, {{90, 0}}, 0);
+    b.vertex(1, 100, 0, {{90, 0}}, 10);
+    b.piece(90, 0, 1, 0x20);
+    const TrackLocator loc(b.t, 0, 0, 1000);
+    const float l0[2] = {0, -5}, l1[2] = {0, 5};  // bogie points 5 m either side along the body's +y
+
+    // A body 1 m off the track, facing +x: put back on the line, along it, nose up the slope.
+    const auto p = placeOnBogies(loc, 50, 1, 0, l0, l1);
+    ASSERT_TRUE(p);
+    EXPECT_NEAR(p->x, 50, 1e-6);
+    EXPECT_NEAR(p->y, 0, 1e-6);
+    EXPECT_NEAR(p->z, 5, 1e-6);
+    EXPECT_NEAR(p->heading, 0, 1e-6);
+    EXPECT_NEAR(p->pitch, std::atan(0.1), 1e-6);
+    // Facing the other way (-x): the same place, nose down.
+    const auto q = placeOnBogies(loc, 50, 1, std::numbers::pi, l0, l1);
+    ASSERT_TRUE(q);
+    EXPECT_NEAR(std::cos(q->heading), -1, 1e-6);
+    EXPECT_NEAR(q->pitch, -std::atan(0.1), 1e-6);
+    // Points not centred on the body (e.g. y -3 and 7): on straight track it does not slide
+    // along; only the sideways offset is corrected.
+    const float o0[2] = {0, -3}, o1[2] = {0, 7};
+    const auto r = placeOnBogies(loc, 50, 0.5, 0, o0, o1);
+    ASSERT_TRUE(r);
+    EXPECT_NEAR(r->x, 50, 1e-6);
+    EXPECT_NEAR(r->y, 0, 1e-6);
+    // No track near, points at one place, bad input: nullopt.
+    EXPECT_FALSE(placeOnBogies(loc, 50, 40, 0, l0, l1));
+    const float same[2] = {0, 0};
+    EXPECT_FALSE(placeOnBogies(loc, 50, 0, 0, same, same));
+    EXPECT_FALSE(placeOnBogies(loc, std::numeric_limits<double>::quiet_NaN(), 0, 0, l0, l1));
+}
+
+TEST(TrackLocator, BodyOnBogiesSitsInsideACurve) {
+    using trainz::view::placeOnBogies;
+    // A curve: the body's centre between its bogies lies on the chord, inside the arc.
+    Builder b;
+    b.vertex(0, 0, 0, {{91, 0}});
+    b.vertex(1, 100, 0, {{91, 0}, {92, 1}});
+    b.vertex(2, 170, 70, {{92, 0}});
+    b.piece(91, 0, 1, 0x20);
+    b.piece(92, 1, 2);
+    const TrackLocator loc(b.t, 0, 0, 1000);
+    const auto c = trackCurve(b.t, b.t.stretches[1]);
+    ASSERT_TRUE(c);
+    double mid[3];
+    c->point(0.5, mid);
+    const auto on = loc.nearest(mid[0], mid[1]);
+    ASSERT_TRUE(on);
+    const float l0[2] = {0, -8}, l1[2] = {0, 8};
+    const auto p = placeOnBogies(loc, mid[0], mid[1], on->heading, l0, l1);
+    ASSERT_TRUE(p);
+    const auto back = loc.nearest(p->x, p->y, 3.0);
+    ASSERT_TRUE(back);
+    EXPECT_GT(back->distance, 0.01);  // off the track, toward the inside of the bend
+    EXPECT_LT(back->distance, 1.0);
+}

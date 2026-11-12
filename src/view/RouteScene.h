@@ -41,7 +41,8 @@ struct RouteView {
     std::size_t bogiesAsMeshes = 0;
     std::size_t curvedPieces = 0;  // track pieces drawn as curves (the port's model) rather than straight
     std::size_t vehiclesOnTrack = 0;  // vehicles turned to the modelled track under them
-    std::size_t bogiesOnTrack = 0;    // bogies turned to the modelled track under their point  // bogie models drawn on vehicles' "a.bog*" points
+    std::size_t bogiesOnTrack = 0;    // bogies turned to the modelled track under their point
+    std::size_t vehiclesOnBogies = 0; // bodies placed from their two bogie points (placeOnBogies)  // bogie models drawn on vehicles' "a.bog*" points
 };
 
 // How far from a vehicle (or bogie point) the modelled track may be to set its direction and
@@ -49,6 +50,20 @@ struct RouteView {
 inline constexpr double kOnTrackDistance = 3.0;
 
 inline constexpr std::size_t kMaxSceneTriangles = 4'000'000;  // never exceeded: meshes that don't fit are left out
+
+// A vehicle body placed from its two bogie points: both points put on the modelled track,
+// the body along the line between them (the way round given by `heading`), tilted by their
+// height difference. `local0`/`local1` are the points in the body's own space (x, y; models
+// are long along +y). Starts from the body at (x, y) facing `heading` (radians, the direction
+// of its +y) and repeats a few times, as moving the body moves its points. nullopt when a
+// point finds no track within kOnTrackDistance, or the points are (almost) at one place.
+struct BogiePlacement {
+    double x = 0, y = 0, z = 0;  // where the body's origin goes (z: mean track height under the points)
+    double heading = 0;          // direction of the body's +y, radians
+    double pitch = 0;            // nose up, radians (from the two track heights)
+};
+std::optional<BogiePlacement> placeOnBogies(const trainz::content::TrackLocator& track, double x, double y,
+                                            double heading, const float local0[2], const float local1[2]);
 
 // `h` or `h + pi`, whichever is nearer to `ref`, as ref + (-pi/2..pi/2): the track's
 // direction taken the way round the train runs (front/back come from the train, not the track).

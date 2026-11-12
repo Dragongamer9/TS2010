@@ -21,6 +21,47 @@ bool fits(const Scene& scene, const PreparedMesh& mesh) { return sceneHasRoomFor
 
 }  // namespace
 
+std::optional<BogiePlacement> placeOnBogies(const TrackLocator& track, double x, double y, double heading,
+                                            const float local0[2], const float local1[2]) {
+    const double lx = local1[0] - local0[0], ly = local1[1] - local0[1];
+    const double span = std::hypot(lx, ly);
+    if (!(span > 0.5) || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(heading)) {
+        return std::nullopt;
+    }
+    const double midX = 0.5 * (local0[0] + local1[0]), midY = 0.5 * (local0[1] + local1[1]);
+    const double localAngle = std::atan2(ly, lx);  // of point 0 -> point 1 in the body (pi/2 for +y)
+    BogiePlacement p{x, y, 0, heading, 0};
+    for (int pass = 0; pass < 4; ++pass) {
+        // Body yaw = heading - pi/2 (its +y along the heading), as for vehicles in buildRouteView.
+        const double yaw = p.heading - std::numbers::pi / 2;
+        const double c = std::cos(yaw), s = std::sin(yaw);
+        auto world = [&](const float l[2]) { return std::pair{p.x + c * l[0] - s * l[1], p.y + s * l[0] + c * l[1]}; };
+        const auto [ax, ay] = world(local0);
+        const auto [bx, by] = world(local1);
+        const auto a = track.nearest(ax, ay, kOnTrackDistance), b = track.nearest(bx, by, kOnTrackDistance);
+        if (!a || !b) {
+            return std::nullopt;
+        }
+        const double dx = b->x - a->x, dy = b->y - a->y, flat = std::hypot(dx, dy);
+        if (!(flat > 0.25 * span)) {
+            return std::nullopt;
+        }
+        // The body turns so that point 0 -> point 1 lies along a -> b.
+        p.heading = headingAlong(std::atan2(dy, dx) - localAngle + std::numbers::pi / 2, p.heading);
+        const double nyaw = p.heading - std::numbers::pi / 2;
+        const double nc = std::cos(nyaw), ns = std::sin(nyaw);
+        // Then the points' midpoint goes to the middle of a and b.
+        const double cx = 0.5 * (a->x + b->x), cy = 0.5 * (a->y + b->y);
+        p.x = cx - (nc * midX - ns * midY);
+        p.y = cy - (ns * midX + nc * midY);
+        p.z = 0.5 * (a->z + b->z);
+        // Nose (+y end) up when the track is higher under the point lying toward +y.
+        const double rise = (b->z - a->z) * (ly >= 0 ? 1.0 : -1.0);
+        p.pitch = std::atan2(rise, flat);
+    }
+    return p;
+}
+
 double headingAlong(double h, double ref) {
     const double d = std::remainder(h - ref, 2 * std::numbers::pi);
     return std::fabs(d) <= std::numbers::pi / 2 ? ref + d : ref + std::remainder(d + std::numbers::pi, 2 * std::numbers::pi);
@@ -258,8 +299,21 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
                 }
                 if (in.meshes != nullptr && std::isfinite(heading)) {
                     if (const PreparedMesh* m = in.meshes->get(veh.kuid); m != nullptr && fits(v.scene, *m)) {
-                        const double yaw = heading - std::numbers::pi / 2;
-                        addPlacedMesh(v.scene, *m, x, y, vz, yaw);
+                        // On its bogies where it can be (placeOnBogies): position, direction, tilt.
+                        double px = x, py = y, pz = vz, ph = heading;
+                        LocalFrame tilt;
+                        const auto b0 = m->attachments.find("a.bog0"), b1 = m->attachments.find("a.bog1");
+                        if (onTrack && here && b0 != m->attachments.end() && b1 != m->attachments.end()) {
+                            const float l0[2] = {b0->second.t[0], b0->second.t[1]}, l1[2] = {b1->second.t[0], b1->second.t[1]};
+                            if (const auto pl = placeOnBogies(*onTrack, x, y, heading, l0, l1)) {
+                                px = pl->x, py = pl->y, pz = pl->z, ph = pl->heading;
+                                const float cp = static_cast<float>(std::cos(pl->pitch)), sp = static_cast<float>(std::sin(pl->pitch));
+                                tilt.r[4] = cp, tilt.r[5] = sp, tilt.r[7] = -sp, tilt.r[8] = cp;  // +y nose up about x
+                                ++v.vehiclesOnBogies;
+                            }
+                        }
+                        const double yaw = ph - std::numbers::pi / 2;
+                        addPlacedMesh(v.scene, *m, tilt, px, py, pz, yaw);
                         ++v.vehiclesAsMeshes;
                         v.vehiclesOnTrack += here ? 1 : 0;
                         // Bogies on the body's "a.bog<N>" points (see PreparedMesh::bogeyFor).
@@ -274,13 +328,13 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
                             // modelled track, the bogie also turns to the track under its point.
                             LocalFrame inner = frame;
                             const double c = std::cos(yaw), s = std::sin(yaw);
-                            const double bx = x + c * frame.t[0] - s * frame.t[1], by = y + s * frame.t[0] + c * frame.t[1];
+                            const double bx = px + c * frame.t[0] - s * frame.t[1], by = py + s * frame.t[0] + c * frame.t[1];
                             if (const auto under = onTrack ? onTrack->nearest(bx, by, kOnTrackDistance) : std::nullopt) {
-                                const double turn = headingAlong(under->heading, heading) - heading;  // within +-90 degrees
+                                const double turn = headingAlong(under->heading, ph) - ph;  // within +-90 degrees
                                 inner = swivelAboutModelZ(frame, turn);  // about the body's vertical
                                 ++v.bogiesOnTrack;
                             }
-                            addPlacedMesh(v.scene, *bogie, inner, x, y, vz, yaw);
+                            addPlacedMesh(v.scene, *bogie, inner.then(tilt), px, py, pz, yaw);
                             ++v.bogiesAsMeshes;
                         }
                         continue;
