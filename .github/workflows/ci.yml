@@ -112,8 +112,9 @@ jobs:
             echo "package must not install under /usr"; exit 1
           fi
           grep -E ' \./opt/trainz-native/0~ci/' deb-contents.txt | head -1
-          # Files and symlinks only (dpkg-deb -c also lists dirs like ./opt/; those stay).
-          awk '/^[-l]/ { print $NF }' deb-contents.txt | sed 's|^\./|/|' > deb-paths.txt
+          # Member names of files and links (not folders, which end in / and stay; not a
+          # link's target, which `dpkg-deb -c` prints after "->").
+          dpkg-deb --fsys-tarfile "$deb" | tar -t | grep -v '/$' | sed 's|^\./|/|' > deb-paths.txt
           test -s deb-paths.txt
           # Install it for real (CI runs as root in a throwaway container), run it, remove it.
           apt-get install -y --no-install-recommends "./$deb"
@@ -164,8 +165,9 @@ jobs:
           deb=$(ls deb/trainz-native-0+tci_0~ci_amd64.deb)
           test -f "$deb"
           dpkg-deb -c "$deb" | tee deb-contents.txt
-          # Files and symlinks only — not directories (/ and /opt always remain).
-          awk '/^[-l]/ { print $NF }' deb-contents.txt | sed 's|^\./|/|' > deb-paths.txt
+          # Member names of files and links (not folders, which end in / and stay; not a
+          # link's target, which `dpkg-deb -c` prints after "->").
+          dpkg-deb --fsys-tarfile "$deb" | tar -t | grep -v '/$' | sed 's|^\./|/|' > deb-paths.txt
           test -s deb-paths.txt
           # No other packages installed before this line.
           apt-get install -y --no-install-recommends "./$deb"

@@ -79,7 +79,7 @@ stays the TS2010 port's.
 | # | Milestone | State |
 |---|---|---|
 | G1 | Simulation core: driving along track (`sim::TrackNetwork`), train physics (`sim::stepTrain`) | started: both written and unit-tested on hand-built track; adhesion limits, trains built from vehicles, sourced presets ([`docs/research/train-physics.md`](docs/research/train-physics.md)) |
-| G2 | A first drivable world, generated (terrain, a loop, simple original trains, drive mode) | not started |
+| G2 | A first drivable world, generated (terrain, a loop, simple original trains, drive mode) | started: `drive-demo` runs with no game files (generated hills, 2.1 km oval with a siding, box train on bogies, throttle/brake/reverser/turnout, chase camera); tested |
 | G3 | Own content formats (routes, trains), saving | not started |
 | G4 | Driver view and controls, HUD | not started |
 | G5 | Signals and rules | not started |
@@ -104,6 +104,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-12 | 37% | No step change. G2 started: `drive-demo`, the first thing that runs with **no TS2010 files at all**: generated hills, a 2.1 km oval (lap within 1% of its design) with a turnout into a buffered siding, a box locomotive and wagons placed on their bogies, driven by the G1 physics with throttle, brake, reverser and the turnout, chase camera. 5 unit tests and a CLI test run from an empty folder. CI: the package removal check now uses the archive's member names (a symlink line's target was taken before; ChatGPT review). |
 | 2026-11-12 | 37% | No step change. G1: traction and braking limited by adhesion on the driven/braked axles (brakes now visibly fail to hold a 15% grade); trains summed from vehicles (total forces, not per-tonne); presets with sources (Perplexity's research, converted and checked: RP-548 freight wagon, Vectron traction, Shinkansen Series 100, passenger brake notches), unsourced parts marked uncalibrated. CI (Cursor): the package removal checks every packaged file, and a clean `debian:13` job installs the `.deb` artifact with nothing pre-installed; checkout moved before the artifact download. |
 | 2026-11-12 | 37% | No step change. New goal from the owner: a game of its own that runs without the original files ([`docs/OWN-GAME.md`](docs/OWN-GAME.md), tracked as milestones G1–G8). G1 started: `sim::TrackNetwork` (drive along track by arc length, through vertices onto the far side, junctions straight on unless switched, line ends stop) and `sim::stepTrain` (traction limited by force and power, brakes that hold but never reverse, Davis resistance, gradients); 7 tests, no game files. |
 | 2026-11-12 | 37% | No step change. Review fixes (ChatGPT): package names map the version without collisions (`1~rc1` and `1-rc1` were both `…-1-rc1`, so one would replace the other; now `+t`/`+m` codes, CTest `PackageName.Mapping`); step 6 text names only `m.gloss`/`m.tbumpgloss`. CI now also installs the `.deb` for real, runs the tools from `/opt`, and removes it. |

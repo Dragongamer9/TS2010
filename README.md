@@ -56,7 +56,8 @@ SDL2) opens a window and lets you fly around a route (keys: W/A/S/D, arrows, Pag
 a gamepad's sticks and triggers), drawn by the port's own
 software renderer; see [`docs/RUNNING-VIEWERS.md`](docs/RUNNING-VIEWERS.md). `cmake --install build --prefix ~/.local`
 installs the tools and a menu entry; the `trainz-route-viewer` launcher (after `--set-install /path/to/TS2010`)
-lists the routes and opens one by name. [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) is a short guide
+lists the routes and opens one by name. `drive-demo` (SDL2) is the start of the own game ([`docs/OWN-GAME.md`](docs/OWN-GAME.md)): a generated
+world and a train to drive, needing no game files. [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) is a short guide
 for Dad; [`docs/PACKAGING.md`](docs/PACKAGING.md) builds a `.deb` (each version in its own `/opt` folder).
 
 `src/input/KeyBindings` reads the game's key bindings, following the traced combo parser and key-name table in `trainz.exe` (how the game matches modifiers and converts live key presses is not confirmed) (`UserData/settings/keyboard.txt`;

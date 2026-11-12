@@ -28,17 +28,25 @@ Everything below is the port's own code, written for this project, and works wit
 | Vehicles on track: bogie placement, tilt | `src/view/RouteScene` (`placeOnBogies`) | working |
 | Fly camera, keyboard / mouse / gamepad | `src/view/FlyCamera`, `src/input` | working |
 | Window, launcher, packaging | `tools/viewer`, `tools/launcher`, CPack | working |
-| **Simulation core**: driving along track, train physics | `src/sim` | **started** (this page) |
+| **Simulation core**: driving along track, train physics | `src/sim` | working, tested |
+| **First generated world and driving** | `src/game`, `tools/game/drive_demo.cpp` | **started**: runs with no game files |
 
 ## Milestones
 
 1. **Simulation core** (started): a position on the track that drives forward and back across
    vertices and junctions (`sim::TrackNetwork`), and train physics (`sim::stepTrain`: traction
    limited by force and power, brakes, Davis resistance, gradients). Tested without any files.
-2. **A first drivable world, generated**: terrain and a track loop with a siding made by code,
-   simple original trains (boxes and cylinders first), and a "drive" mode in the viewer
-   (throttle, brake, reverser, chase camera). This is the first time it runs with no TS2010
-   files at all.
+2. **A first drivable world, generated** (started): `drive-demo` makes gentle hills, a 2.1 km
+   oval with a turnout into a buffered siding, and a box locomotive with three wagons on
+   bogies, all by code; drive it with throttle, brake, reverser and the turnout switch, behind
+   a chase camera. **It runs with no TS2010 files at all** (CTest `DriveDemo.Cli` runs it from
+   an empty folder). Still to come here: better models, a cab view, speed limits.
+
+   ![The first generated world](screenshots/own-game-first-world.png)
+
+   `drive-demo` keys: W/S or Up/Down throttle, Space (held) brake, R reverser (when stopped),
+   J turnout (main line / siding), C chase or free camera (free: the route-viewer keys), Esc quit.
+   ("drive-demo" is a working name; the game's name is the owner's to pick.)
 3. **Our own content formats**: a plain, documented file format for routes and trains, and
    a way to save the generated world.
 4. **Driver view and controls**: cab or chase camera, speedometer, simple HUD.

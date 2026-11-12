@@ -54,6 +54,8 @@ add_library(trainz_content
   src/content/TrackLayout.cpp
   src/input/ActionMap.cpp
   src/input/KeyBindings.cpp
+  src/game/Drive.cpp
+  src/game/GeneratedWorld.cpp
   src/sim/TrackNetwork.cpp
   src/sim/TrainPhysics.cpp
   src/view/AssetMeshes.cpp
@@ -144,6 +146,9 @@ if(TRAINZ_BUILD_VIEWER)
     add_library(trainz_input_sdl src/input/SdlKeys.cpp src/input/SdlGamepad.cpp)
     target_link_libraries(trainz_input_sdl PUBLIC trainz_content SDL2::SDL2)
     target_compile_options(trainz_input_sdl PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
+    add_executable(drive-demo tools/game/drive_demo.cpp)
+    target_link_libraries(drive-demo PRIVATE trainz_content SDL2::SDL2)
+    target_compile_options(drive-demo PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
     add_executable(route-viewer tools/viewer/route_viewer.cpp)
     target_link_libraries(route-viewer PRIVATE trainz_content trainz_input_sdl SDL2::SDL2)
     target_compile_options(route-viewer PRIVATE -Wall -Wextra $<$<BOOL:${TRAINZ_WERROR}>:-Werror>)
@@ -167,7 +172,7 @@ endif()
 include(GNUInstallDirs)
 install(TARGETS ja-tool config-tool asset-tool texture-tool mesh-tool anim-tool sound-tool input-tool route-tool
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-foreach(viewer route-viewer model-viewer sound-player key-tester)
+foreach(viewer route-viewer drive-demo model-viewer sound-player key-tester)
   if(TARGET ${viewer})
     install(TARGETS ${viewer} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
   endif()
@@ -213,6 +218,12 @@ if(TRAINZ_BUILD_TESTS)
             "$<TARGET_FILE:route-tool>"
             "${CMAKE_CURRENT_SOURCE_DIR}/testdata/ts2010")
   set_tests_properties(RouteTrack.Cli PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  if(TARGET drive-demo)
+    add_test(NAME DriveDemo.Cli
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_drive_demo_cli.py" "$<TARGET_FILE:drive-demo>")
+    set_tests_properties(DriveDemo.Cli PROPERTIES TIMEOUT 600 SKIP_RETURN_CODE 77
+                         ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1")
+  endif()
   if(TARGET route-viewer)
     add_test(NAME RouteViewer.Cli
       COMMAND "${Python3_EXECUTABLE}"
@@ -251,6 +262,7 @@ if(TRAINZ_BUILD_TESTS)
     tests/test_scene_render.cpp
     tests/test_session.cpp
     tests/test_sim.cpp
+    tests/test_game.cpp
     tests/test_sound.cpp
     tests/test_texture.cpp
     tests/test_texture_descriptor.cpp
