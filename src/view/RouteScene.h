@@ -58,7 +58,7 @@ inline constexpr std::size_t kMaxSceneTriangles = 4'000'000;  // never exceeded:
 // of its +y) and repeats a few times, as moving the body moves its points. nullopt when a
 // point finds no track within kOnTrackDistance, or the points are (almost) at one place.
 struct BogiePlacement {
-    double x = 0, y = 0, z = 0;  // where the body's origin goes (z: mean track height under the points)
+    double x = 0, y = 0, z = 0;  // where the body's origin goes (the points' tilted midpoint at the mean track height under them)
     double heading = 0;          // direction of the body's +y, radians
     double pitch = 0;            // nose up, radians (from the two track heights)
 };

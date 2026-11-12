@@ -86,6 +86,7 @@ roadmap existed were filled in afterwards from the chat history.
 
 | Date | Overall | Change |
 |---|---:|---|
+| 2026-11-11 | 36% | No step change. Review fixes (ChatGPT): a tilted body is now placed so its tilted bogie points lie on the track in all three coordinates (off-centre points at −3/+7 m on a 10% slope sat 0.2 m high), and each bogie looks up the track under its tilted position. Test checks where the points end up (fails on the old code). Disc check re-run: 6,529 vehicles, same medians. |
 | 2026-11-11 | 36% | No step change. Vehicle bodies placed from their two bogie points (`placeOnBogies`): both onto the modelled track, body along the line between them, tilted by their heights. On 6,531 disc session vehicles the stored positions are a median 0.001 m from it (curves: 0.10 m against 0.14 m for centre-on-track) — closer, but within the curve model's error, so not proof of how the game does it. Tested on straight, sloped and curved track. |
 | 2026-11-11 | 36% | No step change. Gamepad selection moved into `trainz::input::GamepadSlot` (`src/input/SdlGamepad`) and tested with SDL's virtual game controllers (`sdl_input_tests`): first pad opened, events from another pad not ours, handover when ours is unplugged, none left. The test fails without the handover. (ChatGPT pointed out virtual controllers make this testable.) |
 | 2026-11-11 | 36% | No step change. Review fixes (ChatGPT): when the gamepad in use is unplugged, another one already connected takes over; Start resets the view only from the gamepad in use. |

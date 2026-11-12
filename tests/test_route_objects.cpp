@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <numbers>
@@ -580,13 +581,24 @@ TEST(TrackLocator, BodyPlacedOnItsBogies) {
     ASSERT_TRUE(q);
     EXPECT_NEAR(std::cos(q->heading), -1, 1e-6);
     EXPECT_NEAR(q->pitch, -std::atan(0.1), 1e-6);
-    // Points not centred on the body (e.g. y -3 and 7): on straight track it does not slide
-    // along; only the sideways offset is corrected.
+    // Points not centred on the body (y -3 and 7) on the 10% slope: where the tilted, turned
+    // points end up must be ON the track (y 0, the track's height at their x).
     const float o0[2] = {0, -3}, o1[2] = {0, 7};
     const auto r = placeOnBogies(loc, 50, 0.5, 0, o0, o1);
     ASSERT_TRUE(r);
-    EXPECT_NEAR(r->x, 50, 1e-6);
-    EXPECT_NEAR(r->y, 0, 1e-6);
+    auto placed = [&](const float l[2]) {  // tilt about x, turn by heading - 90 deg, move
+        const double ty = l[1] * std::cos(r->pitch), tz = l[1] * std::sin(r->pitch);
+        const double yaw = r->heading - std::numbers::pi / 2, c = std::cos(yaw), s = std::sin(yaw);
+        return std::array<double, 3>{r->x + c * l[0] - s * ty, r->y + s * l[0] + c * ty, r->z + tz};
+    };
+    for (const float* l : {o0, o1}) {
+        const auto w = placed(l);
+        EXPECT_NEAR(w[1], 0, 1e-6);
+        EXPECT_NEAR(w[2], w[0] * 0.1, 1e-6) << "x " << w[0];  // on the rails, not 0.2 m above
+    }
+    EXPECT_NEAR(r->z, r->x * 0.1, 1e-6);  // the body's origin too (it lies on the line through them)
+    const auto w0 = placed(o0), w1 = placed(o1);
+    EXPECT_NEAR(std::hypot(w1[0] - w0[0], w1[2] - w0[2]), 10, 1e-6);  // still 10 m apart, along the slope
     // No track near, points at one place, bad input: nullopt.
     EXPECT_FALSE(placeOnBogies(loc, 50, 40, 0, l0, l1));
     const float same[2] = {0, 0};

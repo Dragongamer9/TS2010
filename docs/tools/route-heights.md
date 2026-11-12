@@ -157,8 +157,8 @@ renderer in `src/view/SceneRender` (no GPU). It shows only what the port has dec
   the body). A body with both `a.bog0` and `a.bog1` is **placed from them** (as the game's wiki
   says those two points locate the vehicle on the track): both points go onto the modelled
   track, the body lies along the line between them and tilts by their height difference.
-  Checked on 6,531 disc session vehicles: the stored positions are a median 0.001 m from this
-  placement (90% within 0.08 m); on curves (1,105 vehicles) a median 0.10 m against 0.14 m for
+  Checked on 6,529 disc session vehicles: the stored positions are a median 0.001 m from this
+  placement (90% within 0.08 m); on curves (1,103 vehicles) a median 0.10 m against 0.14 m for
   putting the centre itself on the track. That is closer, but within the curve model's own
   error, so it does not show that the game places vehicles this way. That height is a **preview approximation, not a decoded vehicle elevation**: a
   vehicle's own stored `z` is often 0.3, and what it means is not known.

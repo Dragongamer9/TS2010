@@ -3,6 +3,7 @@
 #include "content/ContentError.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <map>
@@ -31,11 +32,19 @@ std::optional<BogiePlacement> placeOnBogies(const TrackLocator& track, double x,
     const double midX = 0.5 * (local0[0] + local1[0]), midY = 0.5 * (local0[1] + local1[1]);
     const double localAngle = std::atan2(ly, lx);  // of point 0 -> point 1 in the body (pi/2 for +y)
     BogiePlacement p{x, y, 0, heading, 0};
+    // Where a body point (lx, ly, 0) goes: tilted by pitch about the body's x axis, turned by
+    // yaw = heading - pi/2 (its +y along the heading, as for vehicles in buildRouteView), moved.
+    auto offset = [](double bodyX, double bodyY, double yawAngle, double pitch) {
+        const double ty = bodyY * std::cos(pitch), tz = bodyY * std::sin(pitch);
+        const double c = std::cos(yawAngle), s = std::sin(yawAngle);
+        return std::array<double, 3>{c * bodyX - s * ty, s * bodyX + c * ty, tz};
+    };
     for (int pass = 0; pass < 4; ++pass) {
-        // Body yaw = heading - pi/2 (its +y along the heading), as for vehicles in buildRouteView.
         const double yaw = p.heading - std::numbers::pi / 2;
-        const double c = std::cos(yaw), s = std::sin(yaw);
-        auto world = [&](const float l[2]) { return std::pair{p.x + c * l[0] - s * l[1], p.y + s * l[0] + c * l[1]}; };
+        auto world = [&](const float l[2]) {
+            const auto o = offset(l[0], l[1], yaw, p.pitch);
+            return std::pair{p.x + o[0], p.y + o[1]};
+        };
         const auto [ax, ay] = world(local0);
         const auto [bx, by] = world(local1);
         const auto a = track.nearest(ax, ay, kOnTrackDistance), b = track.nearest(bx, by, kOnTrackDistance);
@@ -46,18 +55,17 @@ std::optional<BogiePlacement> placeOnBogies(const TrackLocator& track, double x,
         if (!(flat > 0.25 * span)) {
             return std::nullopt;
         }
-        // The body turns so that point 0 -> point 1 lies along a -> b.
+        // The body turns so that point 0 -> point 1 lies along a -> b, and tilts with them:
+        // nose (+y end) up when the track is higher under the point lying toward +y.
         p.heading = headingAlong(std::atan2(dy, dx) - localAngle + std::numbers::pi / 2, p.heading);
-        const double nyaw = p.heading - std::numbers::pi / 2;
-        const double nc = std::cos(nyaw), ns = std::sin(nyaw);
-        // Then the points' midpoint goes to the middle of a and b.
-        const double cx = 0.5 * (a->x + b->x), cy = 0.5 * (a->y + b->y);
-        p.x = cx - (nc * midX - ns * midY);
-        p.y = cy - (ns * midX + nc * midY);
-        p.z = 0.5 * (a->z + b->z);
-        // Nose (+y end) up when the track is higher under the point lying toward +y.
         const double rise = (b->z - a->z) * (ly >= 0 ? 1.0 : -1.0);
         p.pitch = std::atan2(rise, flat);
+        // Then the points' midpoint, tilted and turned, goes to the middle of a and b (all three
+        // coordinates, so off-centre points don't lift or shift the body on a slope).
+        const auto o = offset(midX, midY, p.heading - std::numbers::pi / 2, p.pitch);
+        p.x = 0.5 * (a->x + b->x) - o[0];
+        p.y = 0.5 * (a->y + b->y) - o[1];
+        p.z = 0.5 * (a->z + b->z) - o[2];
     }
     return p;
 }
@@ -328,7 +336,9 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
                             // modelled track, the bogie also turns to the track under its point.
                             LocalFrame inner = frame;
                             const double c = std::cos(yaw), s = std::sin(yaw);
-                            const double bx = px + c * frame.t[0] - s * frame.t[1], by = py + s * frame.t[0] + c * frame.t[1];
+                            float tilted[3];  // the point where it is drawn: tilted with the body
+                            tilt.apply(frame.t, tilted);
+                            const double bx = px + c * tilted[0] - s * tilted[1], by = py + s * tilted[0] + c * tilted[1];
                             if (const auto under = onTrack ? onTrack->nearest(bx, by, kOnTrackDistance) : std::nullopt) {
                                 const double turn = headingAlong(under->heading, ph) - ph;  // within +-90 degrees
                                 inner = swivelAboutModelZ(frame, turn);  // about the body's vertical
