@@ -107,6 +107,30 @@ u32 textureCount
   - **1,371 are nowhere in the asset.** They probably come from another asset
     or are missing. How the game resolves those is **unknown**.
 
+### Material kinds on the disc
+
+All 108,674 mesh parts in `Base.ja`, `Data.ja` and `Builtin\1.ja`–`8.ja`, by the material
+kind (the `m.…` at the end of the material name; the `*…*` pieces before it are the mesh and
+part names, not flags). Texture types are the `MATL` texture slots (1 = colour map). The
+alpha columns sample up to 401 colour maps per kind at a 64 px mip: all solid, a cut-out mix
+(as `wantsAlphaTest` reads it), or smooth.
+
+| Kind | Parts | Texture types (count) | Colour alpha: solid / cut-out / smooth |
+|---|---:|---|---|
+| `m.onetex` | 95,441 | 1 (95,431), few others | 323 / 65 / 13 |
+| `m.reflect` | 8,162 | 1 (8,073), 9 (8,306) | 401 / 0 / 0 |
+| `m.tbumptex` | 1,343 | 1 (1,343), 8 (1,320) | 342 / 34 / 25 |
+| `m.notex` | 822 | none (2 with 11) | – |
+| `m.gloss` | 422 | 1 (422), 9 (422) | 11 / 113 / 277 |
+| (no kind) | 312 | 1 (304), 8 (111), 9 (20) | 186 / 20 / 87 |
+| `m.tbumpgloss` | 172 | 1 (172), 8 (161), 9 (171) | 163 / 2 / 7 |
+
+**Inferred, not traced or documented here:** type 9 goes with reflection and gloss (an
+environment map?), type 8 with the bump kinds (a normal or bump map?); in `m.gloss` the colour
+map's alpha is mostly smooth, so it is taken as a gloss amount, not transparency. The 3D
+view therefore never draws `m.gloss`, `m.tbumpgloss` or `m.reflect` alpha as a cut-out
+(`materialMayCutOut`); without that, 113 sampled `m.gloss` textures would have had holes.
+
 ## 4. `ATCH` – attachment points (checked on the whole disc)
 
 Named points that other parts hang on: bogies (`a.bog0`, `a.bog1`), couplers

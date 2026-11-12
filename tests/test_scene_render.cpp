@@ -891,3 +891,13 @@ TEST(FlyCamera, StickDeadZone) {
     EXPECT_DOUBLE_EQ(stickAxis(20000, 0.99), 0);  // dead zone held below 0.95: 20000 is ~0.61
     EXPECT_GT(stickAxis(32767, std::numeric_limits<double>::quiet_NaN()), 0.99);
 }
+
+TEST(SceneRender, GlossAndReflectAlphaIsNotACutOut) {
+    EXPECT_TRUE(materialMayCutOut("m.onetex"));
+    EXPECT_TRUE(materialMayCutOut("m.tbumptex"));
+    EXPECT_TRUE(materialMayCutOut(""));
+    EXPECT_FALSE(materialMayCutOut("m.gloss"));
+    EXPECT_FALSE(materialMayCutOut("M.Gloss"));
+    EXPECT_FALSE(materialMayCutOut("m.tbumpgloss"));
+    EXPECT_FALSE(materialMayCutOut("m.reflect"));
+}

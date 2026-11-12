@@ -181,6 +181,13 @@ std::optional<trainz::content::Kuid> configKuid(const trainz::content::ConfigNod
 // clear texels. Other textures are drawn solid, as their alpha may mean something else.
 bool wantsAlphaTest(std::span<const std::uint8_t> rgba);
 
+// Whether a material kind's colour texture alpha may be drawn as a cut-out. False for
+// m.gloss, m.tbumpgloss and m.reflect, whose alpha is taken to be a gloss or reflection
+// amount (INFERRED from their names and the disc: 277 of 401 sampled m.gloss colour maps have
+// smooth alpha, and the cut-out rule would have cut holes in 113 more; m.reflect never looks
+// like a cut-out). Other kinds (m.onetex, m.tbumptex, ...) use wantsAlphaTest.
+bool materialMayCutOut(const std::string& kind);
+
 // Places a prepared mesh in the world: rotate by yaw (radians, anticlockwise, about +z)
 // and move to (x, y, z). Appends to the scene; the mesh's textures are added to
 // scene.textures once per mesh (by pointer), so the mesh must outlive the render.
