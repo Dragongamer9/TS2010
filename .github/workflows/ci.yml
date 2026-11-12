@@ -86,3 +86,16 @@ jobs:
           if ./build/ja-tool info /nonexistent.ja; then
             echo "ja-tool should fail on a missing file"; exit 1
           fi
+
+      - name: Debian package (cpack)
+        if: matrix.compiler == 'gcc' && matrix.variant == 'release'
+        run: |
+          # CI-only version string so cpack can run; the owner sets the real one.
+          cmake -S . -B build -DTRAINZ_PACKAGE_VERSION=ci
+          cpack --config build/CPackConfig.cmake -G DEB
+          deb=$(ls build/trainz-native-ci_ci_amd64.deb)
+          test -f "$deb"
+          dpkg-deb -c "$deb" | tee deb-contents.txt
+          grep -F './opt/trainz-native/ci/bin/route-viewer' deb-contents.txt
+          grep -F './opt/trainz-native/ci/bin/trainz-route-viewer' deb-contents.txt
+          grep -F './opt/trainz-native/ci/share/applications/trainz-route-viewer.desktop' deb-contents.txt
