@@ -45,7 +45,63 @@ std::vector<trainz::sim::Signal> routeSignals(const trainz::sim::TrackNetwork& n
             continue;
         }
         const double d = std::clamp(static_cast<double>(a->distance), 0.0, *len);
-        out.push_back({trainz::sim::TrackPosition{a->piece, a->alongPiece ? d : *len - d, a->alongPiece ? +1 : -1}, signalName(o)});
+        out.push_back({trainz::sim::TrackPosition{a->piece, a->alongPiece ? d : *len - d, a->alongPiece ? +1 : -1}, signalName(o),
+                       static_cast<long>(&o - objects.data())});
+    }
+    return out;
+}
+
+std::size_t orientSignals(const trainz::sim::TrackNetwork& net, std::vector<trainz::content::PlacedObject>& objects) {
+    std::size_t turned = 0;
+    for (auto& o : objects) {
+        if (o.tag != "sgOb") {
+            continue;
+        }
+        const auto a = trainz::content::trackAttachment(o);
+        const auto len = a ? net.length(a->piece) : std::nullopt;
+        if (!a || !len) {
+            continue;
+        }
+        const double d = std::clamp(static_cast<double>(a->distance), 0.0, *len);
+        const auto p = net.point({a->piece, a->alongPiece ? d : *len - d, a->alongPiece ? +1 : -1});
+        if (!p) {
+            continue;
+        }
+        o.yaw = static_cast<float>(p->heading - std::numbers::pi / 2);
+        ++turned;
+    }
+    return turned;
+}
+
+std::vector<SignalLamp> signalLamps(const trainz::content::PlacedObject& o, const trainz::view::PreparedMesh& mesh,
+                                    const trainz::content::SignalLook& look, int aspect) {
+    std::vector<SignalLamp> out;
+    const double c = std::cos(o.yaw), s = std::sin(o.yaw);
+    auto place = [&](const float* t, std::array<std::uint8_t, 3> rgb) {
+        out.push_back({o.worldX() + c * t[0] - s * t[1], o.worldY() + s * t[0] + c * t[1], o.z + t[2], rgb});
+    };
+    const auto state = trainz::content::stateForAspect(look, aspect);
+    if (!state) {
+        // No `signals` list: the older a.red / a.orange (or a.yellow) / a.green points (the Trainz
+        // wiki's pre-v1.3 fallback; 70 of the disc's 637 signal assets have no list).
+        static const char* const kNames[3][2] = {{"a.red", "a.red"}, {"a.orange", "a.yellow"}, {"a.green", "a.green"}};
+        static const std::array<std::uint8_t, 3> kRgb[3] = {{255, 40, 30}, {255, 190, 30}, {60, 255, 90}};
+        const int k = std::clamp(aspect, 0, 2);
+        for (const char* name : kNames[k]) {
+            if (const auto at = mesh.attachments.find(name); at != mesh.attachments.end()) {
+                place(at->second.t, kRgb[k]);
+                break;
+            }
+        }
+        return out;
+    }
+    for (const int light : look.states.at(*state)) {
+        const auto at = mesh.attachments.find("a.light" + std::to_string(light));
+        if (light < 0 || at == mesh.attachments.end()) {
+            continue;
+        }
+        const auto corona = look.coronas.find(light);
+        place(at->second.t, trainz::content::coronaColour(corona == look.coronas.end() ? std::string() : corona->second));
     }
     return out;
 }

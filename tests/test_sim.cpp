@@ -5,6 +5,7 @@
 #include "content/PlacedObject.h"
 #include "content/AssetConfig.h"
 #include "content/EngineSpec.h"
+#include "content/SignalAsset.h"
 
 #include <gtest/gtest.h>
 
@@ -656,4 +657,59 @@ TEST(Signals, BlockFollowsTheJunction) {
     n.switches[1] = 3;
     s.update({{3, 50}});
     EXPECT_EQ(s.aspect(0), Aspect::Stop);
+}
+
+TEST(SignalAsset, StatesLightsAndColours) {
+    const auto look = parseSignalLook(configOf(R"(kind "mosignal"
+signals
+{
+  1
+  {
+    light 2
+  }
+  4
+  {
+    light 1
+  }
+  7
+  {
+    light 1 3
+  }
+  8
+  {
+    light 0
+  }
+}
+lights
+{
+  0
+  {
+    corona "corona_green.tga"
+  }
+  1
+  {
+    corona "corona_yellow.tga"
+  }
+  2
+  {
+    corona "corona_red.tga"
+  }
+}
+)"));
+    ASSERT_EQ(look.states.size(), 4u);
+    EXPECT_EQ(look.states.at(7), (std::vector<int>{1, 3}));
+    EXPECT_EQ(look.coronas.at(2), "corona_red.tga");
+    EXPECT_EQ(stateForAspect(look, 0), 1);  // no state 0: the lowest of 0-3
+    EXPECT_EQ(stateForAspect(look, 1), 4);
+    EXPECT_EQ(stateForAspect(look, 2), 8);
+    SignalLook twoAspect;
+    twoAspect.states = {{0, {0}}, {8, {1}}};
+    EXPECT_EQ(stateForAspect(twoAspect, 1), 0);  // no caution state: shows stop
+    SignalLook onlyStop;
+    onlyStop.states = {{1, {0}}};
+    EXPECT_EQ(stateForAspect(onlyStop, 2), 1);
+    EXPECT_FALSE(stateForAspect(SignalLook{}, 0).has_value());
+    EXPECT_EQ(coronaColour("Corona_RED.tga")[0], 255);
+    EXPECT_GT(coronaColour("corona_green.tga")[1], coronaColour("corona_green.tga")[0]);
+    EXPECT_EQ(coronaColour("lunar.tga"), coronaColour("something.tga"));
 }

@@ -139,7 +139,7 @@ notch up/down (a smooth throttle if the train has no notch data), Space brake, R
 notch. Each vehicle's mass and the locomotives' pulling force come from their own files
 (`mass`, `enginespec`); resistance and brakes are still general defaults. Junctions start as the route sets
 them. The title also shows the next signal and its aspect (stop, caution or clear), worked
-out by the port's own simple rules. The lights are not drawn yet, and there are no sounds.
+out by the port's own simple rules. Each signal's lit lamps are drawn in its own colours. There are no sounds yet.
 
 ### Finding a route and a session
 

@@ -25,6 +25,7 @@ const char* aspectName(Aspect a);
 struct Signal {
     TrackPosition at;   // direction = the travel it is for
     std::string name;   // for display ("" if none)
+    long object = -1;   // index of the placed object it came from, if any
 };
 
 // A point taken by a train (e.g. each vehicle's ends).

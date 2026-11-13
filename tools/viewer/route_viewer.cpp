@@ -18,7 +18,8 @@
 //
 // --frames N: draw N frames (turning a little each time; in drive mode at full throttle) and
 // quit, for testing; with SDL_VIDEODRIVER=offscreen no window appears. --png saves the last
-// frame under ~/.local/share/trainz-native/routes/.
+// frame under ~/.local/share/trainz-native/routes/. --camera EX EY EZ TX TY TZ sets the start view
+// (world metres); --signals lists the signals with their places and aspects.
 // Keys: W/S or Up/Down forward/back, A/D sideways, Left/Right turn, PgUp/PgDn look up/down,
 // Q/E down/up, Shift = 5x faster, R = back to the start view, Esc = quit.
 // Mouse: hold the right button and drag to look; the wheel moves forward/back.
@@ -45,6 +46,7 @@
 #include <SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <unistd.h>
@@ -78,7 +80,8 @@ int main(int argc, char** argv) {
     std::optional<double> atX, atY;
     double radius = 600;
     long frames = -1;  // -1: until Esc
-    bool drive = false, png = false;
+    bool drive = false, png = false, listSignals = false;
+    std::optional<std::array<double, 6>> startCamera;  // --camera EX EY EZ TX TY TZ
     long trainNumber = 0;  // 0: the first that stands on track
     for (int i = byName ? 1 : 3; i < argc; ++i) {
         const std::string opt = argv[i];
@@ -111,6 +114,19 @@ int main(int argc, char** argv) {
                 return 2;
             }
             trainNumber = static_cast<long>(*n);
+        } else if (opt == "--signals") {
+            listSignals = true;
+        } else if (opt == "--camera" && i + 6 < argc) {
+            std::array<double, 6> c{};
+            for (auto& v : c) {
+                const auto n = strictNumber(argv[++i]);
+                if (!n || std::fabs(*n) > 1e8) {
+                    std::cerr << "--camera needs six numbers: eye x y z, then target x y z (world metres)\n";
+                    return 2;
+                }
+                v = *n;
+            }
+            startCamera = c;
         } else if (opt == "--frames" && i + 1 < argc) {
             const auto n = strictNumber(argv[++i]);
             if (!n || *n < 1 || *n > 100000 || *n != static_cast<double>(static_cast<long>(*n))) {
@@ -304,13 +320,35 @@ int main(int argc, char** argv) {
             std::printf("driving train %zu of %zu: %zu vehicles, %zu with models, %zu with their own mass, %zu powered by their "
                         "enginespec (%.0f t; resistance and brakes are presets)\n",
                         chosen + 1, trains.size(), specs.size(), vehicles.size(), ownMass, powered, driving.spec.massKg / 1000);
-            signals.emplace(*net, trainz::game::routeSignals(*net, extras.objects));
             standing = trainz::game::standingTrains(*net, trains, static_cast<long>(chosen));
             for (const auto& v : vehicles) {
                 trainLength += v.length + 0.5;
             }
-            std::printf("%zu signals on the track, %zu points taken by the session's other trains\n", signals->signals().size(),
-                        standing.size());
+        }
+        // Signals (both modes, with track): turned to their track, placed on the network, and
+        // their lamps drawn for the port's aspects. Without --drive every session train stands.
+        std::map<std::string, trainz::content::SignalLook> looks;  // by formatted KUID
+        if (extras.track) {
+            if (!net) {
+                net.emplace(*extras.track);
+            }
+            const std::size_t turned = trainz::game::orientSignals(*net, extras.objects);
+            signals.emplace(*net, trainz::game::routeSignals(*net, extras.objects));
+            if (!drive && extras.trains) {
+                standing = trainz::game::standingTrains(*net, *extras.trains, -1);
+            }
+            if (meshes) {
+                for (const auto& sg : signals->signals()) {
+                    const auto& o = extras.objects[static_cast<std::size_t>(sg.object)];
+                    const std::string key = trainz::content::formatKuid(o.kuid);
+                    if (looks.count(key) == 0) {
+                        const auto cfg = meshes->config(o.kuid);
+                        looks[key] = cfg ? trainz::content::parseSignalLook(*cfg) : trainz::content::SignalLook{};
+                    }
+                }
+            }
+            std::printf("%zu signals on the track (%zu turned to it), %zu points taken by standing trains\n",
+                        signals->signals().size(), turned, standing.size());
         }
         trainz::view::RouteSceneInput in;
         in.ground = &ground;
@@ -339,7 +377,24 @@ int main(int argc, char** argv) {
             SDL_Quit();
             return 1;
         }
-        const auto start = trainz::view::FlyCamera::lookingAlong(view.camera);
+        trainz::view::Camera startView = view.camera;
+        if (startCamera) {
+            const auto& c = *startCamera;
+            startView.eye = {c[0], c[1], c[2]};
+            startView.target = {c[3], c[4], c[5]};
+        }
+        if (listSignals && signals) {
+            signals->update(standing);
+            for (std::size_t i = 0; i < signals->signals().size(); ++i) {
+                const auto& sg = signals->signals()[i];
+                const auto& o = extras.objects[static_cast<std::size_t>(sg.object)];
+                const auto at = net->point(sg.at);
+                std::printf("signal %zu %s: object at %.1f %.1f %.1f, track %.1f %.1f, %s%s%s\n", i, trainz::content::formatKuid(o.kuid).c_str(),
+                            o.worldX(), o.worldY(), static_cast<double>(o.z), at ? at->x : 0.0, at ? at->y : 0.0,
+                            trainz::sim::aspectName(signals->aspect(i)), sg.name.empty() ? "" : " - ", sg.name.c_str());
+            }
+        }
+        const auto start = trainz::view::FlyCamera::lookingAlong(startView);
         auto cam = start;
         bool dirty = true, running = true, chase = drive;
         Uint32 last = SDL_GetTicks();
@@ -452,13 +507,33 @@ int main(int argc, char** argv) {
             }
             if (dirty) {
                 const Uint32 t0 = SDL_GetTicks();
+                const trainz::view::Camera camera = drive && chase ? trainz::game::chaseCamera(*net, driving.lead) : cam.camera();
+                trainz::view::Scene scene = view.scene;
                 if (drive) {
-                    trainz::view::Scene scene = view.scene;
                     trainz::game::addRouteTrain(scene, *net, driving.lead, vehicles);
-                    rgba = trainz::view::renderScene(scene, chase ? trainz::game::chaseCamera(*net, driving.lead) : cam.camera(), kW, kH);
-                } else {
-                    rgba = trainz::view::renderScene(view.scene, cam.camera(), kW, kH);
                 }
+                if (signals && meshes) {
+                    if (!drive && signalClock >= 1e8) {  // standing trains only: once
+                        signals->update(standing);
+                        signalClock = 0;
+                    }
+                    for (std::size_t i = 0; i < signals->signals().size(); ++i) {
+                        const auto& o = extras.objects[static_cast<std::size_t>(signals->signals()[i].object)];
+                        const double dx = o.worldX() - camera.eye.x, dy = o.worldY() - camera.eye.y, dz = o.z - camera.eye.z;
+                        const double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                        const auto* m = dist < radius ? meshes->get(o.kuid) : nullptr;
+                        const auto look = looks.find(trainz::content::formatKuid(o.kuid));
+                        if (m == nullptr || look == looks.end()) {
+                            continue;
+                        }
+                        const int r = static_cast<int>(std::clamp(80.0 / std::max(dist, 1.0), 1.0, 6.0));
+                        for (const auto& lamp :
+                             trainz::game::signalLamps(o, *m, look->second, static_cast<int>(signals->aspect(i)))) {
+                            scene.dots.push_back({{lamp.x, lamp.y, lamp.z}, {lamp.rgb[0], lamp.rgb[1], lamp.rgb[2]}, r});
+                        }
+                    }
+                }
+                rgba = trainz::view::renderScene(scene, camera, kW, kH);
                 SDL_UpdateTexture(tex, nullptr, rgba.data(), kW * 4);
                 SDL_RenderClear(ren);
                 SDL_RenderCopy(ren, tex, nullptr, nullptr);

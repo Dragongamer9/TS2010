@@ -48,6 +48,7 @@ add_library(trainz_content
   src/content/PlacedObject.cpp
   src/content/Mp3Decoder.cpp
   src/content/ReadOnlyFile.cpp
+  src/content/SignalAsset.cpp
   src/content/SessionFile.cpp
   src/content/SoundFile.cpp
   src/content/TextureDescriptor.cpp

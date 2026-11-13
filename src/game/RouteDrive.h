@@ -5,6 +5,7 @@
 #include "content/EngineSpec.h"
 #include "content/SessionFile.h"
 #include "content/PlacedObject.h"
+#include "content/SignalAsset.h"
 #include "sim/Signals.h"
 #include "sim/TrainPhysics.h"
 #include "sim/TrackNetwork.h"
@@ -32,6 +33,23 @@ namespace trainz::game {
 // direction of travel its attachment gives, named by the name in its record when it has one.
 std::vector<trainz::sim::Signal> routeSignals(const trainz::sim::TrackNetwork& net,
                                               const std::vector<trainz::content::PlacedObject>& objects);
+
+// Turns each signal object to face along its track: yaw = the heading of its direction of
+// travel - 90 degrees, i.e. the model's +y along that direction (as for vehicles), so lamps
+// on the model's -y side face the trains coming toward it. A GUESS from the disc's signal
+// models (their a.light points sit at y < 0), not traced; the stored yaw of signals is 0.
+// Returns how many were turned.
+std::size_t orientSignals(const trainz::sim::TrackNetwork& net, std::vector<trainz::content::PlacedObject>& objects);
+
+// The lit lamps of a signal object drawn with `mesh` at its position and yaw, for the state
+// `stateForAspect` picks: world positions of its "a.light<N>" points and their corona colours.
+// An asset without a `signals` list uses its a.red / a.orange (a.yellow) / a.green point.
+struct SignalLamp {
+    double x = 0, y = 0, z = 0;
+    std::array<std::uint8_t, 3> rgb{255, 255, 255};
+};
+std::vector<SignalLamp> signalLamps(const trainz::content::PlacedObject& object, const trainz::view::PreparedMesh& mesh,
+                                    const trainz::content::SignalLook& look, int aspect);
 
 // Points a train takes on the track: from its front `lead` back over `length` metres, one
 // every `step` metres and at both ends.

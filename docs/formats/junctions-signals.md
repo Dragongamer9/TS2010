@@ -191,3 +191,35 @@ signal, its distance and its aspect in the window title. Left:
 - drawing the lights;
 - what the 5 unknown bytes hold;
 - AI trains.
+
+## 7. Signal lamps (2026-11-13)
+
+**The asset's own aspects** (`content::parseSignalLook`, observed on the disc): a `mosignal`
+config's `signals` container maps a state number to the lights it lights (`light 2`, or
+several: `light 1 3`). `lights` gives each light a corona image (`corona_red.tga`). The lamps
+stand on the model's `a.light<N>` attachment points. Of the disc's 637 signal assets:
+
+- 567 have a `signals` list, and 559 of those have every lamp point they need on their model;
+- 70 have no list; for them the port uses the older `a.red` / `a.orange` (`a.yellow`) /
+  `a.green` points (the wiki's pre-v1.3 fallback).
+
+The states in use are 0 (519 assets), 1 (59), 2–3 (96 each), 4 (421), 5–7, 8 (549), and
+9–12. That fits the later wiki page's 0 = absolute stop, 1 = permissive stop, 4 = caution,
+8 = clear.
+
+**The port's mapping** (not the game's): stop shows the lowest listed state in 0–3, caution
+the lowest in 4–7 and clear state 8 (or the lowest above it). A signal without a caution
+state shows stop; one without a clear state shows caution. The lamp colour comes from the
+corona's file name (red, yellow/amber/orange, green, blue, else white), a heuristic: the
+image itself is not read.
+
+**Facing:** signals store yaw 0, so the port turns each one to its track. Its yaw is the
+heading of the direction of travel it is for, minus 90°, so the model's +y runs along that
+direction and the lamps (at y < 0 on the disc's signal models) face oncoming trains. This is
+a **guess**. The screenshot `docs/screenshots/signal-stop.png` agrees with it (the red lamp
+faces the waiting train), which doesn't prove it.
+
+**In the viewer**, the lit lamps are drawn as coloured dots on each signal within the view
+radius, in both modes. Without `--drive` every session train counts as standing. `--signals`
+lists the signals, their places and their aspects. `--camera EX EY EZ TX TY TZ` sets the
+start view.

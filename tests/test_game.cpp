@@ -197,3 +197,53 @@ TEST(RouteDrive, VehicleSpecFromItsOwnData) {
         EXPECT_NE(f.source.find("no usable mass"), std::string::npos);
     }
 }
+
+TEST(RouteDrive, SignalsTurnToTheirTrackAndLightTheirLamps) {
+    // One straight piece along +x, 200 m; a signal 50 m along it for travel toward -x.
+    trainz::content::TrackLayout layout;
+    trainz::content::TrackVertex a, b;
+    a.index = 0, b.index = 1, b.x = 200;
+    a.links = {{1, 0}}, b.links = {{1, 0}};
+    layout.vertices = {{0, a}, {1, b}};
+    trainz::content::TrackStretch st;
+    st.index = 1, st.from = 0, st.to = 1, st.rest = {0x20, 0, 0, 0};
+    layout.stretches = {st};
+    const trainz::sim::TrackNetwork net(layout);
+    trainz::content::PlacedObject o;
+    o.tag = "sgOb";
+    o.x = 150, o.y = 2.5;
+    o.rest = {0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0};
+    const std::uint8_t tail[23] = {2, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0x48, 0x42, 0, 0, 0, 0, 0, 0};  // piece 1, 50 m, dir 0
+    o.rest.insert(o.rest.end(), tail, tail + 23);
+    std::vector<trainz::content::PlacedObject> objects{o};
+    EXPECT_EQ(trainz::game::orientSignals(net, objects), 1u);
+    // Travel toward -x: heading pi, so yaw = pi/2 (model +y along -x).
+    EXPECT_NEAR(std::remainder(objects[0].yaw - std::numbers::pi / 2, 2 * std::numbers::pi), 0, 1e-5);
+    const auto sigs = trainz::game::routeSignals(net, objects);
+    ASSERT_EQ(sigs.size(), 1u);
+    EXPECT_EQ(sigs[0].object, 0);
+    EXPECT_NEAR(sigs[0].at.offset, 150, 1e-6);  // 50 m from the `to` end
+    EXPECT_EQ(sigs[0].at.direction, -1);
+
+    trainz::view::PreparedMesh mesh;
+    trainz::view::LocalFrame lamp;
+    lamp.t[0] = 0, lamp.t[1] = -0.2f, lamp.t[2] = 4;
+    mesh.attachments["a.light2"] = lamp;
+    trainz::content::SignalLook look;
+    look.states = {{1, {2}}, {8, {0}}};
+    look.coronas = {{2, "corona_red.tga"}};
+    const auto lit = trainz::game::signalLamps(objects[0], mesh, look, 0);
+    ASSERT_EQ(lit.size(), 1u);
+    // Model -y turned by yaw pi/2 points toward +x: the lamp sits 0.2 m toward +x, facing trains coming from +x.
+    EXPECT_NEAR(lit[0].x, 150.2, 1e-4);
+    EXPECT_NEAR(lit[0].y, 2.5, 1e-4);
+    EXPECT_NEAR(lit[0].z, 4, 1e-6);
+    EXPECT_EQ(lit[0].rgb[0], 255);
+    EXPECT_TRUE(trainz::game::signalLamps(objects[0], mesh, look, 2).empty());  // a.light0 not on the model
+    trainz::view::PreparedMesh old;  // no `signals` list: the older named points
+    old.attachments["a.green"] = lamp;
+    const auto green = trainz::game::signalLamps(objects[0], old, trainz::content::SignalLook{}, 2);
+    ASSERT_EQ(green.size(), 1u);
+    EXPECT_GT(green[0].rgb[1], green[0].rgb[0]);
+    EXPECT_TRUE(trainz::game::signalLamps(objects[0], old, trainz::content::SignalLook{}, 0).empty());  // no a.red
+}
