@@ -157,6 +157,12 @@ trainz::sim::VehicleSpec ownVehicleSpec(std::optional<double> massKg, const trai
                     out.push_back({speed, 1000.0 * kn});
                 }
             }
+            for (const auto& notch : engine->dynamicBrake) {  // kN -> N
+                auto& out = v.dynamicBrakeCurvesN.emplace_back();
+                for (const auto& [speed, kn] : notch) {
+                    out.push_back({speed, 1000.0 * kn});
+                }
+            }
         }
         v.driven = !v.tractiveCurveN.empty();
         if (v.driven) {

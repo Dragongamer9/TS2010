@@ -27,7 +27,7 @@ namespace trainz::game {
 // axle count (4 when not given) and the brake the freight-wagon emergency equivalent, as in
 // sim::freightWagon (neither is read from the files yet). A vehicle whose enginespec has
 // throttle-power curves is driven, with its highest notch as the full-throttle curve and every
-// notch's curve in notchCurvesN (in N).
+// notch's curve in notchCurvesN, and its `dynamic-brake` notches in dynamicBrakeCurvesN (in N).
 // Without a usable mass it falls back to the 40 t wagon preset (and says so in `source`).
 // The route's signals (sgOb objects with a track attachment on a piece of `net`), each for the
 // direction of travel its attachment gives, named by the name in its record when it has one.

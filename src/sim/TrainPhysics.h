@@ -33,6 +33,9 @@ struct TrainSpec {
     // Controls::notch selects the curve, the smooth throttle is ignored, and locomotives without
     // curves pull at notch ÷ top notch of their starting force/power.
     std::vector<std::vector<std::pair<double, double>>> notchCurvesN;
+    // Optional: dynamic-brake force (N) per dynamic notch against speed (m/s), summed like the
+    // notch curves (from each locomotive's enginespec `dynamic-brake`). Notch 0 is off.
+    std::vector<std::vector<std::pair<double, double>>> dynamicBrakeCurvesN;
     std::string source;     // where the numbers come from (or "uncalibrated")
 };
 
@@ -41,6 +44,7 @@ struct Controls {
     double brake = 0;     // 0..1 of the full brake force
     int reverser = +1;    // +1 forward, -1 reverse, 0 neutral (no traction)
     int notch = 0;        // index into TrainSpec::notchCurvesN (0 = first / idle notch)
+    int dynamicNotch = 0;  // index into TrainSpec::dynamicBrakeCurvesN; 0 = off (then no traction while on)
 };
 
 // Advances the speed (m/s, signed: + along the train's facing) over `seconds` on a track
@@ -60,6 +64,7 @@ struct VehicleSpec {
     bool driven = false, braked = true;
     std::vector<std::pair<double, double>> tractiveCurveN;  // optional (see TrainSpec)
     std::vector<std::vector<std::pair<double, double>>> notchCurvesN;  // optional per-notch curves
+    std::vector<std::vector<std::pair<double, double>>> dynamicBrakeCurvesN;  // optional (see TrainSpec)
     std::string source;
 };
 // Sums masses, resistances and forces; the adhesion coefficient is the given one. Negative or

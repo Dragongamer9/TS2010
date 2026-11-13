@@ -68,6 +68,7 @@ add_library(trainz_content
   src/view/MeshPreview.cpp
   src/view/RouteCatalog.cpp
   src/view/RouteLoader.cpp
+  src/view/HudText.cpp
   src/view/RouteScene.cpp
   src/view/SceneRender.cpp
 )

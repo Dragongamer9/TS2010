@@ -1,11 +1,48 @@
 #include "Drive.h"
 
+#include <algorithm>
+
 #include "view/AssetMeshes.h"
 
 #include <cmath>
 #include <numbers>
 
 namespace trainz::game {
+
+void BrakeHandle::step(double& brake, double seconds) const {
+    if (!std::isfinite(brake)) {
+        brake = 0;
+    }
+    const double dt = std::isfinite(seconds) && seconds > 0 ? std::min(seconds, 10.0) : 0.0;
+    switch (position) {
+    case Position::Release:
+        brake -= kReleasePerSecond * dt;
+        break;
+    case Position::Lap:
+        break;
+    case Position::Application:
+        brake += kApplyPerSecond * dt;
+        break;
+    case Position::Emergency:
+        brake = 1;
+        break;
+    }
+    brake = std::clamp(brake, 0.0, 1.0);
+}
+
+const char* BrakeHandle::name() const {
+    switch (position) {
+    case Position::Release:
+        return "release";
+    case Position::Lap:
+        return "lap";
+    case Position::Application:
+        return "application";
+    case Position::Emergency:
+        return "emergency";
+    }
+    return "?";
+}
 
 using namespace trainz::sim;
 using namespace trainz::view;

@@ -10,7 +10,8 @@
 // NAME is a route's or session's name (or part of it, if only one matches) or its KUID.
 // --drive (with a session and --install): drive one of the session's trains on its route,
 // drawn with its own models: W/S throttle (or one notch up/down when the train has enginespec
-// throttle-power curves), Space brake, R reverser (when stopped), J switch the next junction in
+// throttle-power curves; below notch 0, S steps into its dynamic-brake notches), train brake
+// handle A application / Z lap / Q release / Pause or Space emergency, R reverser (when stopped), J switch the next junction in
 // front (junctions start as the route stores them), C chase or free camera, Esc quit. The
 // title shows the next signal ahead and its aspect (the port's simple block rules). --train N picks the train (1 = the first; default: the first one that stands on track).
 // Physics: mass and notch curves from the install when present; resistance/brakes are presets.
@@ -19,7 +20,9 @@
 // --frames N: draw N frames (turning a little each time; in drive mode at full throttle) and
 // quit, for testing; with SDL_VIDEODRIVER=offscreen no window appears. --png saves the last
 // frame under ~/.local/share/trainz-native/routes/. --camera EX EY EZ TX TY TZ sets the start view
-// (world metres); --signals lists the signals with their places and aspects.
+// (world metres); --signals lists the signals with their places and aspects. --keys
+// "FRAME:KEY,..." presses keys at those frames of a test run (then the run does not force full
+// throttle), e.g. --keys "1:w,1:w,40:s,40:a" for screenshots of driving and braking.
 // Keys: W/S or Up/Down forward/back, A/D sideways, Left/Right turn, PgUp/PgDn look up/down,
 // Q/E down/up, Shift = 5x faster, R = back to the start view, Esc = quit.
 // Mouse: hold the right button and drag to look; the wheel moves forward/back.
@@ -39,6 +42,7 @@
 #include "game/Drive.h"
 #include "game/RouteDrive.h"
 #include "view/FlyCamera.h"
+#include "view/HudText.h"
 #include "view/RouteCatalog.h"
 #include "view/RouteLoader.h"
 #include "view/RouteScene.h"
@@ -47,6 +51,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <unistd.h>
@@ -82,6 +87,7 @@ int main(int argc, char** argv) {
     long frames = -1;  // -1: until Esc
     bool drive = false, png = false, listSignals = false;
     std::optional<std::array<double, 6>> startCamera;  // --camera EX EY EZ TX TY TZ
+    std::multimap<long, SDL_Keycode> keyScript;        // --keys "FRAME:KEY,...": key presses in a test run
     long trainNumber = 0;  // 0: the first that stands on track
     for (int i = byName ? 1 : 3; i < argc; ++i) {
         const std::string opt = argv[i];
@@ -114,6 +120,32 @@ int main(int argc, char** argv) {
                 return 2;
             }
             trainNumber = static_cast<long>(*n);
+        } else if (opt == "--keys" && i + 1 < argc) {
+            const std::string keyList = argv[++i];
+            std::size_t pos = 0;
+            while (pos < keyList.size()) {
+                const std::size_t end = std::min(keyList.find(',', pos), keyList.size());
+                const std::string item = keyList.substr(pos, end - pos);
+                const std::size_t colon = item.find(':');
+                const std::string frameText = colon == std::string::npos ? std::string() : item.substr(0, colon);
+                const double frame = colon == std::string::npos ? -1.0 : strictNumber(frameText.c_str()).value_or(-1.0);
+                const std::string name = colon == std::string::npos ? std::string() : item.substr(colon + 1);
+                SDL_Keycode key = SDLK_UNKNOWN;
+                if (name.size() == 1 && std::isalnum(static_cast<unsigned char>(name[0])) != 0) {
+                    key = static_cast<SDL_Keycode>(std::tolower(static_cast<unsigned char>(name[0])));
+                } else if (name == "space") {
+                    key = SDLK_SPACE;
+                } else if (name == "pause") {
+                    key = SDLK_PAUSE;
+                }
+                if (!(frame >= 1 && frame <= 100000) || frame != std::floor(frame) || key == SDLK_UNKNOWN) {
+                    std::cerr << "--keys needs FRAME:KEY items separated by commas (KEY: a letter, a digit, space or pause), not '"
+                              << item << "'\n";
+                    return 2;
+                }
+                keyScript.emplace(static_cast<long>(frame), key);
+                pos = end + 1;
+            }
         } else if (opt == "--signals") {
             listSignals = true;
         } else if (opt == "--camera" && i + 6 < argc) {
@@ -246,6 +278,7 @@ int main(int argc, char** argv) {
         double trainLength = 0;
         double signalClock = 1e9;  // seconds since the aspects were last worked out
         trainz::game::Drive driving;
+        trainz::game::BrakeHandle brakeHandle;
         std::vector<trainz::game::RouteVehicle> vehicles;
         if (drive) {
             if (!extras.trains || !extras.track || !meshes) {
@@ -358,7 +391,7 @@ int main(int argc, char** argv) {
         in.meshes = meshes ? &*meshes : nullptr;
         in.groundTextures = groundTextures ? &*groundTextures : nullptr;
         std::printf("building the scene (radius %.0f m)...\n", radius);
-        const auto view = trainz::view::buildRouteView(in, radius, atX, atY);
+        auto view = trainz::view::buildRouteView(in, radius, atX, atY);
         std::printf("%zu triangles, %zu sections, %zu objects as models, %zu editor-only objects left out\n",
                     view.scene.triangles.size(), view.sections, view.objectsAsMeshes, view.surveyorOnlySkipped);
 
@@ -403,9 +436,17 @@ int main(int argc, char** argv) {
         trainz::input::GamepadSlot pads;  // the first gamepad SDL knows, if any
         pads.openIfNone();
         std::vector<std::uint8_t> rgba;  // the last frame (saved by --png)
+        long frameNumber = 0;
         while (running) {
             trainz::view::FlyControls ctl;
             SDL_Event ev;
+            ++frameNumber;
+            for (auto [it, stop] = keyScript.equal_range(frameNumber); it != stop; ++it) {  // --keys
+                SDL_Event press{};
+                press.type = SDL_KEYDOWN;
+                press.key.keysym.sym = it->second;
+                SDL_PushEvent(&press);
+            }
             while (SDL_PollEvent(&ev)) {
                 if (ev.type == SDL_QUIT || (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE)) {
                     running = false;
@@ -417,15 +458,28 @@ int main(int argc, char** argv) {
                            (ev.key.keysym.sym == SDLK_w || ev.key.keysym.sym == SDLK_UP) &&
                            (ev.key.repeat == 0)) {
                     const int maxN = static_cast<int>(driving.spec.notchCurvesN.size()) - 1;
-                    if (driving.controls.notch < maxN) {
+                    if (driving.controls.dynamicNotch > 0) {
+                        --driving.controls.dynamicNotch;  // back up out of the dynamic brake first
+                    } else if (driving.controls.notch < maxN) {
                         ++driving.controls.notch;
                     }
                 } else if (drive && !driving.spec.notchCurvesN.empty() && ev.type == SDL_KEYDOWN &&
                            (ev.key.keysym.sym == SDLK_s || ev.key.keysym.sym == SDLK_DOWN) &&
                            (ev.key.repeat == 0)) {
+                    const int maxD = static_cast<int>(driving.spec.dynamicBrakeCurvesN.size()) - 1;
                     if (driving.controls.notch > 0) {
                         --driving.controls.notch;
+                    } else if (driving.controls.dynamicNotch < maxD) {
+                        ++driving.controls.dynamicNotch;  // below idle: the dynamic brake's notches
                     }
+                } else if (drive && chase && ev.type == SDL_KEYDOWN &&
+                           (ev.key.keysym.sym == SDLK_a || ev.key.keysym.sym == SDLK_z || ev.key.keysym.sym == SDLK_q ||
+                            ev.key.keysym.sym == SDLK_SPACE || ev.key.keysym.sym == SDLK_PAUSE)) {
+                    // The train brake handle, on TS2010's keys: A application, Z lap, Q release, Pause emergency
+                    // (Space as well).
+                    using P = trainz::game::BrakeHandle::Position;
+                    const auto key = ev.key.keysym.sym;
+                    brakeHandle.position = key == SDLK_a ? P::Application : key == SDLK_z ? P::Lap : key == SDLK_q ? P::Release : P::Emergency;
                 } else if (drive && ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_j && ev.key.repeat == 0) {
                     if (const auto j = net->junctionAhead(driving.lead)) {  // the next junction in front
                         net->toggle(*j);
@@ -471,7 +525,7 @@ int main(int argc, char** argv) {
                 ctl.fast = ctl.fast || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A) != 0;
             }
             if (drive) {
-                if (frames > 0) {  // test mode: full throttle / top notch, half a second per frame
+                if (frames > 0 && keyScript.empty()) {  // test mode: full throttle / top notch, half a second per frame
                     driving.controls.brake = 0;
                     if (!driving.spec.notchCurvesN.empty()) {
                         driving.controls.notch = static_cast<int>(driving.spec.notchCurvesN.size()) - 1;
@@ -483,9 +537,20 @@ int main(int argc, char** argv) {
                         driving.controls.throttle =
                             std::clamp(driving.controls.throttle + ctl.forward * 0.5 * dt, 0.0, 1.0);
                     }
-                    driving.controls.brake = k[SDL_SCANCODE_SPACE] ? 1.0 : 0.0;
+                }
+                if (frames <= 0 || !keyScript.empty()) {
+                    brakeHandle.step(driving.controls.brake, frames > 0 ? 0.5 : dt);
                 }
                 driving.step(*net, frames > 0 ? 0.5 : dt);
+                // Keep the world around the train: rebuild the scene once it is more than half
+                // the radius from the centre (a pause of about a second on the software renderer).
+                if (const auto p = net->point(driving.lead);
+                    p && std::hypot(p->x - view.centreX, p->y - view.centreY) > radius * 0.5) {
+                    const Uint32 r0 = SDL_GetTicks();
+                    view = trainz::view::buildRouteView(in, radius, p->x, p->y);
+                    std::printf("scene rebuilt around the train at %.0f, %.0f (%u ms)\n", p->x, p->y,
+                                static_cast<unsigned>(SDL_GetTicks() - r0));
+                }
                 signalClock += frames > 0 ? 0.5 : dt;
                 if (signals && signalClock >= 0.5) {  // aspects twice a second
                     auto taken = standing;
@@ -537,10 +602,6 @@ int main(int argc, char** argv) {
                     }
                 }
                 rgba = trainz::view::renderScene(scene, camera, kW, kH);
-                SDL_UpdateTexture(tex, nullptr, rgba.data(), kW * 4);
-                SDL_RenderClear(ren);
-                SDL_RenderCopy(ren, tex, nullptr, nullptr);
-                SDL_RenderPresent(ren);
                 char title[400];
                 char junction[160] = "";
                 if (drive && signals) {
@@ -567,17 +628,23 @@ int main(int argc, char** argv) {
                 if (drive) {
                     if (!driving.spec.notchCurvesN.empty()) {
                         const int maxN = static_cast<int>(driving.spec.notchCurvesN.size()) - 1;
+                        char handle[48];
+                        if (driving.controls.dynamicNotch > 0) {
+                            std::snprintf(handle, sizeof handle, "dynamic brake %d of %d", driving.controls.dynamicNotch,
+                                          static_cast<int>(driving.spec.dynamicBrakeCurvesN.size()) - 1);
+                        } else {
+                            std::snprintf(handle, sizeof handle, "notch %d of %d", driving.controls.notch, maxN);
+                        }
                         std::snprintf(title, sizeof title,
-                                      "route-viewer  %.0f km/h  notch %d of %d  brake %s  %s%s%s  (%u ms per frame)",
-                                      driving.speed * 3.6, driving.controls.notch, maxN,
-                                      driving.controls.brake > 0 ? "on" : "off",
+                                      "route-viewer  %.0f km/h  %s  brake %.0f%% (%s)  %s%s%s  (%u ms per frame)",
+                                      driving.speed * 3.6, handle, driving.controls.brake * 100, brakeHandle.name(),
                                       driving.controls.reverser > 0 ? "forward" : "reverse",
                                       driving.atBuffer ? "  (buffer!)" : "", junction, static_cast<unsigned>(SDL_GetTicks() - t0));
                     } else {
                         std::snprintf(title, sizeof title,
-                                      "route-viewer  %.0f km/h  throttle %.0f%%  brake %s  %s%s%s  (%u ms per frame)",
-                                      driving.speed * 3.6, driving.controls.throttle * 100,
-                                      driving.controls.brake > 0 ? "on" : "off",
+                                      "route-viewer  %.0f km/h  throttle %.0f%%  brake %.0f%% (%s)  %s%s%s  (%u ms per frame)",
+                                      driving.speed * 3.6, driving.controls.throttle * 100, driving.controls.brake * 100,
+                                      brakeHandle.name(),
                                       driving.controls.reverser > 0 ? "forward" : "reverse",
                                       driving.atBuffer ? "  (buffer!)" : "", junction, static_cast<unsigned>(SDL_GetTicks() - t0));
                     }
@@ -585,6 +652,24 @@ int main(int argc, char** argv) {
                     std::snprintf(title, sizeof title, "route-viewer  x %.0f  y %.0f  z %.0f  (%u ms per frame)", cam.position.x,
                                   cam.position.y, cam.position.z, static_cast<unsigned>(SDL_GetTicks() - t0));
                 }
+                if (drive) {  // the same line drawn into the picture, so screenshots show it
+                    std::string hud = title;
+                    if (hud.rfind("route-viewer  ", 0) == 0) {
+                        hud = hud.substr(14);
+                    }
+                    if (const auto ms = hud.rfind("  ("); ms != std::string::npos && hud.find("ms per frame", ms) != std::string::npos) {
+                        hud = hud.substr(0, ms);
+                    }
+                    const auto split = hud.find("  signal");
+                    trainz::view::drawHudText(rgba, kW, kH, 8, 8, hud.substr(0, split), 2);
+                    if (split != std::string::npos) {
+                        trainz::view::drawHudText(rgba, kW, kH, 8, 30, hud.substr(split + 2), 2, {255, 235, 150});
+                    }
+                }
+                SDL_UpdateTexture(tex, nullptr, rgba.data(), kW * 4);
+                SDL_RenderClear(ren);
+                SDL_RenderCopy(ren, tex, nullptr, nullptr);
+                SDL_RenderPresent(ren);
                 SDL_SetWindowTitle(win, title);
                 dirty = false;
                 if (frames > 0 && --frames == 0) {

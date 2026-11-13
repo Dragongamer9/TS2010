@@ -134,9 +134,11 @@ build/route-viewer --install /path/to/TS2010 --session "Midday Manifest" --drive
 ```
 
 drives that session's first train on its route (`--train N` for another). Keys: W/S one throttle
-notch up/down (a smooth throttle if the train has no notch data), Space brake, R reverser
-(when stopped), J switch the next junction ahead, C chase or free camera, Esc quit. The window title shows the speed and the
-notch. Each vehicle's mass and the locomotives' pulling force come from their own files
+notch up/down (a smooth throttle if the train has no notch data; below notch 0, S steps into
+the dynamic brake), train brake A apply / Z lap / Q release / Pause or Space emergency (TS2010's
+own keys), R reverser
+(when stopped), J switch the next junction ahead, C chase or free camera, Esc quit. The window title, and a line drawn at the top of the picture, show the speed, notch, brake,
+next signal and junction. The world is rebuilt around the train as it drives (a short pause). Each vehicle's mass and the locomotives' pulling force come from their own files
 (`mass`, `enginespec`); resistance and brakes are still general defaults. Junctions start as the route sets
 them. The title also shows the next signal and its aspect (stop, caution or clear), worked
 out by the port's own simple rules. Each signal's lit lamps are drawn in its own colours. There are no sounds yet.

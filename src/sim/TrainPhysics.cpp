@@ -60,6 +60,15 @@ double stepTrain(double& speed, const TrainSpec& spec, const Controls& c, double
     const double brakeForce = nonNegative(spec.maxBrakeForceN);
     const double dA = nonNegative(spec.davisA), dB = nonNegative(spec.davisB), dC = nonNegative(spec.davisC);
     const bool useNotch = !spec.notchCurvesN.empty();
+    // Dynamic brake: the locomotives' own curve for the dynamic notch (0 = off), limited by the
+    // grip of the driven axles; while it is on there is no traction (one handle).
+    const bool dynamicOn = c.dynamicNotch > 0 && static_cast<std::size_t>(c.dynamicNotch) < spec.dynamicBrakeCurvesN.size();
+    auto dynamic = [&](double speedAbs) {
+        return dynamicOn ? std::min(nonNegative(trainz::content::interpolateCurve(
+                                        spec.dynamicBrakeCurvesN[static_cast<std::size_t>(c.dynamicNotch)], speedAbs)),
+                                    tractionGrip)
+                         : 0.0;
+    };
     const bool notchOk = c.notch >= 0 && static_cast<std::size_t>(c.notch) < spec.notchCurvesN.size();
     // Locomotives without curves (starting force and power) pull alongside those with curves:
     // by the throttle, or by the notch as a fraction of the top notch.
@@ -86,9 +95,12 @@ double stepTrain(double& speed, const TrainSpec& spec, const Controls& c, double
             preset = std::min(preset, presetShare * power / av);
         }
         traction += preset;
+        if (dynamicOn) {
+            traction = 0;
+        }
         traction = std::min(traction, tractionGrip) * rev;
         const double gravity = -spec.massKg * kG * gr;
-        const double braking = std::min(brake * brakeForce, brakeGrip);
+        const double braking = std::min(brake * brakeForce, brakeGrip) + dynamic(av);
         const double opposing = braking + dA + dB * av + dC * av * av;
         const double driving = traction + gravity;
         double force;
@@ -122,7 +134,6 @@ TrainSpec makeTrain(const std::vector<VehicleSpec>& vehicles, double adhesion) {
         t.maxBrakeForceN += v.brakeForceN;
         t.drivenMassKg += v.driven ? v.massKg : 0;
         addCurve(t.tractiveCurveN, v.tractiveCurveN);
-        t.notchCurvesN.resize(std::max(t.notchCurvesN.size(), v.notchCurvesN.size()));
         t.brakedMassKg += v.braked ? v.massKg : 0;
         if (!v.source.empty() && t.source.find(v.source) == std::string::npos) {
             t.source += (t.source.empty() ? "" : "; ") + v.source;
@@ -131,16 +142,25 @@ TrainSpec makeTrain(const std::vector<VehicleSpec>& vehicles, double adhesion) {
     // Notches: the train has as many as its locomotive with the most. A locomotive with fewer
     // follows at the same fraction of its own range (train notch k of 0..N-1 -> its notch
     // round(k (n-1) / (N-1))), so all reach their top notch together. The port's choice; how
-    // the game drives a mixed consist is not known.
-    const std::size_t top = t.notchCurvesN.size();
-    for (const auto& v : vehicles) {
-        const std::size_t n = v.notchCurvesN.size();
-        for (std::size_t k = 0; k < top && n > 0; ++k) {
-            const std::size_t own =
-                top == 1 ? 0 : static_cast<std::size_t>(std::lround(static_cast<double>(k * (n - 1)) / static_cast<double>(top - 1)));
-            addCurve(t.notchCurvesN[k], v.notchCurvesN[std::min(own, n - 1)]);
+    // the game drives a mixed consist is not known. Dynamic-brake notches the same way.
+    auto sumNotches = [&](std::vector<Curve>& into, auto member) {
+        std::size_t top = 0;
+        for (const auto& v : vehicles) {
+            top = std::max(top, (v.*member).size());
         }
-    }
+        into.assign(top, Curve{});
+        for (const auto& v : vehicles) {
+            const auto& own = v.*member;
+            const std::size_t n = own.size();
+            for (std::size_t k = 0; k < top && n > 0; ++k) {
+                const std::size_t pick =
+                    top == 1 ? 0 : static_cast<std::size_t>(std::lround(static_cast<double>(k * (n - 1)) / static_cast<double>(top - 1)));
+                addCurve(into[k], own[std::min(pick, n - 1)]);
+            }
+        }
+    };
+    sumNotches(t.notchCurvesN, &VehicleSpec::notchCurvesN);
+    sumNotches(t.dynamicBrakeCurvesN, &VehicleSpec::dynamicBrakeCurvesN);
     return t;
 }
 

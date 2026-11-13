@@ -74,3 +74,26 @@ Notches: each `throttle-power` notch is its own curve (W/S step them in `route-v
 A consist whose locomotives have different notch counts gets as many notches as the one with
 the most; the others follow at the same fraction of their own range (rounded), so all reach
 the top together. That is the port's choice: how the game drives a mixed consist is not known.
+
+## Brakes (2026-11-13)
+
+**Dynamic brake** (from the train's own data): an `engine` enginespec's `dynamic-brake`
+container has, like `throttle-power`, one curve per notch of `speed force` pairs, read as
+m/s → kN. The SD40-2's notch 1 is 1.333 → 0, 2 → 30, 5 → 25, 10 → 15, 12 → 0. The port sums the
+curves over the locomotives, with the same notch mapping as traction. The force is limited by
+the grip of the driven axles, and there is no traction while it is on. In `route-viewer
+--drive`, S below notch 0 steps into the dynamic-brake notches.
+
+**Train brake handle** (the port's model, UNCALIBRATED): TS2010's `keyboard.txt` binds
+`train_cabin_brake_application` (A), `_lap` (Z), `_release` (Q) and `_emergency` (Pause), the
+controls of a self-lapping air brake. The port's `game::BrakeHandle` gives that feel without an
+air-pressure model:
+
+- Application builds the brake up at 15% a second;
+- Lap holds it;
+- Release lets it fall at 25% a second;
+- Emergency is the full brake at once.
+
+The full brake force is still the freight-wagon preset (0.52 m/s², an emergency figure). The
+enginespec's `pressure/*`, `brakeratio` and `max-decel` keys are read but not used, because
+their units are not established.

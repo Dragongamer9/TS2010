@@ -5,6 +5,7 @@
 #include "view/FlyCamera.h"
 #include "view/RouteCatalog.h"
 #include "view/SceneRender.h"
+#include "view/HudText.h"
 
 #include <gtest/gtest.h>
 
@@ -936,4 +937,22 @@ TEST(SceneRender, TrianglesCrossingTheNearPlaneAreCutNotDropped) {
     }
     behind.triangles.push_back(t);
     EXPECT_GT(renderScene(behind, c, 64, 48)[(24 * 64 + 63) * 4 + 2], 150);
+}
+
+TEST(HudText, DrawsGlyphsOnADarkBandAndClips) {
+    std::vector<std::uint8_t> img(40 * 20 * 4, 200);
+    drawHudText(img, 40, 20, 2, 2, "I", 1, {255, 0, 0});
+    // "I" has a full middle column: x = 2 + 2 at rows 2..8.
+    for (int y = 3; y < 8; ++y) {
+        EXPECT_EQ(px(img, 40, 4, static_cast<std::uint32_t>(y))[0], 255) << y;
+        EXPECT_EQ(px(img, 40, 4, static_cast<std::uint32_t>(y))[1], 0) << y;
+    }
+    EXPECT_LT(px(img, 40, 2, 5)[1], 100);   // the band is darkened
+    EXPECT_EQ(px(img, 40, 30, 15)[1], 200);  // outside the band untouched
+    EXPECT_EQ(hudTextWidth("ABC", 2), 36);
+    drawHudText(img, 40, 20, 35, 15, "WWWW", 3);  // runs off the picture: clipped, no crash
+    drawHudText(img, 40, 20, -50, -50, "x", 2);
+    std::vector<std::uint8_t> tooSmall(10);
+    drawHudText(tooSmall, 40, 20, 0, 0, "A");  // refused
+    EXPECT_EQ(tooSmall[0], 0);
 }

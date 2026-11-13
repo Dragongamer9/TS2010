@@ -247,3 +247,25 @@ TEST(RouteDrive, SignalsTurnToTheirTrackAndLightTheirLamps) {
     EXPECT_GT(green[0].rgb[1], green[0].rgb[0]);
     EXPECT_TRUE(trainz::game::signalLamps(objects[0], old, trainz::content::SignalLook{}, 0).empty());  // no a.red
 }
+
+TEST(Drive, BrakeHandleAppliesLapsAndReleases) {
+    trainz::game::BrakeHandle h;
+    double b = 0;
+    h.position = trainz::game::BrakeHandle::Position::Application;
+    h.step(b, 2);
+    EXPECT_NEAR(b, 2 * trainz::game::BrakeHandle::kApplyPerSecond, 1e-12);
+    h.position = trainz::game::BrakeHandle::Position::Lap;
+    h.step(b, 5);
+    EXPECT_NEAR(b, 0.3, 1e-12);  // held
+    h.position = trainz::game::BrakeHandle::Position::Release;
+    h.step(b, 100);
+    EXPECT_EQ(b, 0);  // never below 0
+    h.position = trainz::game::BrakeHandle::Position::Emergency;
+    h.step(b, 0.01);
+    EXPECT_EQ(b, 1);
+    EXPECT_STREQ(h.name(), "emergency");
+    b = std::numeric_limits<double>::quiet_NaN();
+    h.position = trainz::game::BrakeHandle::Position::Lap;
+    h.step(b, std::numeric_limits<double>::infinity());
+    EXPECT_EQ(b, 0);
+}

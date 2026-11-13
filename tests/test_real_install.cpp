@@ -27,6 +27,7 @@
 #include "game/RouteDrive.h"
 #include "sim/TrackNetwork.h"
 #include "view/AssetMeshes.h"
+#include "view/RouteScene.h"
 
 #include <gtest/gtest.h>
 
@@ -973,4 +974,39 @@ TEST_F(RealInstall, SurveyorOnlyAssetsAreMarked) {
     if (sd40 != nullptr) {
         EXPECT_FALSE(sd40->surveyorOnly);
     }
+}
+
+// Ordinary objects are still drawn as their models next to an editor helper that is left out
+// (ChatGPT review): a Paint Shed and a Surveyor camera marker placed at the same spot.
+TEST_F(RealInstall, RouteViewDrawsOrdinaryObjectsAndLeavesOutEditorHelpers) {
+    const fs::path archivePath = root / "Builtin" / "sample8.ja";
+    if (!fs::exists(archivePath)) {
+        GTEST_SKIP() << "no Builtin/sample8.ja (the test route) in this install";
+    }
+    const AssetIndex idx = AssetIndex::scanInstall(root);
+    trainz::view::AssetMeshes meshes(idx);
+    if (meshes.get(Kuid{-10, 199, std::nullopt}) == nullptr || meshes.get(Kuid{-1, 6130, std::nullopt}) == nullptr) {
+        GTEST_SKIP() << "the Paint Shed <kuid:-10:199> or the camera marker <kuid:-1:6130> has no model here";
+    }
+    const auto a = JaArchive::open(archivePath);
+    const JaEntry* ge = a.find("hash-fa/kuid 447264 1035/mapfile.gnd");
+    ASSERT_NE(ge, nullptr);
+    const GroundFile ground = parseGround(a.readLimited(*ge, std::size_t{1} << 30));
+    trainz::view::RouteSceneInput in;
+    in.ground = &ground;
+    const auto first = trainz::view::buildRouteView(in, 300, std::nullopt, std::nullopt);
+    std::vector<PlacedObject> objects(2);
+    for (std::size_t k = 0; k < 2; ++k) {
+        objects[k].tag = "mobs";
+        objects[k].x = static_cast<float>(first.centreX + 10.0 * static_cast<double>(k));
+        objects[k].y = static_cast<float>(first.centreY);
+    }
+    objects[0].kuid = Kuid{-10, 199, std::nullopt};  // Paint Shed: drawn
+    objects[1].kuid = Kuid{-1, 6130, std::nullopt};  // Surveyor camera: left out
+    in.objects = &objects;
+    in.meshes = &meshes;
+    const auto view = trainz::view::buildRouteView(in, 300, first.centreX, first.centreY);
+    EXPECT_EQ(view.objectsAsMeshes, 1u);
+    EXPECT_EQ(view.surveyorOnlySkipped, 1u);
+    EXPECT_GT(view.scene.triangles.size(), first.scene.triangles.size());  // the shed's triangles were added
 }

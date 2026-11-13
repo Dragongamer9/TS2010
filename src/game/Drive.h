@@ -16,6 +16,20 @@ struct ConsistVehicle {
     double length = 14;  // metres, coupler to coupler
 };
 
+// A self-lapping train brake handle, as TS2010's keys suggest (keyboard.txt:
+// train_cabin_brake_application / _lap / _release / _emergency): in Application the brake
+// builds up, in Lap it holds, in Release it falls away; Emergency gives the full brake at once.
+// The rates are the port's UNCALIBRATED choices, not the game's air-brake model.
+struct BrakeHandle {
+    enum class Position { Release, Lap, Application, Emergency };
+    Position position = Position::Release;
+    static constexpr double kApplyPerSecond = 0.15;    // fraction of the full brake
+    static constexpr double kReleasePerSecond = 0.25;
+    // Moves the brake demand (0..1) for `seconds` at this position.
+    void step(double& brake, double seconds) const;
+    const char* name() const;
+};
+
 struct Drive {
     trainz::sim::TrackPosition lead;  // the front of the first vehicle, facing the way it drives
     double speed = 0;                 // m/s along the train's facing (negative: backing up)

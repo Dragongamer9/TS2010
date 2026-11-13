@@ -34,7 +34,8 @@ def main():
         return 77
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
     assert "triangles" in r.stdout and "route-viewer  x " in r.stdout and "ms per frame" in r.stdout, r.stdout
-    for bad in (["--frames", "0"], ["--frames", "2.5"], ["--radius", "abc"], ["--at", "1"], ["--nonsense"]):
+    for bad in (["--frames", "0"], ["--frames", "2.5"], ["--radius", "abc"], ["--at", "1"], ["--nonsense"],
+                ["--keys", "x:w"], ["--keys", "3:F1"], ["--keys", "0:w"], ["--keys", "1.5:a"], ["--camera", "1", "2", "3"]):
         r = subprocess.run([tool, str(archive), ROUTE, *bad], env=env, capture_output=True, text=True, timeout=60)
         assert r.returncode == 2, (bad, r.returncode, r.stderr)
     r = subprocess.run([tool], env=env, capture_output=True, text=True, timeout=60)

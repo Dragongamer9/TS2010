@@ -713,3 +713,32 @@ lights
     EXPECT_GT(coronaColour("corona_green.tga")[1], coronaColour("corona_green.tga")[0]);
     EXPECT_EQ(coronaColour("lunar.tga"), coronaColour("something.tga"));
 }
+
+TEST(TrainPhysics, DynamicBrakeSlowsWithItsCurveAndCutsTraction) {
+    VehicleSpec loco = freightWagon(180, 6), two = freightWagon(180, 6);
+    loco.driven = two.driven = true;
+    loco.notchCurvesN = {{{0, 0}}, {{0, 300'000}, {30, 0}}};
+    loco.dynamicBrakeCurvesN = {{{0, 0}}, {{1.333, 0}, {5, 100'000}, {25, 50'000}, {30, 0}}};
+    two.dynamicBrakeCurvesN = {{{0, 0}}, {{1.333, 0}, {5, 100'000}, {25, 50'000}, {30, 0}}};
+    const auto t = makeTrain({loco, two, freightWagon(60)});
+    ASSERT_EQ(t.dynamicBrakeCurvesN.size(), 2u);
+    EXPECT_DOUBLE_EQ(interpolateCurve(t.dynamicBrakeCurvesN[1], 5), 200'000);  // both locomotives
+    auto coast = [&](Controls c) {  // 10 s (stepTrain takes at most 1 s a call)
+        double v = 15;
+        for (int k = 0; k < 10; ++k) {
+            stepTrain(v, t, c, 0, 1.0);
+        }
+        return v;
+    };
+    const double free = coast(Controls{0, 0, 1, 0, 0});
+    const double dyn = coast(Controls{0, 0, 1, 0, 1});
+    EXPECT_LT(dyn, free - 0.5);                         // it brakes
+    EXPECT_NEAR(coast(Controls{0, 0, 1, 1, 1}), dyn, 1e-9);  // a notch up changes nothing while the dynamic brake is on
+    // Below its curve's start (1.333 m/s) it does nothing: it never holds a train at a stop.
+    double slow = 1.0;
+    stepTrain(slow, t, Controls{0, 0, 1, 0, 1}, 0, 0.02);
+    double slowFree = 1.0;
+    stepTrain(slowFree, t, Controls{0, 0, 1, 0, 0}, 0, 0.02);
+    EXPECT_NEAR(slow, slowFree, 1e-12);
+    EXPECT_NEAR(coast(Controls{0, 0, 1, 0, 9}), free, 1e-9);  // an unknown dynamic notch is off
+}
