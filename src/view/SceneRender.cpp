@@ -55,6 +55,9 @@ public:
     }
     static constexpr double kNear = 1.0;
 
+    // Distance of a point along the view axis (negative behind the camera).
+    double depthOf(const ScenePoint& p) const { return dot(sub(v3(p), eye_), fwd_); }
+
 private:
     std::uint32_t w_, h_;
     V3 eye_{}, fwd_{}, right_{}, up_{};
@@ -135,7 +138,11 @@ std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, 
         }
     };
 
-    for (const auto& t : scene.triangles) {
+    // A triangle wholly in front of the near plane is drawn as it is; one crossing it is cut
+    // there (its colours and UVs interpolated) and the part in front drawn as one or two
+    // triangles; one wholly behind is skipped. (Without the cut, the parts of close models that
+    // reach behind the camera vanished and left stray slabs of their other triangles.)
+    auto drawTriangle = [&](const SceneTriangle& t) {
         Projected q[3];
         bool ok = true;
         for (int i = 0; i < 3; ++i) {
@@ -143,7 +150,7 @@ std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, 
             ok = ok && q[i].visible;
         }
         if (!ok) {
-            continue;  // behind the camera (no clipping: the far terrain is what matters here)
+            return;
         }
         const SceneTexture* tex = nullptr;
         if (t.texture >= 0 && static_cast<std::size_t>(t.texture) < scene.textures.size()) {
@@ -158,13 +165,14 @@ std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, 
         const double maxX = std::ceil(std::max({q[0].sx, q[1].sx, q[2].sx}));
         const double minY = std::floor(std::min({q[0].sy, q[1].sy, q[2].sy}));
         const double maxY = std::ceil(std::max({q[0].sy, q[1].sy, q[2].sy}));
-        if (maxX < 0 || maxY < 0 || minX >= width || minY >= height || maxX - minX > 4.0 * width ||
-            maxY - minY > 4.0 * height) {
-            continue;
+        // Off screen: skip. A big one (close to the camera, e.g. cut at the near plane) is drawn:
+        // the loops below only visit the pixels on screen.
+        if (maxX < 0 || maxY < 0 || minX >= width || minY >= height) {
+            return;
         }
         const double area = (q[1].sx - q[0].sx) * (q[2].sy - q[0].sy) - (q[2].sx - q[0].sx) * (q[1].sy - q[0].sy);
         if (std::fabs(area) < 1e-9) {
-            continue;
+            return;
         }
         const bool alphaTest = tex != nullptr && tex->alphaTest;  // the top level's choice, for every level
         if (tex != nullptr && !tex->smaller.empty()) {
@@ -180,8 +188,10 @@ std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, 
                 tex = &m;
             }
         }
-        const int x0 = std::max(0, static_cast<int>(minX)), x1 = std::min(static_cast<int>(width) - 1, static_cast<int>(maxX));
-        const int y0 = std::max(0, static_cast<int>(minY)), y1 = std::min(static_cast<int>(height) - 1, static_cast<int>(maxY));
+        // Clamped as doubles first: a triangle close to the camera can reach far beyond an int.
+        const double wMax = static_cast<double>(width) - 1, hMax = static_cast<double>(height) - 1;
+        const int x0 = static_cast<int>(std::clamp(minX, 0.0, wMax)), x1 = static_cast<int>(std::clamp(maxX, 0.0, wMax));
+        const int y0 = static_cast<int>(std::clamp(minY, 0.0, hMax)), y1 = static_cast<int>(std::clamp(maxY, 0.0, hMax));
         for (int y = y0; y <= y1; ++y) {
             for (int x = x0; x <= x1; ++x) {
                 const double px = x + 0.5, py = y + 0.5;
@@ -219,6 +229,65 @@ std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, 
                 }
                 put(x, y, z, clamp8(light * r), clamp8(light * gg), clamp8(light * b));
             }
+        }
+    };
+    const double nearCut = Projector::kNear * 1.001;
+    for (const auto& t : scene.triangles) {
+        double d[3];
+        int inFront = 0;
+        for (int i = 0; i < 3; ++i) {
+            d[i] = proj.depthOf(t.p[i]);
+            if (!std::isfinite(d[i])) {
+                inFront = -1;
+                break;
+            }
+            inFront += d[i] > nearCut ? 1 : 0;
+        }
+        if (inFront == 3) {
+            drawTriangle(t);
+            continue;
+        }
+        if (inFront <= 0) {
+            continue;  // wholly behind the near plane (or not finite)
+        }
+        // Cut against the near plane: walk the edges, keeping points in front and adding the
+        // crossing points (Sutherland-Hodgman with one plane).
+        struct Vtx {
+            ScenePoint p;
+            double c[3], u, v;
+        };
+        auto at = [&](int i) {
+            return Vtx{t.p[i], {double(t.c[i].r), double(t.c[i].g), double(t.c[i].b)}, double(t.u[i]), double(t.v[i])};
+        };
+        Vtx poly[4];
+        int count = 0;
+        for (int i = 0; i < 3; ++i) {
+            const int j = (i + 1) % 3;
+            const bool inI = d[i] > nearCut, inJ = d[j] > nearCut;
+            if (inI) {
+                poly[count++] = at(i);
+            }
+            if (inI != inJ) {
+                const double f = (nearCut - d[i]) / (d[j] - d[i]);
+                const Vtx a = at(i), b = at(j);
+                Vtx m;
+                m.p = {a.p.x + (b.p.x - a.p.x) * f, a.p.y + (b.p.y - a.p.y) * f, a.p.z + (b.p.z - a.p.z) * f};
+                for (int k = 0; k < 3; ++k) {
+                    m.c[k] = a.c[k] + (b.c[k] - a.c[k]) * f;
+                }
+                m.u = a.u + (b.u - a.u) * f, m.v = a.v + (b.v - a.v) * f;
+                poly[count++] = m;
+            }
+        }
+        for (int k = 1; k + 1 < count; ++k) {
+            SceneTriangle part = t;
+            const Vtx* corner[3] = {&poly[0], &poly[k], &poly[k + 1]};
+            for (int i = 0; i < 3; ++i) {
+                part.p[i] = corner[i]->p;
+                part.c[i] = {clamp8(corner[i]->c[0]), clamp8(corner[i]->c[1]), clamp8(corner[i]->c[2])};
+                part.u[i] = static_cast<float>(corner[i]->u), part.v[i] = static_cast<float>(corner[i]->v);
+            }
+            drawTriangle(part);
         }
     }
     for (const auto& l : scene.lines) {

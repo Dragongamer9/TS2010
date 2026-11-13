@@ -901,3 +901,39 @@ TEST(SceneRender, GlossAndReflectAlphaIsNotACutOut) {
     EXPECT_FALSE(materialMayCutOut("m.tbumpgloss"));
     EXPECT_TRUE(materialMayCutOut("m.reflect"));  // documented: diffuse alpha = opacity
 }
+
+// A wall that reaches behind the camera is cut at the near plane and its front part drawn
+// (it used to be skipped whole, leaving stray pieces of close models).
+TEST(SceneRender, TrianglesCrossingTheNearPlaneAreCutNotDropped) {
+    Camera c;
+    c.eye = {0, 0, 1};
+    c.target = {0, 10, 1};  // looking along +y
+    c.fovYDegrees = 60;
+    Scene s;
+    // A wall to the camera's right at x = 2, from 5 m behind to 20 m ahead, as two triangles.
+    SceneTriangle a, b;
+    a.p[0] = {2, -5, -3}, a.p[1] = {2, 20, -3}, a.p[2] = {2, 20, 5};
+    b.p[0] = {2, -5, -3}, b.p[1] = {2, 20, 5}, b.p[2] = {2, -5, 5};
+    for (auto* t : {&a, &b}) {
+        for (auto& col : t->c) {
+            col = {200, 40, 40};
+        }
+        s.triangles.push_back(*t);
+    }
+    const auto img = renderScene(s, c, 64, 48);
+    // The wall fills the right edge of the picture, near and low down as well as far away.
+    std::size_t red = 0;
+    for (std::uint32_t y = 0; y < 48; ++y) {
+        red += px(img, 64, 63, y)[0] > 60 && px(img, 64, 63, y)[2] < 60 ? 1 : 0;
+    }
+    EXPECT_GE(red, 40u);
+    EXPECT_GT(px(img, 64, 16, 24)[2], 150);  // the left of the picture stays sky
+    // Wholly behind: still nothing.
+    Scene behind;
+    SceneTriangle t = a;
+    for (auto& p : t.p) {
+        p.y = -10 - p.y;
+    }
+    behind.triangles.push_back(t);
+    EXPECT_GT(renderScene(behind, c, 64, 48)[(24 * 64 + 63) * 4 + 2], 150);
+}
