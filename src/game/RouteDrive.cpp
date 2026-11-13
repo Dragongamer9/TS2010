@@ -210,11 +210,26 @@ void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, cons
     const double v = std::fabs(d.drive.speed);
     c.reverser = +1;
     c.dynamicNotch = 0;
+    if (d.heldRedSignal && signals != nullptr &&
+        *d.heldRedSignal < signals->signals().size() &&
+        signals->aspect(*d.heldRedSignal) != trainz::sim::Aspect::Stop) {
+        d.heldRedSignal.reset();
+    }
     double limit = cruise;
     if (signals != nullptr) {
-        if (const auto sg = signals->nextSignal(d.drive.lead, 1500); sg && signals->aspect(sg->index) == trainz::sim::Aspect::Caution) {
-            limit = cruise / 2;
+        if (const auto sg = signals->nextSignal(d.drive.lead, 1500)) {
+            const auto aspect = signals->aspect(sg->index);
+            if (aspect == trainz::sim::Aspect::Caution) {
+                limit = cruise / 2;
+            } else if (aspect == trainz::sim::Aspect::Stop && sg->distance <= margin && !d.heldRedSignal) {
+                // Remember before crossing: an overrun removes this signal from nextSignal.
+                d.heldRedSignal = sg->index;
+            }
         }
+    }
+    if (d.heldRedSignal) {
+        c.notch = 0, c.throttle = 0, c.brake = 1;
+        return;
     }
     const auto stop = stopAhead(d, net, signals, others);
     bool fullBrake = false;
