@@ -82,13 +82,16 @@ def main():
         assert sky[2] > 200 and sky[3] == 255, sky  # sky at the top
         track = sum(1 for row in rows[300:] for i in range(0, len(row), 4) if tuple(row[i:i + 3]) == (200, 30, 30))
         assert track > 50, track  # track drawn on the terrain
-        # --install: placed objects drawn as their 3D models (the test data has only a few assets).
+        # --install: placed objects looked up as their 3D models. The test data has only Base.ja's
+        # assets, and every placed object of this route with a model there is an editor helper
+        # ("surveyor-only 1": camera and direction markers), which views leave out, as Driver does.
         r = subprocess.run([tool, "view", str(archive), ROUTE, "--install", str(Path(sys.argv[2])), "--radius", "500",
                             "--out", str(Path(tmp) / "data/trainz-native/routes/models")],
                            env=env, capture_output=True, text=True, timeout=300)
         assert r.returncode == 0, r.stderr
-        m = re.search(r"objects as models (\d+)", r.stdout)
-        assert m and int(m.group(1)) > 0, r.stdout
+        m = re.search(r"objects as models (\d+), as dots \d+, editor-only left out (\d+)", r.stdout)
+        assert m and int(m.group(1)) + int(m.group(2)) > 0, r.stdout
+        assert int(m.group(2)) > 0, r.stdout  # the camera markers <kuid:-1:6130> are found and left out
         assert re.search(r"ground: \d+ of \d+ sections textured", r.stdout), r.stdout
         r = subprocess.run([tool, "view", str(archive), ROUTE, "--radius", "5"], env=env, capture_output=True,
                            text=True, timeout=60)
