@@ -359,8 +359,8 @@ int main(int argc, char** argv) {
         in.groundTextures = groundTextures ? &*groundTextures : nullptr;
         std::printf("building the scene (radius %.0f m)...\n", radius);
         const auto view = trainz::view::buildRouteView(in, radius, atX, atY);
-        std::printf("%zu triangles, %zu sections, %zu objects as models\n", view.scene.triangles.size(), view.sections,
-                    view.objectsAsMeshes);
+        std::printf("%zu triangles, %zu sections, %zu objects as models, %zu editor-only objects left out\n",
+                    view.scene.triangles.size(), view.sections, view.objectsAsMeshes, view.surveyorOnlySkipped);
 
         if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0 && SDL_Init(SDL_INIT_VIDEO) != 0) {
             std::cerr << "SDL_Init failed: " << SDL_GetError() << "\n";
@@ -395,6 +395,8 @@ int main(int argc, char** argv) {
             }
         }
         const auto start = trainz::view::FlyCamera::lookingAlong(startView);
+        trainz::view::Camera lastCamera = startView;
+        const bool testRun = frames > 0;
         auto cam = start;
         bool dirty = true, running = true, chase = drive;
         Uint32 last = SDL_GetTicks();
@@ -508,6 +510,7 @@ int main(int argc, char** argv) {
             if (dirty) {
                 const Uint32 t0 = SDL_GetTicks();
                 const trainz::view::Camera camera = drive && chase ? trainz::game::chaseCamera(*net, driving.lead) : cam.camera();
+                lastCamera = camera;
                 trainz::view::Scene scene = view.scene;
                 if (drive) {
                     trainz::game::addRouteTrain(scene, *net, driving.lead, vehicles);
@@ -593,6 +596,10 @@ int main(int argc, char** argv) {
             }
         }
         pads.close();
+        if (testRun) {  // for reproducing a test frame with --camera
+            std::printf("last camera: --camera %.2f %.2f %.2f %.2f %.2f %.2f\n", lastCamera.eye.x, lastCamera.eye.y, lastCamera.eye.z,
+                        lastCamera.target.x, lastCamera.target.y, lastCamera.target.z);
+        }
         if (png && !rgba.empty()) {  // the last frame, under ~/.local/share/trainz-native/routes/
             const auto bytes = trainz::common::encodePngRgba(kW, kH, rgba);
             const auto out = trainz::common::SafeOutputDir::open(trainz::common::portDataDir() / "routes",

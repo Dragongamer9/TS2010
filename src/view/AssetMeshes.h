@@ -58,6 +58,9 @@ struct PreparedMesh {
     std::vector<SceneTexture> textures;
     bool placeholder = false;  // an invented stand-in shape, not the asset's model
     bool billboard = false;    // a flat picture of the asset (its own image), not its 3D model
+    // The config says "surveyor-only 1": an editor helper the game hides while driving (camera
+    // markers, track marks, triggers, direction markers on the disc). Route views skip it.
+    bool surveyorOnly = false;
     // The model's attachment points by name, in model space (first part's wins on a repeat).
     std::map<std::string, LocalFrame> attachments;
     // A traincar's bogies, drawn on its "a.bog<N>" points (bare numbers read as user -1; the

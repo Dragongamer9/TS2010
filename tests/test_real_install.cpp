@@ -958,3 +958,19 @@ TEST_F(RealInstall, RouteSignalsSitBesideTheirAttachment) {
     std::cout << "  " << routes << " routes, " << signals << " signals, " << near << " within 6 m of their attachment\n";
     EXPECT_GE(near * 100, signals * 95);
 }
+
+// Editor helpers say "surveyor-only 1" in their config (the Surveyor camera marker
+// <kuid:-1:6130>, track marks, triggers); route views leave them out, as the game's Driver does.
+TEST_F(RealInstall, SurveyorOnlyAssetsAreMarked) {
+    const AssetIndex idx = AssetIndex::scanInstall(root);
+    trainz::view::AssetMeshes meshes(idx);
+    const auto* camera = meshes.get(Kuid{-1, 6130, std::nullopt});
+    if (camera == nullptr) {
+        GTEST_SKIP() << "no Surveyor camera asset <kuid:-1:6130> with a model in this install";
+    }
+    EXPECT_TRUE(camera->surveyorOnly);
+    const auto* sd40 = meshes.get(Kuid{-12, 3534, std::nullopt});  // a locomotive: drawn
+    if (sd40 != nullptr) {
+        EXPECT_FALSE(sd40->surveyorOnly);
+    }
+}

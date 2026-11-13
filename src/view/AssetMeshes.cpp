@@ -385,9 +385,14 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid, const TextureO
     std::vector<MeshChoice> meshes;
     std::optional<Kuid> bogey;
     std::map<int, PreparedMesh::BogeyEntry> bogeys;
+    bool surveyorOnly = false;
     try {
         const ConfigNode root = parseAssetConfig(a->readLimited(*ce, std::size_t{16} << 20)).root;
         meshes = selectAssetMeshes(root, parts_);
+        if (const auto* so = root.child("surveyor-only")) {
+            surveyorOnly = (!so->ints.empty() && so->ints[0] != 0) || (!so->floats.empty() && so->floats[0] != 0) ||
+                           so->text == "1" || so->text == "true";
+        }
         if (const auto* b = root.child("bogey")) {
             bogey = configKuid(*b);
         }
@@ -413,6 +418,7 @@ std::unique_ptr<PreparedMesh> AssetMeshes::load(const Kuid& kuid, const TextureO
         return nullptr;
     }
     auto out = std::make_unique<PreparedMesh>();
+    out->surveyorOnly = surveyorOnly;
     out->bogey = bogey;
     out->bogeys = std::move(bogeys);
     bool speedTree = false;

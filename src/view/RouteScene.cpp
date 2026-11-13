@@ -210,7 +210,12 @@ RouteView buildRouteView(const RouteSceneInput& in, double radius, std::optional
             const double x = o.worldX(), y = o.worldY();
             if (near(x, y) && std::isfinite(o.z)) {
                 if (in.meshes != nullptr) {
-                    if (const PreparedMesh* m = in.meshes->get(o.kuid); m != nullptr && fits(v.scene, *m)) {
+                    const PreparedMesh* m = in.meshes->get(o.kuid);
+                    if (m != nullptr && m->surveyorOnly) {
+                        ++v.surveyorOnlySkipped;  // editor helpers are not drawn (as in Driver)
+                        continue;
+                    }
+                    if (m != nullptr && fits(v.scene, *m)) {
                         // Yaw: radians, anticlockwise (inferred); which side faces +x at 0 is not known.
                         addPlacedMesh(v.scene, *m, x, y, o.z, o.yaw);
                         ++v.objectsAsMeshes;

@@ -36,6 +36,7 @@ struct RouteView {
     std::size_t texturedSections = 0;  // sections drawn with baked ground textures
     std::vector<std::unique_ptr<SceneTexture>> ownedTextures;  // the baked ground; scene.textures points here
     std::size_t objectsAsMeshes = 0;
+    std::size_t surveyorOnlySkipped = 0;  // editor helpers ("surveyor-only 1") left out
     std::size_t objectsAsDots = 0;
     std::size_t vehiclesAsMeshes = 0;
     std::size_t bogiesAsMeshes = 0;
