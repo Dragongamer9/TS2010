@@ -210,17 +210,57 @@ void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, cons
     const double v = std::fabs(d.drive.speed);
     c.reverser = +1;
     c.dynamicNotch = 0;
+    if (d.heldRedSignal && signals != nullptr &&
+        *d.heldRedSignal < signals->signals().size() &&
+        signals->aspect(*d.heldRedSignal) != trainz::sim::Aspect::Stop) {
+        d.heldRedSignal.reset();
+    }
     double limit = cruise;
     if (signals != nullptr) {
-        if (const auto sg = signals->nextSignal(d.drive.lead, 1500); sg && signals->aspect(sg->index) == trainz::sim::Aspect::Caution) {
-            limit = cruise / 2;
+        if (const auto sg = signals->nextSignal(d.drive.lead, 1500)) {
+            const auto aspect = signals->aspect(sg->index);
+            if (aspect == trainz::sim::Aspect::Caution) {
+                limit = cruise / 2;
+            } else if (aspect == trainz::sim::Aspect::Stop && sg->distance <= margin && !d.heldRedSignal) {
+                // Remember before crossing: an overrun removes this signal from nextSignal.
+                d.heldRedSignal = sg->index;
+            }
         }
     }
+    if (d.heldRedSignal) {
+        c.notch = 0, c.throttle = 0, c.brake = 1;
+        return;
+    }
     const auto stop = stopAhead(d, net, signals, others);
+    bool fullBrake = false;
     if (stop) {
         const double room = stop->distance - margin;
-        // The speed it may have here to stop in `room` at `decel`: v^2 = 2 a d.
-        limit = std::min(limit, room > 0 ? std::sqrt(2 * decel * room) : 0.0);
+        // Use the same brake-force and adhesion limits as stepTrain. Ignore resistance
+        // (which helps stopping), and reserve 20% of the available deceleration.
+        const auto& spec = d.drive.spec;
+        constexpr double gravity = 9.81;
+        double downhill = 0;
+        net.walk(d.drive.lead, stop->distance, [&](const trainz::sim::TrackNetwork::Span& s) {
+            for (const double offset : {s.from, (s.from + s.to) * 0.5, s.to}) {
+                if (const auto p = net.point({s.piece, offset, s.direction})) {
+                    downhill = std::max(downhill, -p->grade);
+                }
+            }
+            return true;
+        });
+        const double grip = std::clamp(spec.adhesion, 0.0, 1.0) * gravity *
+                            std::clamp(spec.brakedMassKg, 0.0, spec.massKg);
+        const double available = spec.massKg > 0
+                                     ? std::min(std::max(0.0, spec.maxBrakeForceN), grip) / spec.massKg - gravity * downhill
+                                     : 0;
+        const double planned = std::max(0.0, std::min(decel, 0.8 * available));
+        limit = std::min(limit, room > 0 ? std::sqrt(2 * planned * room) : 0.0);
+        // The stopping envelope assumes braking, not a small proportional demand.
+        fullBrake = room <= 0 || planned <= 0 || v >= limit - 0.5;
+    }
+    if (fullBrake) {
+        c.notch = 0, c.throttle = 0, c.brake = 1;
+        return;
     }
     const int topNotch = static_cast<int>(d.drive.spec.notchCurvesN.size()) - 1;
     if (v > limit + 0.3) {  // too fast: brake in proportion to the excess, no power

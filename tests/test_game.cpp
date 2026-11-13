@@ -345,3 +345,75 @@ TEST(AiDriver, StopsBeforeASignalAtStopAndATrainAhead) {
     ASSERT_TRUE(why.has_value());
     EXPECT_STREQ(why->why, "train");
 }
+
+TEST(AiDriver, StopsOnDownhillWithActualBrakeForce) {
+    AiLine line;
+    line.layout.vertices.at(1).z = -30;
+    line.layout.vertices.at(2).z = -60;
+    const trainz::sim::TrackNetwork net(line.layout);
+    auto t = aiTrain(10);
+    t.drive.spec.maxBrakeForceN = 0.52 * t.drive.spec.massKg;
+    t.drive.speed = trainz::game::AiDriver{}.cruise;
+    const trainz::game::AiDriver ai;
+    for (int i = 0; i < 1800; ++i) {
+        ai.control(t, net, nullptr, {});
+        t.drive.step(net, 0.5);
+        ASSERT_FALSE(t.drive.atBuffer);
+        ASSERT_LT(along(t.drive.lead), 1980);
+    }
+    EXPECT_NEAR(t.drive.speed, 0, 1e-9);
+    EXPECT_GT(along(t.drive.lead), 1965);
+}
+
+TEST(AiDriver, StopsWithLowGrip) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    auto t = aiTrain(10);
+    t.drive.spec.adhesion = 0.02;
+    t.drive.speed = trainz::game::AiDriver{}.cruise;
+    const trainz::game::AiDriver ai;
+    for (int i = 0; i < 1800; ++i) {
+        ai.control(t, net, nullptr, {});
+        t.drive.step(net, 0.5);
+        ASSERT_FALSE(t.drive.atBuffer);
+        ASSERT_LT(along(t.drive.lead), 1980);
+    }
+    EXPECT_NEAR(t.drive.speed, 0, 1e-9);
+    EXPECT_GT(along(t.drive.lead), 1965);
+}
+
+TEST(AiDriver, HoldsAfterStartingFiveMetresBeforeRedUntilItClears) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    trainz::sim::SignalSystem sig(net, {{{1, 200, +1}, "S"}});
+    const trainz::game::AiDriver ai;
+    for (const double initialSpeed : {1.0, 4.0}) {
+        SCOPED_TRACE(initialSpeed);
+        sig.update({{1, 500}});
+        auto t = aiTrain(195);
+        t.drive.spec.maxBrakeForceN = 0.52 * t.drive.spec.massKg;
+        t.drive.speed = initialSpeed;
+        for (int i = 0; i < 120; ++i) {
+            ai.control(t, net, &sig, {});
+            ASSERT_EQ(t.drive.controls.brake, 1);
+            ASSERT_EQ(t.drive.controls.throttle, 0);
+            ASSERT_EQ(t.drive.controls.notch, 0);
+            t.drive.step(net, 0.5);
+        }
+        ASSERT_TRUE(t.heldRedSignal.has_value());
+        EXPECT_EQ(*t.heldRedSignal, 0u);
+        EXPECT_NEAR(t.drive.speed, 0, 1e-9);
+        if (initialSpeed == 1.0) {
+            EXPECT_LT(t.drive.lead.offset, 200);  // enough room to stop before red
+        } else {
+            EXPECT_GT(t.drive.lead.offset, 200);  // unavoidable overrun must not release the brake
+        }
+        const double stoppedAt = t.drive.lead.offset;
+        sig.update({});
+        ai.control(t, net, &sig, {});
+        EXPECT_FALSE(t.heldRedSignal.has_value());
+        EXPECT_EQ(t.drive.controls.brake, 0);
+        t.drive.step(net, 0.5);
+        EXPECT_GT(t.drive.lead.offset, stoppedAt);
+    }
+}

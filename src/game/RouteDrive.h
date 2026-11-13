@@ -91,6 +91,7 @@ struct RouteTrain {
     std::vector<RouteVehicle> vehicles;  // the ones with a model the port can read
     double length = 0;                   // metres, the drawn vehicles with 0.5 m gaps
     std::size_t vehicleCount = 0, withOwnMass = 0, powered = 0;
+    std::optional<std::size_t> heldRedSignal;  // reached its braking margin; hold even after an overrun until it clears
 };
 // Builds train `index` of the session: placed where it stands (trainStart), each vehicle's own
 // mass and enginespec (ownVehicleSpec; the preset locomotive pulls when none has curves).
