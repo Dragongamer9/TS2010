@@ -417,3 +417,17 @@ TEST(AiDriver, HoldsAfterStartingFiveMetresBeforeRedUntilItClears) {
         EXPECT_GT(t.drive.lead.offset, stoppedAt);
     }
 }
+
+// At cruise speed with a stop far ahead (the line end 1.2 km away), the driver must not brake:
+// the full-brake test compares the speed with the stopping envelope, not the cruise-capped limit.
+TEST(AiDriver, CruisingTowardAFarStopDoesNotBrake) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    auto t = aiTrain(800);
+    t.drive.speed = trainz::game::AiDriver{}.cruise;
+    const auto stop = trainz::game::AiDriver{}.stopAhead(t, net, nullptr, {});
+    ASSERT_TRUE(stop.has_value());
+    EXPECT_STREQ(stop->why, "line end");
+    trainz::game::AiDriver{}.control(t, net, nullptr, {});
+    EXPECT_EQ(t.drive.controls.brake, 0);
+}
