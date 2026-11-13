@@ -142,7 +142,11 @@ next signal and junction. The world is rebuilt around the train as it drives (a 
 
 The session's other trains stand where they are. Add `--ai` and the port's simple driver runs
 them: they speed up to 30 km/h and stop for signals at stop, trains ahead and line ends. Press
-**T** to watch another train (T again moves on, and back to yours), or start with `--watch N`. Each vehicle's mass and the locomotives' pulling force come from their own files
+**T** to watch another train (T again moves on, and back to yours), or start with `--watch N`.
+
+Drive slowly into another train (under 7 km/h) and it couples to yours; faster is a
+collision, which stops you. Stopped, **U** leaves your rearmost car behind (press again for
+more). A train without notches steps its throttle 10% per W/S press as well. Each vehicle's mass and the locomotives' pulling force come from their own files
 (`mass`, `enginespec`); resistance and brakes are still general defaults. Junctions start as the route sets
 them. The title also shows the next signal and its aspect (stop, caution or clear), worked
 out by the port's own simple rules. Each signal's lit lamps are drawn in its own colours. There are no sounds yet.

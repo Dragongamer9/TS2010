@@ -136,8 +136,11 @@ struct AiDriver {
 // makeRouteTrain.
 void refreshTrain(RouteTrain& t);
 
-// The rear end of a train: `length` metres behind its lead, facing the same way.
-trainz::sim::TrackPosition trainRear(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
+// A train's lead is its first vehicle's MIDDLE (as session positions are). Its two buffer ends,
+// and its last vehicle's middle, each facing the way the train faces:
+trainz::sim::TrackPosition trainFrontEnd(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
+trainz::sim::TrackPosition trainRearEnd(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
+trainz::sim::TrackPosition lastVehicleMiddle(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
 
 // Another train's end within `within` metres of one of ours, along the track.
 struct Contact {

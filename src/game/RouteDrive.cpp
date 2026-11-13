@@ -182,27 +182,48 @@ void refreshTrain(RouteTrain& t) {
     t.drive.spec = trainz::sim::makeTrain(specs);
 }
 
-trainz::sim::TrackPosition trainRear(const trainz::sim::TrackNetwork& net, const RouteTrain& t) {
-    trainz::sim::TrackPosition rear = t.drive.lead;
-    net.advance(rear, -t.length);
-    return rear;
+namespace {
+double firstHalf(const RouteTrain& t) { return t.vehicles.empty() ? 0.0 : 0.5 * t.vehicles.front().length; }
+double lastHalf(const RouteTrain& t) { return t.vehicles.empty() ? 0.0 : 0.5 * t.vehicles.back().length; }
+// From the lead (first middle) back to the rear end: the drawn length less the trailing gap
+// and the first vehicle's front half.
+double leadToRearEnd(const RouteTrain& t) { return t.vehicles.empty() ? 0.0 : t.length - 0.5 - firstHalf(t); }
+}  // namespace
+
+trainz::sim::TrackPosition trainFrontEnd(const trainz::sim::TrackNetwork& net, const RouteTrain& t) {
+    trainz::sim::TrackPosition p = t.drive.lead;
+    net.advance(p, firstHalf(t));
+    return p;
+}
+
+trainz::sim::TrackPosition trainRearEnd(const trainz::sim::TrackNetwork& net, const RouteTrain& t) {
+    trainz::sim::TrackPosition p = t.drive.lead;
+    net.advance(p, -leadToRearEnd(t));
+    return p;
+}
+
+trainz::sim::TrackPosition lastVehicleMiddle(const trainz::sim::TrackNetwork& net, const RouteTrain& t) {
+    trainz::sim::TrackPosition p = t.drive.lead;
+    net.advance(p, -(leadToRearEnd(t) - lastHalf(t)));
+    return p;
 }
 
 std::optional<Contact> findContact(const trainz::sim::TrackNetwork& net, const RouteTrain& me, const std::vector<RouteTrain>& others,
                                    double within) {
     std::optional<Contact> best;
-    // Our two ends, each looking outward along the track.
-    trainz::sim::TrackPosition rearOut = trainRear(net, me);
+    // Our two buffer ends, each looking outward along the track.
+    const trainz::sim::TrackPosition frontOut = trainFrontEnd(net, me);
+    trainz::sim::TrackPosition rearOut = trainRearEnd(net, me);
     rearOut.direction = -rearOut.direction;
     for (const bool front : {true, false}) {
-        const trainz::sim::TrackPosition& from = front ? me.drive.lead : rearOut;
+        const trainz::sim::TrackPosition& from = front ? frontOut : rearOut;
         net.walk(from, within, [&](const trainz::sim::TrackNetwork::Span& s) {
             const double lo = std::min(s.from, s.to), hi = std::max(s.from, s.to);
             for (std::size_t i = 0; i < others.size(); ++i) {
                 if (others[i].cars.empty()) {
                     continue;
                 }
-                const trainz::sim::TrackPosition ends[2] = {others[i].drive.lead, trainRear(net, others[i])};
+                const trainz::sim::TrackPosition ends[2] = {trainFrontEnd(net, others[i]), trainRearEnd(net, others[i])};
                 for (int e = 0; e < 2; ++e) {
                     if (ends[e].piece != s.piece || ends[e].offset < lo - 1e-6 || ends[e].offset > hi + 1e-6) {
                         continue;
@@ -237,12 +258,12 @@ void coupleTrains(const trainz::sim::TrackNetwork& net, RouteTrain& me, RouteTra
     std::vector<RouteTrain::Car> merged;
     if (contact.atOurFront) {
         // Their cars go in front of ours. Touching their rear, they already face our way and
-        // their lead is the new front; touching their front, they are turned round and the new
-        // front is their rear, facing away from us.
+        // their lead is the new lead; touching their front, they are turned round and the new
+        // lead is their last vehicle's middle, facing away from us.
         trainz::sim::TrackPosition newLead = other.drive.lead;
         if (contact.theirFront) {
             theirs = turnedRound(std::move(theirs));
-            newLead = trainRear(net, other);
+            newLead = lastVehicleMiddle(net, other);
             newLead.direction = -newLead.direction;
         }
         merged = std::move(theirs);
@@ -277,9 +298,9 @@ std::optional<RouteTrain> uncoupleRear(const trainz::sim::TrackNetwork& net, Rou
     refreshTrain(rest);
     rest.vehicleCount = rest.cars.size();
     rest.index = me.index;
-    // Its front stands just behind ours (our new rear, less the coupling gap), facing our way.
-    rest.drive.lead = trainRear(net, me);
-    net.advance(rest.drive.lead, -0.5);
+    // Its first vehicle's middle: behind our new rear end by the coupling gap and half itself.
+    rest.drive.lead = trainRearEnd(net, me);
+    net.advance(rest.drive.lead, -(0.5 + firstHalf(rest)));
     rest.drive.speed = 0;
     rest.drive.controls.brake = 1;
     rest.parked = true;

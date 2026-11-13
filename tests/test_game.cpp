@@ -431,3 +431,124 @@ TEST(AiDriver, CruisingTowardAFarStopDoesNotBrake) {
     trainz::game::AiDriver{}.control(t, net, nullptr, {});
     EXPECT_EQ(t.drive.controls.brake, 0);
 }
+
+namespace {
+// A train of `n` 10 m cars (a dummy model), its front at `offset` on piece 1 of AiLine, facing `dir`.
+trainz::game::RouteTrain carTrain(int n, double offset, int dir, int firstId) {
+    static const trainz::view::PreparedMesh mesh;
+    trainz::game::RouteTrain t;
+    for (int k = 0; k < n; ++k) {
+        trainz::game::RouteVehicle v;
+        v.body = &mesh;
+        v.length = 10;
+        trainz::sim::VehicleSpec spec = trainz::sim::freightWagon(20);
+        spec.name = std::to_string(firstId + k);  // to follow each car
+        t.cars.push_back({spec, v});
+    }
+    t.vehicleCount = static_cast<std::size_t>(n);
+    t.drive.lead = {1, offset, dir};
+    trainz::game::refreshTrain(t);
+    return t;
+}
+std::string order(const trainz::game::RouteTrain& t) {
+    std::string s;
+    for (const auto& c : t.cars) {
+        s += c.spec.name + (c.vehicle && c.vehicle->flipped ? "f" : "") + " ";
+    }
+    return s;
+}
+}  // namespace
+
+TEST(Coupling, FindsTheTouchingEndAndJoinsInOneLine) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    // Us: 2 cars of 10 m, first middle (the lead) at 500 facing +x: front end 505, rear end 484.5.
+    auto me = carTrain(2, 500, +1, 1);
+    EXPECT_NEAR(me.length, 21, 1e-9);
+    EXPECT_NEAR(trainz::game::trainFrontEnd(net, me).offset, 505, 1e-9);
+    EXPECT_NEAR(trainz::game::trainRearEnd(net, me).offset, 484.5, 1e-9);
+    // (a) Their rear touches our front: they face our way; their rear end 505.3 (lead 531.3).
+    {
+        std::vector<trainz::game::RouteTrain> others{carTrain(3, 531.3, +1, 10)};
+        const auto c = trainz::game::findContact(net, me, others, 1.0);
+        ASSERT_TRUE(c.has_value());
+        EXPECT_TRUE(c->atOurFront);
+        EXPECT_FALSE(c->theirFront);
+        EXPECT_NEAR(c->gap, 0.3, 1e-6);
+        auto m = me;
+        trainz::game::coupleTrains(net, m, others[0], *c);
+        EXPECT_EQ(order(m), "10 11 12 1 2 ");
+        EXPECT_NEAR(m.drive.lead.offset, 531.3, 1e-6);  // their first middle is the new lead
+        EXPECT_EQ(m.drive.lead.direction, +1);
+        EXPECT_TRUE(others[0].cars.empty());
+        EXPECT_NEAR(m.drive.spec.massKg, 5 * 20'000, 1e-6);
+    }
+    // (b) Their front touches our front: they face us (lead 510.4 facing -x, front end 505.4);
+    // turned round, the new lead is their last car's middle (531.4), facing away from us.
+    {
+        std::vector<trainz::game::RouteTrain> others{carTrain(3, 510.4, -1, 10)};
+        const auto c = trainz::game::findContact(net, me, others, 1.0);
+        ASSERT_TRUE(c.has_value());
+        EXPECT_TRUE(c->atOurFront);
+        EXPECT_TRUE(c->theirFront);
+        EXPECT_NEAR(c->gap, 0.4, 1e-6);
+        auto m = me;
+        trainz::game::coupleTrains(net, m, others[0], *c);
+        EXPECT_EQ(order(m), "12f 11f 10f 1 2 ");
+        EXPECT_NEAR(m.drive.lead.offset, 531.4, 1e-6);
+        EXPECT_EQ(m.drive.lead.direction, +1);
+    }
+    // (c) Their front touches our rear: behind us, facing our way (lead 479.1, front end 484.1);
+    // they join behind us in their own order.
+    {
+        std::vector<trainz::game::RouteTrain> others{carTrain(3, 479.1, +1, 10)};
+        const auto c = trainz::game::findContact(net, me, others, 1.0);
+        ASSERT_TRUE(c.has_value());
+        EXPECT_FALSE(c->atOurFront);
+        EXPECT_TRUE(c->theirFront);
+        auto m = me;
+        trainz::game::coupleTrains(net, m, others[0], *c);
+        EXPECT_EQ(order(m), "1 2 10 11 12 ");
+        EXPECT_NEAR(m.drive.lead.offset, 500, 1e-6);
+    }
+    // Nothing within reach: no contact.
+    std::vector<trainz::game::RouteTrain> far{carTrain(3, 700, +1, 10)};
+    EXPECT_FALSE(trainz::game::findContact(net, me, far, 1.0).has_value());
+}
+
+TEST(Coupling, UncouplingLeavesTheRearCarStandingBehind) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    auto me = carTrain(3, 500, +1, 1);
+    me.drive.speed = 0;
+    const auto rest = trainz::game::uncoupleRear(net, me);
+    ASSERT_TRUE(rest.has_value());
+    EXPECT_EQ(order(me), "1 2 ");
+    EXPECT_EQ(order(*rest), "3 ");
+    EXPECT_TRUE(rest->parked);
+    EXPECT_NEAR(rest->drive.lead.offset, 484.5 - 0.5 - 5, 1e-6);  // its middle, just behind our new rear end
+    EXPECT_NEAR(me.drive.spec.massKg, 40'000, 1e-6);
+    auto one = carTrain(1, 100, +1, 1);
+    EXPECT_FALSE(trainz::game::uncoupleRear(net, one).has_value());  // the last car stays
+}
+
+TEST(Coupling, TurnedRoundVehiclesAreDrawnTheOtherWay) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    trainz::view::PreparedMesh body;
+    trainz::view::LocalTriangle tri{};
+    tri.p[0][1] = 5;  // a point at the model's front (+y)
+    body.triangles.push_back(tri);
+    trainz::game::RouteVehicle v;
+    v.body = &body;
+    v.length = 10;
+    trainz::view::Scene a, b;
+    trainz::game::addRouteTrain(a, net, {1, 500, +1}, {v});
+    v.flipped = true;
+    trainz::game::addRouteTrain(b, net, {1, 500, +1}, {v});
+    ASSERT_EQ(a.triangles.size(), 1u);
+    ASSERT_EQ(b.triangles.size(), 1u);
+    // The vehicle's middle is at the lead (500): its front point 5 m along +x, or turned round 5 m back.
+    EXPECT_NEAR(a.triangles[0].p[0].x, 505, 1e-6);
+    EXPECT_NEAR(b.triangles[0].p[0].x, 495, 1e-6);
+}
