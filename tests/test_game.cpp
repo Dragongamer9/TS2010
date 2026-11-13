@@ -345,3 +345,39 @@ TEST(AiDriver, StopsBeforeASignalAtStopAndATrainAhead) {
     ASSERT_TRUE(why.has_value());
     EXPECT_STREQ(why->why, "train");
 }
+
+TEST(AiDriver, StopsOnDownhillWithActualBrakeForce) {
+    AiLine line;
+    line.layout.vertices.at(1).z = -30;
+    line.layout.vertices.at(2).z = -60;
+    const trainz::sim::TrackNetwork net(line.layout);
+    auto t = aiTrain(10);
+    t.drive.spec.maxBrakeForceN = 0.52 * t.drive.spec.massKg;
+    t.drive.speed = trainz::game::AiDriver{}.cruise;
+    const trainz::game::AiDriver ai;
+    for (int i = 0; i < 1800; ++i) {
+        ai.control(t, net, nullptr, {});
+        t.drive.step(net, 0.5);
+        ASSERT_FALSE(t.drive.atBuffer);
+        ASSERT_LT(along(t.drive.lead), 1980);
+    }
+    EXPECT_NEAR(t.drive.speed, 0, 1e-9);
+    EXPECT_GT(along(t.drive.lead), 1965);
+}
+
+TEST(AiDriver, StopsWithLowGrip) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    auto t = aiTrain(10);
+    t.drive.spec.adhesion = 0.02;
+    t.drive.speed = trainz::game::AiDriver{}.cruise;
+    const trainz::game::AiDriver ai;
+    for (int i = 0; i < 1800; ++i) {
+        ai.control(t, net, nullptr, {});
+        t.drive.step(net, 0.5);
+        ASSERT_FALSE(t.drive.atBuffer);
+        ASSERT_LT(along(t.drive.lead), 1980);
+    }
+    EXPECT_NEAR(t.drive.speed, 0, 1e-9);
+    EXPECT_GT(along(t.drive.lead), 1965);
+}
