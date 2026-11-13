@@ -16,7 +16,8 @@
 // title shows the next signal ahead and its aspect (the port's simple block rules). The session's
 // other trains stand where they are; with --ai the port's simple AI drives them (it stops for
 // signals at stop, trains ahead and line ends). T (or --watch N) makes the chase camera follow
-// another train; T again moves on, back to your own. --train N picks the train (1 = the first; default: the first one that stands on track).
+// another train; T again moves on, back to your own. Running into a train below 7 km/h couples
+// it to yours (faster is a collision: you stop); U (when stopped) leaves your rearmost car behind. --train N picks the train (1 = the first; default: the first one that stands on track).
 // Physics: mass and notch curves from the install when present; resistance/brakes are presets.
 // Exit codes: 0 done, 1 error, 2 bad arguments, 3 no route/session matches NAME, 4 several do.
 //
@@ -288,12 +289,13 @@ int main(int argc, char** argv) {
         std::optional<trainz::sim::TrackNetwork> net;
         std::optional<trainz::sim::SignalSystem> signals;  // drive mode: the route's signals (uses *net)
         std::vector<trainz::sim::Occupied> standing;       // drive mode: the other trains, standing still
-        double trainLength = 0;
         double signalClock = 1e9;  // seconds since the aspects were last worked out
-        trainz::game::Drive driving;
+        trainz::game::RouteTrain me;            // drive mode: your train
+        trainz::game::Drive& driving = me.drive;
+        std::string notice;                     // a short message on screen (coupled, collision)
+        double noticeClock = 0;
         trainz::game::BrakeHandle brakeHandle;
         std::vector<trainz::game::RouteTrain> otherTrains;  // drive mode: the session's other trains
-        std::vector<trainz::game::RouteVehicle> vehicles;
         if (drive) {
             if (!extras.trains || !extras.track || !meshes) {
                 std::cerr << "--drive needs a session (--session) with its route's track, and --install DIR\n";
@@ -320,16 +322,14 @@ int main(int argc, char** argv) {
                 std::cerr << "none of that train's vehicles has a model the port can read\n";
                 return 1;
             }
-            driving = mine->drive;
-            vehicles = mine->vehicles;
-            trainLength = mine->length;
+            me = std::move(*mine);
             const auto p = net->point(driving.lead);
             if (!atX && p) {
                 atX = p->x, atY = p->y;
             }
             std::printf("driving train %zu of %zu: %zu vehicles, %zu with models, %zu with their own mass, %zu powered by their "
                         "enginespec (%.0f t; resistance and brakes are presets)\n",
-                        chosen + 1, trains.size(), mine->vehicleCount, vehicles.size(), mine->withOwnMass, mine->powered,
+                        chosen + 1, trains.size(), me.vehicleCount, me.vehicles.size(), me.withOwnMass, me.powered,
                         driving.spec.massKg / 1000);
             // The session's other trains: drawn where they stand, and with --ai driven by the port's simple driver.
             for (std::size_t t = 0; t < trains.size(); ++t) {
@@ -340,6 +340,10 @@ int main(int argc, char** argv) {
                 }
             }
             std::printf("%zu other trains on the track%s\n", otherTrains.size(), aiTrains ? ", driven by the port's AI" : ", standing");
+            if (const auto near = trainz::game::findContact(*net, me, otherTrains, 3000)) {
+                std::printf("nearest train: %.0f m from your %s (train %zu's %s)\n", near->gap, near->atOurFront ? "front" : "rear",
+                            otherTrains[near->other].index + 1, near->theirFront ? "front" : "rear");
+            }
             // Trains that could not be built (no readable model, not on track) still stand in the way.
             std::vector<trainz::content::Train> unbuilt;
             for (std::size_t t = 0; t < trains.size(); ++t) {
@@ -473,6 +477,24 @@ int main(int argc, char** argv) {
                     using P = trainz::game::BrakeHandle::Position;
                     const auto key = ev.key.keysym.sym;
                     brakeHandle.position = key == SDLK_a ? P::Application : key == SDLK_z ? P::Lap : key == SDLK_q ? P::Release : P::Emergency;
+                } else if (drive && driving.spec.notchCurvesN.empty() && ev.type == SDL_KEYDOWN && ev.key.repeat == 0 &&
+                           (ev.key.keysym.sym == SDLK_w || ev.key.keysym.sym == SDLK_s)) {
+                    // A train without notches: each press moves the smooth throttle by 10% (holding moves it too).
+                    driving.controls.throttle =
+                        std::clamp(driving.controls.throttle + (ev.key.keysym.sym == SDLK_w ? 0.1 : -0.1), 0.0, 1.0);
+                } else if (drive && ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_u && ev.key.repeat == 0) {
+                    if (std::fabs(driving.speed) < 0.1) {  // uncouple the rearmost car (when stopped)
+                        if (auto rest = trainz::game::uncoupleRear(*net, me)) {
+                            otherTrains.push_back(std::move(*rest));
+                            notice = "uncoupled the rear car (" + std::to_string(me.vehicleCount) + " left)";
+                        } else {
+                            notice = "nothing to uncouple";
+                        }
+                    } else {
+                        notice = "stop to uncouple";
+                    }
+                    std::printf("%s\n", notice.c_str());
+                    noticeClock = 6;
                 } else if (drive && ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_t && ev.key.repeat == 0) {
                     watch = otherTrains.empty() ? 0 : (watch + 1) % static_cast<long>(otherTrains.size() + 1);
                     chase = true;
@@ -537,7 +559,36 @@ int main(int argc, char** argv) {
                 if (frames <= 0 || !keyScript.empty()) {
                     brakeHandle.step(driving.controls.brake, frames > 0 ? 0.5 : dt);
                 }
-                driving.step(*net, frames > 0 ? 0.5 : dt);
+                // Touching another train: looked for before the step, over the distance it would move,
+                // so a fast train cannot jump past the contact. Slow (under 7 km/h) couples; faster is
+                // a collision that stops you at the contact.
+                const double stepSeconds = frames > 0 ? 0.5 : dt;
+                const double reach = std::fabs(driving.speed) * stepSeconds + 0.6;
+                const auto contact = trainz::game::findContact(*net, me, otherTrains, reach);
+                if (contact && ((driving.speed > 0.05 && contact->atOurFront) || (driving.speed < -0.05 && !contact->atOurFront))) {
+                    auto& other = otherTrains[contact->other];
+                    const double hitKmh = std::fabs(driving.speed) * 3.6;
+                    net->advance(driving.lead, (contact->atOurFront ? 1.0 : -1.0) * contact->gap);  // up to the buffers
+                    if (std::fabs(driving.speed) < 2.0) {
+                        const std::size_t joined = other.vehicleCount;
+                        trainz::game::coupleTrains(*net, me, other, *contact);
+                        otherTrains.erase(otherTrains.begin() + static_cast<std::ptrdiff_t>(contact->other));
+                        if (watch > static_cast<long>(otherTrains.size())) {
+                            watch = 0;
+                        }
+                        notice = "coupled " + std::to_string(joined) + " cars at your " + (contact->atOurFront ? "front" : "rear") +
+                                 " at " + std::to_string(static_cast<int>(std::lround(hitKmh))) + " km/h (now " +
+                                 std::to_string(me.vehicleCount) + ")";
+                    } else {
+                        notice = "collision at " + std::to_string(static_cast<int>(std::lround(hitKmh))) + " km/h!";
+                        driving.speed = 0;
+                    }
+                    std::printf("%s\n", notice.c_str());
+                    noticeClock = 6;
+                } else {
+                    driving.step(*net, stepSeconds);
+                }
+                noticeClock -= frames > 0 ? 0.5 : dt;
                 // Keep the world around the train: rebuild the scene once it is more than half
                 // the radius from the centre (a pause of about a second on the software renderer).
                 const auto& followed = watch > 0 && watch <= static_cast<long>(otherTrains.size())
@@ -553,7 +604,7 @@ int main(int argc, char** argv) {
                 signalClock += frames > 0 ? 0.5 : dt;
                 // The other trains: each takes the points along its length; with --ai each is driven.
                 std::vector<std::vector<trainz::sim::Occupied>> takenBy(otherTrains.size() + 2);
-                takenBy[0] = trainz::game::trainOccupies(*net, driving.lead, trainLength);
+                takenBy[0] = trainz::game::trainOccupies(*net, driving.lead, me.length);
                 takenBy.back() = standing;  // trains that could not be built
                 for (std::size_t t = 0; t < otherTrains.size(); ++t) {
                     takenBy[t + 1] = trainz::game::trainOccupies(*net, otherTrains[t].drive.lead, otherTrains[t].length);
@@ -561,6 +612,9 @@ int main(int argc, char** argv) {
                 if (aiTrains) {
                     const trainz::game::AiDriver ai;
                     for (std::size_t t = 0; t < otherTrains.size(); ++t) {
+                        if (otherTrains[t].parked) {
+                            continue;  // cars you left behind stand
+                        }
                         std::vector<trainz::sim::Occupied> others;
                         for (std::size_t o = 0; o < takenBy.size(); ++o) {
                             if (o != t + 1) {
@@ -603,7 +657,7 @@ int main(int argc, char** argv) {
                 lastCamera = camera;
                 trainz::view::Scene scene = view.scene;
                 if (drive) {
-                    trainz::game::addRouteTrain(scene, *net, driving.lead, vehicles);
+                    trainz::game::addRouteTrain(scene, *net, driving.lead, me.vehicles);
                     for (const auto& t : otherTrains) {  // the session's other trains, within the view radius
                         if (const auto p = net->point(t.drive.lead);
                             p && std::hypot(p->x - camera.eye.x, p->y - camera.eye.y) < radius + t.length) {
@@ -695,6 +749,9 @@ int main(int argc, char** argv) {
                     trainz::view::drawHudText(rgba, kW, kH, 8, 8, hud.substr(0, split), 2);
                     if (split != std::string::npos) {
                         trainz::view::drawHudText(rgba, kW, kH, 8, 30, hud.substr(split + 2), 2, {255, 235, 150});
+                    }
+                    if (noticeClock > 0 && !notice.empty()) {
+                        trainz::view::drawHudText(rgba, kW, kH, 8, kH - 30, notice, 2, {255, 200, 120});
                     }
                     if (watch > 0 && watch <= static_cast<long>(otherTrains.size())) {
                         const auto& w = otherTrains[static_cast<std::size_t>(watch - 1)];

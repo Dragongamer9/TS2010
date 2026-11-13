@@ -73,6 +73,7 @@ struct RouteVehicle {
     std::array<double, 2> bogieY = {0, 0};  // the points' positions along the body (+y forward)
     bool onBogies = false;                  // both points known
     double length = 14;                     // along the body, from its model
+    bool flipped = false;                   // turned round in its train (its +y points backwards)
 };
 
 // A vehicle from its model: its length (the model's extent along y) and bogie points.
@@ -91,6 +92,14 @@ struct RouteTrain {
     std::vector<RouteVehicle> vehicles;  // the ones with a model the port can read
     double length = 0;                   // metres, the drawn vehicles with 0.5 m gaps
     std::size_t vehicleCount = 0, withOwnMass = 0, powered = 0;
+    // Every car front to back, with its physics and (if it has one the port can read) its model;
+    // `vehicles`, `length` and `drive.spec` are worked out from these (refreshTrain).
+    struct Car {
+        trainz::sim::VehicleSpec spec;
+        std::optional<RouteVehicle> vehicle;
+    };
+    std::vector<Car> cars;
+    bool parked = false;  // cars left behind by uncoupling: they stand (the AI does not drive them)
     std::optional<std::size_t> heldRedSignal;  // reached its braking margin; hold even after an overrun until it clears
 };
 // Builds train `index` of the session: placed where it stands (trainStart), each vehicle's own
@@ -121,5 +130,32 @@ struct AiDriver {
                                        const trainz::sim::SignalSystem* signals, const std::vector<trainz::sim::Occupied>& others,
                                        double look = 1500) const;
 };
+
+// Works out `vehicles`, `length` and `drive.spec` from `cars` (the place, speed and controls
+// stay). When no car has traction curves the first pulls as the preset locomotive, as in
+// makeRouteTrain.
+void refreshTrain(RouteTrain& t);
+
+// The rear end of a train: `length` metres behind its lead, facing the same way.
+trainz::sim::TrackPosition trainRear(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
+
+// Another train's end within `within` metres of one of ours, along the track.
+struct Contact {
+    std::size_t other = 0;     // index into the others
+    bool atOurFront = true;    // our front (lead) or our rear
+    bool theirFront = false;   // their front or their rear
+    double gap = 0;            // metres
+};
+std::optional<Contact> findContact(const trainz::sim::TrackNetwork& net, const RouteTrain& me, const std::vector<RouteTrain>& others,
+                                   double within = 1.0);
+
+// Couples `other` onto `me` at the contact: its cars join ours in one line (turned round when
+// they face the other way), `me`'s lead moves to the new front if they join at our front, and
+// the speed is shared by mass. `other` is left empty (no cars); the caller removes it.
+void coupleTrains(const trainz::sim::TrackNetwork& net, RouteTrain& me, RouteTrain& other, const Contact& contact);
+
+// Uncouples the rearmost `count` cars of `me` (at least one car stays) as a new standing train
+// just behind the rest. nullopt if there is nothing to uncouple.
+std::optional<RouteTrain> uncoupleRear(const trainz::sim::TrackNetwork& net, RouteTrain& me, std::size_t count = 1);
 
 }  // namespace trainz::game

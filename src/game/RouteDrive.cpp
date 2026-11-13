@@ -138,6 +138,7 @@ std::optional<RouteTrain> makeRouteTrain(const trainz::sim::TrackNetwork& net, c
         t.withOwnMass += mass ? 1 : 0;
         specs.push_back(ownVehicleSpec(mass, engine ? &*engine : nullptr));
         t.powered += specs.back().driven ? 1 : 0;
+        t.cars.push_back({specs.back(), std::nullopt});
         // Drawn only with a model the port can read; its mass, brakes and pull count anyway.
         const auto* body = meshes.get(v.kuid);
         if (body == nullptr) {
@@ -149,21 +150,140 @@ std::optional<RouteTrain> makeRouteTrain(const trainz::sim::TrackNetwork& net, c
                 bog[k] = meshes.get(b->kuid);
             }
         }
-        t.vehicles.push_back(routeVehicle(*body, bog[0], bog[1]));
-        t.length += t.vehicles.back().length + 0.5;
+        t.cars.back().vehicle = routeVehicle(*body, bog[0], bog[1]);
     }
+    t.vehicleCount = specs.size();
+    t.drive.lead = *where;
+    refreshTrain(t);
     if (t.vehicles.empty()) {
         return std::nullopt;
     }
-    t.vehicleCount = specs.size();
-    if (t.powered == 0) {  // no enginespec curves read: the first vehicle pulls as the preset locomotive
+    return t;
+}
+
+void refreshTrain(RouteTrain& t) {
+    t.vehicles.clear();
+    t.length = 0;
+    std::vector<trainz::sim::VehicleSpec> specs;
+    bool anyCurves = false;
+    for (const auto& c : t.cars) {
+        specs.push_back(c.spec);
+        anyCurves = anyCurves || !c.spec.tractiveCurveN.empty() || c.spec.tractiveForceN > 0;
+        if (c.vehicle) {
+            t.vehicles.push_back(*c.vehicle);
+            t.length += c.vehicle->length + 0.5;
+        }
+    }
+    if (!anyCurves && !specs.empty()) {  // no car can pull: the first pulls as the preset locomotive
         const auto keepMass = specs.front().massKg;
         specs.front() = trainz::sim::electricLocomotive();
         specs.front().massKg = keepMass;
     }
-    t.drive.lead = *where;
     t.drive.spec = trainz::sim::makeTrain(specs);
-    return t;
+}
+
+trainz::sim::TrackPosition trainRear(const trainz::sim::TrackNetwork& net, const RouteTrain& t) {
+    trainz::sim::TrackPosition rear = t.drive.lead;
+    net.advance(rear, -t.length);
+    return rear;
+}
+
+std::optional<Contact> findContact(const trainz::sim::TrackNetwork& net, const RouteTrain& me, const std::vector<RouteTrain>& others,
+                                   double within) {
+    std::optional<Contact> best;
+    // Our two ends, each looking outward along the track.
+    trainz::sim::TrackPosition rearOut = trainRear(net, me);
+    rearOut.direction = -rearOut.direction;
+    for (const bool front : {true, false}) {
+        const trainz::sim::TrackPosition& from = front ? me.drive.lead : rearOut;
+        net.walk(from, within, [&](const trainz::sim::TrackNetwork::Span& s) {
+            const double lo = std::min(s.from, s.to), hi = std::max(s.from, s.to);
+            for (std::size_t i = 0; i < others.size(); ++i) {
+                if (others[i].cars.empty()) {
+                    continue;
+                }
+                const trainz::sim::TrackPosition ends[2] = {others[i].drive.lead, trainRear(net, others[i])};
+                for (int e = 0; e < 2; ++e) {
+                    if (ends[e].piece != s.piece || ends[e].offset < lo - 1e-6 || ends[e].offset > hi + 1e-6) {
+                        continue;
+                    }
+                    const double gap = s.startDistance + std::fabs(ends[e].offset - s.from);
+                    if (!best || gap < best->gap) {
+                        best = Contact{i, front, e == 0, gap};
+                    }
+                }
+            }
+            return true;
+        });
+    }
+    return best;
+}
+
+namespace {
+std::vector<RouteTrain::Car> turnedRound(std::vector<RouteTrain::Car> cars) {
+    std::reverse(cars.begin(), cars.end());
+    for (auto& c : cars) {
+        if (c.vehicle) {
+            c.vehicle->flipped = !c.vehicle->flipped;
+        }
+    }
+    return cars;
+}
+}  // namespace
+
+void coupleTrains(const trainz::sim::TrackNetwork& net, RouteTrain& me, RouteTrain& other, const Contact& contact) {
+    const double myMass = me.drive.spec.massKg, theirMass = other.drive.spec.massKg;
+    std::vector<RouteTrain::Car> theirs = other.cars;
+    std::vector<RouteTrain::Car> merged;
+    if (contact.atOurFront) {
+        // Their cars go in front of ours. Touching their rear, they already face our way and
+        // their lead is the new front; touching their front, they are turned round and the new
+        // front is their rear, facing away from us.
+        trainz::sim::TrackPosition newLead = other.drive.lead;
+        if (contact.theirFront) {
+            theirs = turnedRound(std::move(theirs));
+            newLead = trainRear(net, other);
+            newLead.direction = -newLead.direction;
+        }
+        merged = std::move(theirs);
+        merged.insert(merged.end(), me.cars.begin(), me.cars.end());
+        me.drive.lead = newLead;
+    } else {
+        // Their cars go behind ours: as they are if their front touches our rear, else turned round.
+        if (!contact.theirFront) {
+            theirs = turnedRound(std::move(theirs));
+        }
+        merged = me.cars;
+        merged.insert(merged.end(), theirs.begin(), theirs.end());
+    }
+    me.cars = std::move(merged);
+    me.vehicleCount += other.vehicleCount;
+    me.drive.speed = myMass + theirMass > 0 ? me.drive.speed * myMass / (myMass + theirMass) : 0;  // they stood
+    refreshTrain(me);
+    other.cars.clear();
+    other.vehicles.clear();
+}
+
+std::optional<RouteTrain> uncoupleRear(const trainz::sim::TrackNetwork& net, RouteTrain& me, std::size_t count) {
+    if (me.cars.size() < 2 || count == 0) {
+        return std::nullopt;
+    }
+    count = std::min(count, me.cars.size() - 1);
+    RouteTrain rest;
+    rest.cars.assign(me.cars.end() - static_cast<std::ptrdiff_t>(count), me.cars.end());
+    me.cars.erase(me.cars.end() - static_cast<std::ptrdiff_t>(count), me.cars.end());
+    me.vehicleCount = me.cars.size();
+    refreshTrain(me);
+    refreshTrain(rest);
+    rest.vehicleCount = rest.cars.size();
+    rest.index = me.index;
+    // Its front stands just behind ours (our new rear, less the coupling gap), facing our way.
+    rest.drive.lead = trainRear(net, me);
+    net.advance(rest.drive.lead, -0.5);
+    rest.drive.speed = 0;
+    rest.drive.controls.brake = 1;
+    rest.parked = true;
+    return rest;
 }
 
 std::optional<AiDriver::StopAhead> AiDriver::stopAhead(const RouteTrain& d, const trainz::sim::TrackNetwork& net,
@@ -404,8 +524,10 @@ int addRouteTrain(Scene& scene, const TrackNetwork& net, const TrackPosition& fr
         if (!c) {
             break;
         }
+        const double turn = v.flipped ? std::numbers::pi : 0.0;  // a vehicle turned round in its train
+        const double sign = v.flipped ? -1.0 : 1.0;
         if (!v.onBogies) {
-            addPlacedMesh(scene, *v.body, c->x, c->y, c->z, c->heading - std::numbers::pi / 2);
+            addPlacedMesh(scene, *v.body, c->x, c->y, c->z, c->heading - std::numbers::pi / 2 + turn);
             ++placed;
             continue;
         }
@@ -414,21 +536,22 @@ int addRouteTrain(Scene& scene, const TrackNetwork& net, const TrackPosition& fr
         bool ok = true;
         for (int k = 0; k < 2; ++k) {
             TrackPosition p = middle;
-            net.advance(p, v.bogieY[static_cast<std::size_t>(k)]);
+            net.advance(p, sign * v.bogieY[static_cast<std::size_t>(k)]);
             const auto q = net.point(p);
             ok = ok && q.has_value();
             if (q) {
                 pt[static_cast<std::size_t>(k)] = *q;
             }
         }
-        const auto& ahead = v.bogieY[0] > v.bogieY[1] ? pt[0] : pt[1];
-        const auto& behind = v.bogieY[0] > v.bogieY[1] ? pt[1] : pt[0];
+        const auto& ahead = sign * v.bogieY[0] > sign * v.bogieY[1] ? pt[0] : pt[1];
+        const auto& behind = sign * v.bogieY[0] > sign * v.bogieY[1] ? pt[1] : pt[0];
         const double dx = ahead.x - behind.x, dy = ahead.y - behind.y, flat = std::hypot(dx, dy);
         if (!ok || flat < 0.5) {
             break;  // squashed against a buffer
         }
-        const double heading = std::atan2(dy, dx), yaw = heading - std::numbers::pi / 2;
-        const double pitch = std::atan2(ahead.z - behind.z, flat);
+        const double heading = std::atan2(dy, dx), yaw = heading - std::numbers::pi / 2 + turn;
+        // In the model's own frame a turned-round vehicle climbs the other way.
+        const double pitch = sign * std::atan2(ahead.z - behind.z, flat);
         LocalFrame tilt;
         tilt.r[4] = static_cast<float>(std::cos(pitch)), tilt.r[5] = static_cast<float>(std::sin(pitch));
         tilt.r[7] = -tilt.r[5], tilt.r[8] = tilt.r[4];
