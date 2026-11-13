@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <string>
 #include <cstring>
+#include <map>
 #include <cmath>
 #include <numbers>
 
@@ -104,6 +105,134 @@ std::vector<SignalLamp> signalLamps(const trainz::content::PlacedObject& o, cons
         place(at->second.t, trainz::content::coronaColour(corona == look.coronas.end() ? std::string() : corona->second));
     }
     return out;
+}
+
+std::optional<RouteTrain> makeRouteTrain(const trainz::sim::TrackNetwork& net, const std::vector<trainz::content::Train>& trains,
+                                         std::size_t index, trainz::view::AssetMeshes& meshes) {
+    if (index >= trains.size()) {
+        return std::nullopt;
+    }
+    const auto where = trainStart(net, trains[index]);
+    if (!where) {
+        return std::nullopt;
+    }
+    RouteTrain t;
+    t.index = index;
+    std::vector<trainz::sim::VehicleSpec> specs;
+    for (const auto& v : trains[index].vehicles) {
+        // Its own physics data: the traincar's mass and its enginespec's curves.
+        std::optional<double> mass;
+        std::optional<trainz::content::EngineSpec> engine;
+        if (const auto cfg = meshes.config(v.kuid)) {
+            if (const auto* m = cfg->child("mass"); m != nullptr && (!m->floats.empty() || !m->ints.empty())) {
+                mass = m->floats.empty() ? m->ints[0] : m->floats[0];
+            }
+            if (const auto* es = cfg->child("enginespec")) {
+                if (const auto ek = trainz::view::configKuid(*es)) {
+                    if (const auto ecfg = meshes.config(*ek)) {
+                        engine = trainz::content::parseEngineSpec(*ecfg);
+                    }
+                }
+            }
+        }
+        t.withOwnMass += mass ? 1 : 0;
+        specs.push_back(ownVehicleSpec(mass, engine ? &*engine : nullptr));
+        t.powered += specs.back().driven ? 1 : 0;
+        // Drawn only with a model the port can read; its mass, brakes and pull count anyway.
+        const auto* body = meshes.get(v.kuid);
+        if (body == nullptr) {
+            continue;
+        }
+        const trainz::view::PreparedMesh* bog[2] = {nullptr, nullptr};
+        for (int k = 0; k < 2; ++k) {
+            if (const auto b = body->bogeyFor(k == 0 ? "a.bog0" : "a.bog1")) {
+                bog[k] = meshes.get(b->kuid);
+            }
+        }
+        t.vehicles.push_back(routeVehicle(*body, bog[0], bog[1]));
+        t.length += t.vehicles.back().length + 0.5;
+    }
+    if (t.vehicles.empty()) {
+        return std::nullopt;
+    }
+    t.vehicleCount = specs.size();
+    if (t.powered == 0) {  // no enginespec curves read: the first vehicle pulls as the preset locomotive
+        const auto keepMass = specs.front().massKg;
+        specs.front() = trainz::sim::electricLocomotive();
+        specs.front().massKg = keepMass;
+    }
+    t.drive.lead = *where;
+    t.drive.spec = trainz::sim::makeTrain(specs);
+    return t;
+}
+
+std::optional<AiDriver::StopAhead> AiDriver::stopAhead(const RouteTrain& d, const trainz::sim::TrackNetwork& net,
+                                                       const trainz::sim::SignalSystem* signals,
+                                                       const std::vector<trainz::sim::Occupied>& others, double look) const {
+    std::optional<StopAhead> best;
+    auto consider = [&](double dist, const char* why) {
+        if (dist >= 0 && (!best || dist < best->distance)) {
+            best = StopAhead{dist, why};
+        }
+    };
+    if (signals != nullptr) {
+        if (const auto sg = signals->nextSignal(d.drive.lead, look); sg && signals->aspect(sg->index) == trainz::sim::Aspect::Stop) {
+            consider(sg->distance, "signal");
+        }
+    }
+    std::multimap<std::int32_t, double> taken;
+    for (const auto& o : others) {
+        taken.emplace(o.piece, o.offset);
+    }
+    double walked = 0;
+    bool ended = true;
+    net.walk(d.drive.lead, look, [&](const trainz::sim::TrackNetwork::Span& s) {
+        const auto [b, e] = taken.equal_range(s.piece);
+        for (auto it = b; it != e; ++it) {
+            const double along = (it->second - s.from) * s.direction;
+            if (along >= 0 && along <= std::fabs(s.to - s.from)) {
+                consider(s.startDistance + along, "train");
+            }
+        }
+        walked = s.startDistance + std::fabs(s.to - s.from);
+        return true;
+    });
+    ended = walked < look - 1e-6;
+    if (ended) {
+        consider(walked, "line end");
+    }
+    return best;
+}
+
+void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, const trainz::sim::SignalSystem* signals,
+                       const std::vector<trainz::sim::Occupied>& others) const {
+    auto& c = d.drive.controls;
+    const double v = std::fabs(d.drive.speed);
+    c.reverser = +1;
+    c.dynamicNotch = 0;
+    double limit = cruise;
+    if (signals != nullptr) {
+        if (const auto sg = signals->nextSignal(d.drive.lead, 1500); sg && signals->aspect(sg->index) == trainz::sim::Aspect::Caution) {
+            limit = cruise / 2;
+        }
+    }
+    const auto stop = stopAhead(d, net, signals, others);
+    if (stop) {
+        const double room = stop->distance - margin;
+        // The speed it may have here to stop in `room` at `decel`: v^2 = 2 a d.
+        limit = std::min(limit, room > 0 ? std::sqrt(2 * decel * room) : 0.0);
+    }
+    const int topNotch = static_cast<int>(d.drive.spec.notchCurvesN.size()) - 1;
+    if (v > limit + 0.3) {  // too fast: brake in proportion to the excess, no power
+        c.notch = 0, c.throttle = 0;
+        c.brake = std::clamp((v - limit) / 2.0 + 0.3, 0.0, 1.0);
+    } else if (v < limit - 0.5) {  // power on: a middle notch, gentle
+        c.brake = 0;
+        c.notch = topNotch > 0 ? std::max(1, topNotch / 2) : 0;
+        c.throttle = 0.5;
+    } else {  // coast
+        c.notch = 0, c.throttle = 0, c.brake = limit < 0.1 ? 1.0 : 0.0;  // hold it when stopped
+    }
 }
 
 std::vector<trainz::sim::Occupied> trainOccupies(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& lead,

@@ -269,3 +269,79 @@ TEST(Drive, BrakeHandleAppliesLapsAndReleases) {
     h.step(b, std::numeric_limits<double>::infinity());
     EXPECT_EQ(b, 0);
 }
+
+namespace {
+// A straight 2 km line along +x in two 1 km pieces, and an AI train at its start.
+struct AiLine {
+    trainz::content::TrackLayout layout;
+    AiLine() {
+        trainz::content::TrackVertex a, b, c;
+        a.index = 0, b.index = 1, c.index = 2;
+        b.x = 1000, c.x = 2000;
+        a.links = {{1, 0}}, b.links = {{1, 0}, {2, 1}}, c.links = {{2, 0}};
+        layout.vertices = {{0, a}, {1, b}, {2, c}};
+        trainz::content::TrackStretch s1, s2;
+        s1.index = 1, s1.from = 0, s1.to = 1, s1.rest = {0x20, 0, 0, 0};
+        s2.index = 2, s2.from = 1, s2.to = 2, s2.rest = {0x20, 0, 0, 0};
+        layout.stretches = {s1, s2};
+    }
+};
+trainz::game::RouteTrain aiTrain(double offset) {
+    trainz::game::RouteTrain t;
+    t.drive.lead = {1, offset, +1};
+    t.drive.spec = trainz::sim::makeTrain({trainz::sim::electricLocomotive(), trainz::sim::freightWagon(40)});
+    t.length = 30;
+    return t;
+}
+// Runs the driver for `seconds`; returns the furthest distance travelled from the start offset.
+double run(trainz::game::RouteTrain& t, const trainz::sim::TrackNetwork& net, const trainz::sim::SignalSystem* sig,
+           const std::vector<trainz::sim::Occupied>& others, double seconds, double& topSpeed) {
+    const trainz::game::AiDriver ai;
+    topSpeed = 0;
+    for (double s = 0; s < seconds; s += 0.5) {
+        ai.control(t, net, sig, others);
+        t.drive.step(net, 0.5);
+        topSpeed = std::max(topSpeed, t.drive.speed);
+    }
+    return 0;
+}
+double along(const trainz::sim::TrackPosition& p) { return (p.piece == 1 ? 0 : 1000) + p.offset; }
+}  // namespace
+
+TEST(AiDriver, CruisesThenStopsShortOfTheLineEnd) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    auto t = aiTrain(10);
+    double top = 0;
+    run(t, net, nullptr, {}, 900, top);
+    EXPECT_NEAR(top, trainz::game::AiDriver{}.cruise, 1.0);  // reaches about its cruise speed
+    EXPECT_NEAR(t.drive.speed, 0, 1e-9);                     // and stands
+    EXPECT_FALSE(t.drive.atBuffer);                          // never ran into the end
+    EXPECT_GT(along(t.drive.lead), 2000 - trainz::game::AiDriver{}.margin - 15);
+    EXPECT_LT(along(t.drive.lead), 2000 - 1);
+}
+
+TEST(AiDriver, StopsBeforeASignalAtStopAndATrainAhead) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    // A signal at 1,200 m whose block holds a standing train at 1,500 m.
+    trainz::sim::SignalSystem sig(net, {{{2, 200, +1}, "S"}});
+    const std::vector<trainz::sim::Occupied> standing{{2, 500}};
+    sig.update(standing);
+    ASSERT_EQ(sig.aspect(0), trainz::sim::Aspect::Stop);
+    auto t = aiTrain(10);
+    double top = 0;
+    run(t, net, &sig, standing, 600, top);
+    EXPECT_NEAR(t.drive.speed, 0, 1e-9);
+    EXPECT_LT(along(t.drive.lead), 1200);                  // short of the signal
+    EXPECT_GT(along(t.drive.lead), 1200 - 20 - 15);        // within its margin and a little
+    // The signal clears: it runs on, and stops short of the standing train.
+    sig.update({});
+    run(t, net, &sig, standing, 600, top);
+    EXPECT_NEAR(t.drive.speed, 0, 1e-9);
+    EXPECT_GT(along(t.drive.lead), 1200);
+    EXPECT_LT(along(t.drive.lead), 1500);
+    const auto why = trainz::game::AiDriver{}.stopAhead(t, net, &sig, standing);
+    ASSERT_TRUE(why.has_value());
+    EXPECT_STREQ(why->why, "train");
+}

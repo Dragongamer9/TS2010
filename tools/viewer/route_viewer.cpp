@@ -13,7 +13,10 @@
 // throttle-power curves; below notch 0, S steps into its dynamic-brake notches), train brake
 // handle A application / Z lap / Q release / Pause or Space emergency, R reverser (when stopped), J switch the next junction in
 // front (junctions start as the route stores them), C chase or free camera, Esc quit. The
-// title shows the next signal ahead and its aspect (the port's simple block rules). --train N picks the train (1 = the first; default: the first one that stands on track).
+// title shows the next signal ahead and its aspect (the port's simple block rules). The session's
+// other trains stand where they are; with --ai the port's simple AI drives them (it stops for
+// signals at stop, trains ahead and line ends). T (or --watch N) makes the chase camera follow
+// another train; T again moves on, back to your own. --train N picks the train (1 = the first; default: the first one that stands on track).
 // Physics: mass and notch curves from the install when present; resistance/brakes are presets.
 // Exit codes: 0 done, 1 error, 2 bad arguments, 3 no route/session matches NAME, 4 several do.
 //
@@ -85,7 +88,8 @@ int main(int argc, char** argv) {
     std::optional<double> atX, atY;
     double radius = 600;
     long frames = -1;  // -1: until Esc
-    bool drive = false, png = false, listSignals = false;
+    bool drive = false, png = false, listSignals = false, aiTrains = false;
+    long watch = 0;  // --watch N / key T: the chase camera follows other train N (0 = your own)
     std::optional<std::array<double, 6>> startCamera;  // --camera EX EY EZ TX TY TZ
     std::multimap<long, SDL_Keycode> keyScript;        // --keys "FRAME:KEY,...": key presses in a test run
     long trainNumber = 0;  // 0: the first that stands on track
@@ -146,6 +150,15 @@ int main(int argc, char** argv) {
                 keyScript.emplace(static_cast<long>(frame), key);
                 pos = end + 1;
             }
+        } else if (opt == "--watch" && i + 1 < argc) {
+            const auto n = strictNumber(argv[++i]);
+            if (!n || *n < 0 || *n > 10000 || *n != std::floor(*n)) {
+                std::cerr << "--watch needs a whole number (0 = your own train, 1.. = the other trains in order)\n";
+                return 2;
+            }
+            watch = static_cast<long>(*n);
+        } else if (opt == "--ai") {
+            aiTrains = true;
         } else if (opt == "--signals") {
             listSignals = true;
         } else if (opt == "--camera" && i + 6 < argc) {
@@ -279,6 +292,7 @@ int main(int argc, char** argv) {
         double signalClock = 1e9;  // seconds since the aspects were last worked out
         trainz::game::Drive driving;
         trainz::game::BrakeHandle brakeHandle;
+        std::vector<trainz::game::RouteTrain> otherTrains;  // drive mode: the session's other trains
         std::vector<trainz::game::RouteVehicle> vehicles;
         if (drive) {
             if (!extras.trains || !extras.track || !meshes) {
@@ -301,62 +315,41 @@ int main(int argc, char** argv) {
                           << " (" << trains.size() << " trains)\n";
                 return 1;
             }
-            std::vector<trainz::sim::VehicleSpec> specs;
-            std::size_t ownMass = 0, powered = 0;
-            for (const auto& v : trains[chosen].vehicles) {
-                // Its own physics data: the traincar's mass and its enginespec's curves.
-                std::optional<double> mass;
-                std::optional<trainz::content::EngineSpec> engine;
-                if (const auto cfg = meshes->config(v.kuid)) {
-                    if (const auto* m = cfg->child("mass"); m != nullptr && (!m->floats.empty() || !m->ints.empty())) {
-                        mass = m->floats.empty() ? m->ints[0] : m->floats[0];
-                    }
-                    if (const auto* es = cfg->child("enginespec")) {
-                        if (const auto ek = trainz::view::configKuid(*es)) {
-                            if (const auto ecfg = meshes->config(*ek)) {
-                                engine = trainz::content::parseEngineSpec(*ecfg);
-                            }
-                        }
-                    }
-                }
-                ownMass += mass ? 1 : 0;
-                specs.push_back(trainz::game::ownVehicleSpec(mass, engine ? &*engine : nullptr));
-                powered += specs.back().driven ? 1 : 0;
-                // Drawn only with a model the port can read; its mass, brakes and pull count anyway.
-                const auto* body = meshes->get(v.kuid);
-                if (body == nullptr) {
-                    continue;
-                }
-                const trainz::view::PreparedMesh* bog[2] = {nullptr, nullptr};
-                for (int k = 0; k < 2; ++k) {
-                    if (const auto b = body->bogeyFor(k == 0 ? "a.bog0" : "a.bog1")) {
-                        bog[k] = meshes->get(b->kuid);
-                    }
-                }
-                vehicles.push_back(trainz::game::routeVehicle(*body, bog[0], bog[1]));
-            }
-            if (vehicles.empty()) {
+            auto mine = trainz::game::makeRouteTrain(*net, trains, chosen, *meshes);
+            if (!mine) {
                 std::cerr << "none of that train's vehicles has a model the port can read\n";
                 return 1;
             }
-            driving.lead = *where;
-            if (powered == 0) {  // no enginespec curves read: the first vehicle pulls as the preset locomotive
-                const auto keepMass = specs.front().massKg;
-                specs.front() = trainz::sim::electricLocomotive();
-                specs.front().massKg = keepMass;
-            }
-            driving.spec = trainz::sim::makeTrain(specs);
-            const auto p = net->point(*where);
+            driving = mine->drive;
+            vehicles = mine->vehicles;
+            trainLength = mine->length;
+            const auto p = net->point(driving.lead);
             if (!atX && p) {
                 atX = p->x, atY = p->y;
             }
             std::printf("driving train %zu of %zu: %zu vehicles, %zu with models, %zu with their own mass, %zu powered by their "
                         "enginespec (%.0f t; resistance and brakes are presets)\n",
-                        chosen + 1, trains.size(), specs.size(), vehicles.size(), ownMass, powered, driving.spec.massKg / 1000);
-            standing = trainz::game::standingTrains(*net, trains, static_cast<long>(chosen));
-            for (const auto& v : vehicles) {
-                trainLength += v.length + 0.5;
+                        chosen + 1, trains.size(), mine->vehicleCount, vehicles.size(), mine->withOwnMass, mine->powered,
+                        driving.spec.massKg / 1000);
+            // The session's other trains: drawn where they stand, and with --ai driven by the port's simple driver.
+            for (std::size_t t = 0; t < trains.size(); ++t) {
+                if (t != chosen) {
+                    if (auto other = trainz::game::makeRouteTrain(*net, trains, t, *meshes)) {
+                        otherTrains.push_back(std::move(*other));
+                    }
+                }
             }
+            std::printf("%zu other trains on the track%s\n", otherTrains.size(), aiTrains ? ", driven by the port's AI" : ", standing");
+            // Trains that could not be built (no readable model, not on track) still stand in the way.
+            std::vector<trainz::content::Train> unbuilt;
+            for (std::size_t t = 0; t < trains.size(); ++t) {
+                const bool built = t == chosen || std::any_of(otherTrains.begin(), otherTrains.end(),
+                                                              [t](const trainz::game::RouteTrain& o) { return o.index == t; });
+                if (!built) {
+                    unbuilt.push_back(trains[t]);
+                }
+            }
+            standing = trainz::game::standingTrains(*net, unbuilt, -1);
         }
         // Signals (both modes, with track): turned to their track, placed on the network, and
         // their lamps drawn for the port's aspects. Without --drive every session train stands.
@@ -480,6 +473,9 @@ int main(int argc, char** argv) {
                     using P = trainz::game::BrakeHandle::Position;
                     const auto key = ev.key.keysym.sym;
                     brakeHandle.position = key == SDLK_a ? P::Application : key == SDLK_z ? P::Lap : key == SDLK_q ? P::Release : P::Emergency;
+                } else if (drive && ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_t && ev.key.repeat == 0) {
+                    watch = otherTrains.empty() ? 0 : (watch + 1) % static_cast<long>(otherTrains.size() + 1);
+                    chase = true;
                 } else if (drive && ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_j && ev.key.repeat == 0) {
                     if (const auto j = net->junctionAhead(driving.lead)) {  // the next junction in front
                         net->toggle(*j);
@@ -544,7 +540,10 @@ int main(int argc, char** argv) {
                 driving.step(*net, frames > 0 ? 0.5 : dt);
                 // Keep the world around the train: rebuild the scene once it is more than half
                 // the radius from the centre (a pause of about a second on the software renderer).
-                if (const auto p = net->point(driving.lead);
+                const auto& followed = watch > 0 && watch <= static_cast<long>(otherTrains.size())
+                                           ? otherTrains[static_cast<std::size_t>(watch - 1)].drive.lead
+                                           : driving.lead;  // the train the camera watches
+                if (const auto p = net->point(followed);
                     p && std::hypot(p->x - view.centreX, p->y - view.centreY) > radius * 0.5) {
                     const Uint32 r0 = SDL_GetTicks();
                     view = trainz::view::buildRouteView(in, radius, p->x, p->y);
@@ -552,10 +551,31 @@ int main(int argc, char** argv) {
                                 static_cast<unsigned>(SDL_GetTicks() - r0));
                 }
                 signalClock += frames > 0 ? 0.5 : dt;
+                // The other trains: each takes the points along its length; with --ai each is driven.
+                std::vector<std::vector<trainz::sim::Occupied>> takenBy(otherTrains.size() + 2);
+                takenBy[0] = trainz::game::trainOccupies(*net, driving.lead, trainLength);
+                takenBy.back() = standing;  // trains that could not be built
+                for (std::size_t t = 0; t < otherTrains.size(); ++t) {
+                    takenBy[t + 1] = trainz::game::trainOccupies(*net, otherTrains[t].drive.lead, otherTrains[t].length);
+                }
+                if (aiTrains) {
+                    const trainz::game::AiDriver ai;
+                    for (std::size_t t = 0; t < otherTrains.size(); ++t) {
+                        std::vector<trainz::sim::Occupied> others;
+                        for (std::size_t o = 0; o < takenBy.size(); ++o) {
+                            if (o != t + 1) {
+                                others.insert(others.end(), takenBy[o].begin(), takenBy[o].end());
+                            }
+                        }
+                        ai.control(otherTrains[t], *net, signals ? &*signals : nullptr, others);
+                        otherTrains[t].drive.step(*net, frames > 0 ? 0.5 : dt);
+                    }
+                }
                 if (signals && signalClock >= 0.5) {  // aspects twice a second
-                    auto taken = standing;
-                    const auto own = trainz::game::trainOccupies(*net, driving.lead, trainLength);
-                    taken.insert(taken.end(), own.begin(), own.end());
+                    std::vector<trainz::sim::Occupied> taken;
+                    for (const auto& part : takenBy) {
+                        taken.insert(taken.end(), part.begin(), part.end());
+                    }
                     signals->update(taken);
                     signalClock = 0;
                 }
@@ -574,11 +594,22 @@ int main(int argc, char** argv) {
             }
             if (dirty) {
                 const Uint32 t0 = SDL_GetTicks();
-                const trainz::view::Camera camera = drive && chase ? trainz::game::chaseCamera(*net, driving.lead) : cam.camera();
+                if (watch > static_cast<long>(otherTrains.size())) {
+                    watch = 0;
+                }
+                const trainz::sim::TrackPosition& watched =
+                    watch > 0 ? otherTrains[static_cast<std::size_t>(watch - 1)].drive.lead : driving.lead;
+                const trainz::view::Camera camera = drive && chase ? trainz::game::chaseCamera(*net, watched) : cam.camera();
                 lastCamera = camera;
                 trainz::view::Scene scene = view.scene;
                 if (drive) {
                     trainz::game::addRouteTrain(scene, *net, driving.lead, vehicles);
+                    for (const auto& t : otherTrains) {  // the session's other trains, within the view radius
+                        if (const auto p = net->point(t.drive.lead);
+                            p && std::hypot(p->x - camera.eye.x, p->y - camera.eye.y) < radius + t.length) {
+                            trainz::game::addRouteTrain(scene, *net, t.drive.lead, t.vehicles);
+                        }
+                    }
                 }
                 if (signals && meshes) {
                     if (!drive && signalClock >= 1e8) {  // standing trains only: once
@@ -665,6 +696,13 @@ int main(int argc, char** argv) {
                     if (split != std::string::npos) {
                         trainz::view::drawHudText(rgba, kW, kH, 8, 30, hud.substr(split + 2), 2, {255, 235, 150});
                     }
+                    if (watch > 0 && watch <= static_cast<long>(otherTrains.size())) {
+                        const auto& w = otherTrains[static_cast<std::size_t>(watch - 1)];
+                        char line[160];
+                        std::snprintf(line, sizeof line, "watching train %zu (%s): %.0f km/h, brake %.0f%%", w.index + 1,
+                                      aiTrains ? "AI" : "standing", std::fabs(w.drive.speed) * 3.6, w.drive.controls.brake * 100);
+                        trainz::view::drawHudText(rgba, kW, kH, 8, 52, line, 2, {150, 220, 255});
+                    }
                 }
                 SDL_UpdateTexture(tex, nullptr, rgba.data(), kW * 4);
                 SDL_RenderClear(ren);
@@ -681,6 +719,30 @@ int main(int argc, char** argv) {
             }
         }
         pads.close();
+        if (testRun && aiTrains && !otherTrains.empty()) {  // what the AI trains are doing at the end
+            std::map<std::string, int> states;
+            double furthest = 0;
+            for (const auto& t : otherTrains) {
+                const auto here = net->point(t.drive.lead);
+                const auto origin = trainz::game::trainStart(*net, (*extras.trains)[t.index]);
+                const auto from = origin ? net->point(*origin) : std::nullopt;
+                if (here && from) {
+                    furthest = std::max(furthest, std::hypot(here->x - from->x, here->y - from->y));
+                }
+                if (std::fabs(t.drive.speed) > 0.1) {
+                    ++states["moving"];
+                } else {
+                    std::vector<trainz::sim::Occupied> none;
+                    const auto why = trainz::game::AiDriver{}.stopAhead(t, *net, signals ? &*signals : nullptr, none, 60);
+                    ++states[std::string("stopped") + (why ? std::string(" (") + why->why + " ahead)" : std::string())];
+                }
+            }
+            std::printf("AI trains:");
+            for (const auto& [k, v] : states) {
+                std::printf(" %d %s;", v, k.c_str());
+            }
+            std::printf(" furthest from its start %.0f m\n", furthest);
+        }
         if (testRun) {  // for reproducing a test frame with --camera
             std::printf("last camera: --camera %.2f %.2f %.2f %.2f %.2f %.2f\n", lastCamera.eye.x, lastCamera.eye.y, lastCamera.eye.z,
                         lastCamera.target.x, lastCamera.target.y, lastCamera.target.z);

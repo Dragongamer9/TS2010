@@ -6,6 +6,7 @@
 #include "content/SessionFile.h"
 #include "content/PlacedObject.h"
 #include "content/SignalAsset.h"
+#include "game/Drive.h"
 #include "sim/Signals.h"
 #include "sim/TrainPhysics.h"
 #include "sim/TrackNetwork.h"
@@ -82,5 +83,42 @@ RouteVehicle routeVehicle(const trainz::view::PreparedMesh& body, const trainz::
 // one before (`gap` metres apart). Returns how many were drawn.
 int addRouteTrain(trainz::view::Scene& scene, const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& front,
                   const std::vector<RouteVehicle>& vehicles, double gap = 0.5);
+
+// A session train ready to run: its place and physics (a Drive), its drawn vehicles and length.
+struct RouteTrain {
+    std::size_t index = 0;  // in the session's trains
+    Drive drive;
+    std::vector<RouteVehicle> vehicles;  // the ones with a model the port can read
+    double length = 0;                   // metres, the drawn vehicles with 0.5 m gaps
+    std::size_t vehicleCount = 0, withOwnMass = 0, powered = 0;
+};
+// Builds train `index` of the session: placed where it stands (trainStart), each vehicle's own
+// mass and enginespec (ownVehicleSpec; the preset locomotive pulls when none has curves).
+// nullopt if it does not stand on track or no vehicle has a model.
+std::optional<RouteTrain> makeRouteTrain(const trainz::sim::TrackNetwork& net, const std::vector<trainz::content::Train>& trains,
+                                         std::size_t index, trainz::view::AssetMeshes& meshes);
+
+// A simple AI driver (the port's own, not the game's): runs up to `cruise` m/s on its throttle
+// notches and brakes to stop `margin` metres short of the nearest of: a signal at stop ahead,
+// a point another train takes, or a line end; at caution it holds half the cruise speed. Its
+// braking assumes `decel` m/s^2 (the full brake is the freight preset's 0.52, an emergency
+// figure, so it plans on less). UNCALIBRATED.
+struct AiDriver {
+    double cruise = 30 / 3.6;
+    double margin = 20;
+    double decel = 0.35;
+    // Sets d.drive.controls for the next step. `others`: points taken by every other train.
+    void control(RouteTrain& d, const trainz::sim::TrackNetwork& net, const trainz::sim::SignalSystem* signals,
+                 const std::vector<trainz::sim::Occupied>& others) const;
+    // The distance (metres) to the nearest place it must stop before, within `look` metres, or
+    // nullopt if none; and why ("signal", "train", "line end").
+    struct StopAhead {
+        double distance = 0;
+        const char* why = "";
+    };
+    std::optional<StopAhead> stopAhead(const RouteTrain& d, const trainz::sim::TrackNetwork& net,
+                                       const trainz::sim::SignalSystem* signals, const std::vector<trainz::sim::Occupied>& others,
+                                       double look = 1500) const;
+};
 
 }  // namespace trainz::game
