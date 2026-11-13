@@ -597,6 +597,47 @@ TEST(Signals, BlocksStopCautionAndClear) {
     EXPECT_FALSE(s.nextSignal(TrackPosition{1, 100, +1}, 50).has_value());  // too far
 }
 
+TEST(Signals, NextSignalOwnsOccupiedPointOnSamePiece) {
+    Layout l;
+    l.vertex(0, 0, 0, {{1, 0}});
+    l.vertex(1, 200, 0, {{1, 0}});
+    l.piece(1, 0, 1);
+    TrackNetwork n(l.t);
+    SignalSystem s(n, {{{1, 10, +1}, "A"}, {{1, 100, +1}, "B"}});
+    s.update({{1, 100}});
+    EXPECT_EQ(s.aspect(0), Aspect::Caution);
+    EXPECT_EQ(s.aspect(1), Aspect::Stop);
+}
+
+TEST(Signals, NextSignalOwnsOccupiedPointAtPieceStart) {
+    Layout l;
+    l.vertex(0, 0, 0, {{1, 0}});
+    l.vertex(1, 100, 0, {{1, 0}, {2, 1}});
+    l.vertex(2, 200, 0, {{2, 0}});
+    l.piece(1, 0, 1);
+    l.piece(2, 1, 2);
+    TrackNetwork n(l.t);
+    SignalSystem s(n, {{{1, 10, +1}, "A"}, {{2, 0, +1}, "B"}});
+    s.update({{2, 0}});
+    EXPECT_EQ(s.aspect(0), Aspect::Caution);
+    EXPECT_EQ(s.aspect(1), Aspect::Stop);
+}
+
+TEST(Signals, NextSignalOwnsOccupiedPointStoredAtPreviousPieceEnd) {
+    Layout l;
+    l.vertex(0, 0, 0, {{1, 0}});
+    l.vertex(1, 100, 0, {{1, 0}, {2, 1}});
+    l.vertex(2, 200, 0, {{2, 0}});
+    l.piece(1, 0, 1);
+    l.piece(2, 1, 2);
+    TrackNetwork n(l.t);
+    ASSERT_TRUE(n.length(1).has_value());
+    SignalSystem s(n, {{{1, 10, +1}, "A"}, {{2, 0, +1}, "B"}});
+    s.update({{1, *n.length(1)}});
+    EXPECT_EQ(s.aspect(0), Aspect::Caution);
+    EXPECT_EQ(s.aspect(1), Aspect::Stop);
+}
+
 TEST(Signals, BlockFollowsTheJunction) {
     // Signal on the trunk; the occupied leg only matters when the junction is set to it.
     Layout l;
