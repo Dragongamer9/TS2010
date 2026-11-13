@@ -564,7 +564,7 @@ int main(int argc, char** argv) {
                 // a collision that stops you at the contact.
                 const double stepSeconds = frames > 0 ? 0.5 : dt;
                 const double reach = std::fabs(driving.speed) * stepSeconds + 0.6;
-                const auto contact = trainz::game::findContact(*net, me, otherTrains, reach);
+                const auto contact = trainz::game::findContact(*net, me, otherTrains, reach, driving.speed >= 0);
                 if (contact && ((driving.speed > 0.05 && contact->atOurFront) || (driving.speed < -0.05 && !contact->atOurFront))) {
                     auto& other = otherTrains[contact->other];
                     const double hitKmh = std::fabs(driving.speed) * 3.6;
@@ -604,10 +604,10 @@ int main(int argc, char** argv) {
                 signalClock += frames > 0 ? 0.5 : dt;
                 // The other trains: each takes the points along its length; with --ai each is driven.
                 std::vector<std::vector<trainz::sim::Occupied>> takenBy(otherTrains.size() + 2);
-                takenBy[0] = trainz::game::trainOccupies(*net, driving.lead, me.length);
+                takenBy[0] = trainz::game::trainOccupies(*net, me);
                 takenBy.back() = standing;  // trains that could not be built
                 for (std::size_t t = 0; t < otherTrains.size(); ++t) {
-                    takenBy[t + 1] = trainz::game::trainOccupies(*net, otherTrains[t].drive.lead, otherTrains[t].length);
+                    takenBy[t + 1] = trainz::game::trainOccupies(*net, otherTrains[t]);
                 }
                 if (aiTrains) {
                     const trainz::game::AiDriver ai;

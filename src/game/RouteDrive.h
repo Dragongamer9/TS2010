@@ -100,6 +100,7 @@ struct RouteTrain {
     };
     std::vector<Car> cars;
     bool parked = false;  // cars left behind by uncoupling: they stand (the AI does not drive them)
+    bool fallbackPower = false;  // explicit train-level driving aid, never part of a car's real data
     std::optional<std::size_t> heldRedSignal;  // reached its braking margin; hold even after an overrun until it clears
 };
 // Builds train `index` of the session: placed where it stands (trainStart), each vehicle's own
@@ -132,8 +133,7 @@ struct AiDriver {
 };
 
 // Works out `vehicles`, `length` and `drive.spec` from `cars` (the place, speed and controls
-// stay). When no car has traction curves the first pulls as the preset locomotive, as in
-// makeRouteTrain.
+// stay). Only an explicitly enabled train-level fallback may supply missing traction.
 void refreshTrain(RouteTrain& t);
 
 // A train's lead is its first vehicle's MIDDLE (as session positions are). Its two buffer ends,
@@ -141,8 +141,9 @@ void refreshTrain(RouteTrain& t);
 trainz::sim::TrackPosition trainFrontEnd(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
 trainz::sim::TrackPosition trainRearEnd(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
 trainz::sim::TrackPosition lastVehicleMiddle(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
+std::vector<trainz::sim::Occupied> trainOccupies(const trainz::sim::TrackNetwork& net, const RouteTrain& t, double step = 5.0);
 
-// Another train's end within `within` metres of one of ours, along the track.
+// Another train's end within `within` metres of the selected moving end, along the track.
 struct Contact {
     std::size_t other = 0;     // index into the others
     bool atOurFront = true;    // our front (lead) or our rear
@@ -150,7 +151,7 @@ struct Contact {
     double gap = 0;            // metres
 };
 std::optional<Contact> findContact(const trainz::sim::TrackNetwork& net, const RouteTrain& me, const std::vector<RouteTrain>& others,
-                                   double within = 1.0);
+                                   double within = 1.0, bool atOurFront = true);
 
 // Couples `other` onto `me` at the contact: its cars join ours in one line (turned round when
 // they face the other way), `me`'s lead moves to the new front if they join at our front, and

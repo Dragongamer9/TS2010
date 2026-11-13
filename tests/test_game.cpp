@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <numbers>
@@ -502,7 +503,7 @@ TEST(Coupling, FindsTheTouchingEndAndJoinsInOneLine) {
     // they join behind us in their own order.
     {
         std::vector<trainz::game::RouteTrain> others{carTrain(3, 479.1, +1, 10)};
-        const auto c = trainz::game::findContact(net, me, others, 1.0);
+        const auto c = trainz::game::findContact(net, me, others, 1.0, false);
         ASSERT_TRUE(c.has_value());
         EXPECT_FALSE(c->atOurFront);
         EXPECT_TRUE(c->theirFront);
@@ -530,6 +531,67 @@ TEST(Coupling, UncouplingLeavesTheRearCarStandingBehind) {
     EXPECT_NEAR(me.drive.spec.massKg, 40'000, 1e-6);
     auto one = carTrain(1, 100, +1, 1);
     EXPECT_FALSE(trainz::game::uncoupleRear(net, one).has_value());  // the last car stays
+}
+
+TEST(Coupling, DetachedWagonsKeepTheirRealPhysicsWithoutFallbackPower) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    auto me = carTrain(3, 500, +1, 1);
+    const auto wagon = me.cars.back().spec;
+    me.fallbackPower = true;
+    trainz::game::refreshTrain(me);
+    EXPECT_GT(me.drive.spec.maxTractiveForceN, 0);
+    EXPECT_DOUBLE_EQ(me.drive.spec.maxBrakeForceN, 3 * wagon.brakeForceN);
+    const auto rest = trainz::game::uncoupleRear(net, me);
+    ASSERT_TRUE(rest.has_value());
+    EXPECT_FALSE(rest->fallbackPower);
+    EXPECT_DOUBLE_EQ(rest->drive.spec.maxTractiveForceN, 0);
+    EXPECT_DOUBLE_EQ(rest->drive.spec.maxPowerW, 0);
+    EXPECT_DOUBLE_EQ(rest->drive.spec.maxBrakeForceN, wagon.brakeForceN);
+    EXPECT_DOUBLE_EQ(rest->drive.spec.massKg, wagon.massKg);
+    EXPECT_FALSE(rest->cars.front().spec.driven);
+    EXPECT_DOUBLE_EQ(me.cars.front().spec.tractiveForceN, 0);
+}
+
+TEST(Coupling, ContactAtOppositeEndCannotHideMovingEnd) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    const auto me = carTrain(2, 500, +1, 1);
+    // Our buffers: 505 and 484.5. Rear obstruction is nearer, but we move forward.
+    const std::vector<trainz::game::RouteTrain> others{
+        carTrain(1, 479.4, +1, 10), carTrain(1, 510.4, +1, 20)};
+    const auto front = trainz::game::findContact(net, me, others, 1, true);
+    ASSERT_TRUE(front.has_value());
+    EXPECT_TRUE(front->atOurFront);
+    EXPECT_EQ(front->other, 1u);
+    EXPECT_NEAR(front->gap, 0.4, 1e-6);
+    const auto rear = trainz::game::findContact(net, me, others, 1, false);
+    ASSERT_TRUE(rear.has_value());
+    EXPECT_FALSE(rear->atOurFront);
+    EXPECT_EQ(rear->other, 0u);
+    EXPECT_NEAR(rear->gap, 0.1, 1e-6);
+}
+
+TEST(Coupling, OccupancyCoversBufferEndsAndSignalUnderFrontHalf) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    for (const int direction : {+1, -1}) {
+        SCOPED_TRACE(direction);
+        const auto me = carTrain(2, 500, direction, 1);
+        const auto front = trainz::game::trainFrontEnd(net, me);
+        const auto rear = trainz::game::trainRearEnd(net, me);
+        const auto taken = trainz::game::trainOccupies(net, me, 1);
+        ASSERT_FALSE(taken.empty());
+        EXPECT_NEAR(taken.front().offset, front.offset, 1e-6);
+        EXPECT_NEAR(taken.back().offset, rear.offset, 1e-6);
+        for (const auto& point : taken) {
+            EXPECT_GE(point.offset, std::min(front.offset, rear.offset) - 1e-6);
+            EXPECT_LE(point.offset, std::max(front.offset, rear.offset) + 1e-6);
+        }
+        trainz::sim::SignalSystem signals(net, {{{1, 500 + direction * 2.0, direction}, "front half"}});
+        signals.update(taken);
+        EXPECT_EQ(signals.aspect(0), trainz::sim::Aspect::Stop);
+    }
 }
 
 TEST(Coupling, TurnedRoundVehiclesAreDrawnTheOtherWay) {
