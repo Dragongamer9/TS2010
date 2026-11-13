@@ -154,6 +154,9 @@ std::optional<RouteTrain> makeRouteTrain(const trainz::sim::TrackNetwork& net, c
     }
     t.vehicleCount = specs.size();
     t.drive.lead = *where;
+    t.fallbackPower = std::none_of(specs.begin(), specs.end(), [](const trainz::sim::VehicleSpec& spec) {
+        return !spec.tractiveCurveN.empty() || spec.tractiveForceN > 0;
+    });
     refreshTrain(t);
     if (t.vehicles.empty()) {
         return std::nullopt;
@@ -174,10 +177,12 @@ void refreshTrain(RouteTrain& t) {
             t.length += c.vehicle->length + 0.5;
         }
     }
-    if (!anyCurves && !specs.empty()) {  // no car can pull: the first pulls as the preset locomotive
-        const auto keepMass = specs.front().massKg;
-        specs.front() = trainz::sim::electricLocomotive();
-        specs.front().massKg = keepMass;
+    if (t.fallbackPower && !anyCurves && !specs.empty()) {
+        // Supply traction only; keep the car's mass, resistance and brakes intact.
+        const auto fallback = trainz::sim::electricLocomotive();
+        specs.front().tractiveForceN = fallback.tractiveForceN;
+        specs.front().powerW = fallback.powerW;
+        specs.front().driven = true;
     }
     t.drive.spec = trainz::sim::makeTrain(specs);
 }
@@ -202,6 +207,14 @@ trainz::sim::TrackPosition trainRearEnd(const trainz::sim::TrackNetwork& net, co
     return p;
 }
 
+std::vector<trainz::sim::Occupied> trainOccupies(const trainz::sim::TrackNetwork& net, const RouteTrain& t, double step) {
+    if (t.vehicles.empty()) {
+        return {};
+    }
+    // length includes one trailing display gap; the physical buffers do not.
+    return trainOccupies(net, trainFrontEnd(net, t), std::max(0.0, t.length - 0.5), step);
+}
+
 trainz::sim::TrackPosition lastVehicleMiddle(const trainz::sim::TrackNetwork& net, const RouteTrain& t) {
     trainz::sim::TrackPosition p = t.drive.lead;
     net.advance(p, -(leadToRearEnd(t) - lastHalf(t)));
@@ -209,13 +222,16 @@ trainz::sim::TrackPosition lastVehicleMiddle(const trainz::sim::TrackNetwork& ne
 }
 
 std::optional<Contact> findContact(const trainz::sim::TrackNetwork& net, const RouteTrain& me, const std::vector<RouteTrain>& others,
-                                   double within) {
+                                   double within, bool atOurFront) {
     std::optional<Contact> best;
     // Our two buffer ends, each looking outward along the track.
     const trainz::sim::TrackPosition frontOut = trainFrontEnd(net, me);
     trainz::sim::TrackPosition rearOut = trainRearEnd(net, me);
     rearOut.direction = -rearOut.direction;
     for (const bool front : {true, false}) {
+        if (front != atOurFront) {
+            continue;
+        }
         const trainz::sim::TrackPosition& from = front ? frontOut : rearOut;
         net.walk(from, within, [&](const trainz::sim::TrackNetwork::Span& s) {
             const double lo = std::min(s.from, s.to), hi = std::max(s.from, s.to);
@@ -278,10 +294,12 @@ void coupleTrains(const trainz::sim::TrackNetwork& net, RouteTrain& me, RouteTra
         merged.insert(merged.end(), theirs.begin(), theirs.end());
     }
     me.cars = std::move(merged);
+    me.fallbackPower = me.fallbackPower || other.fallbackPower;
     me.vehicleCount += other.vehicleCount;
     me.drive.speed = myMass + theirMass > 0 ? me.drive.speed * myMass / (myMass + theirMass) : 0;  // they stood
     refreshTrain(me);
     other.cars.clear();
+    other.fallbackPower = false;
     other.vehicles.clear();
 }
 
