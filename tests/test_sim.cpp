@@ -352,7 +352,19 @@ dynamic-brake
     10 120
   }
 }
+pressure
+{
+  scale 1
+  brakepipe 0.00736041
+  brakeinitial 0.00693861
+  brakefull 0.0044992
+  mainreservoir 0.00946941
+}
 )"));
+    ASSERT_TRUE(e.brakePipe && e.brakeInitial && e.brakeFull && e.mainReservoir);
+    EXPECT_FLOAT_EQ(static_cast<float>(*e.brakePipe), 0.00736041f);
+    EXPECT_NEAR(approximatePsi(*e.mainReservoir), 90, 1e-3);
+    EXPECT_NEAR(approximatePsi(*e.brakePipe), 70, 0.1);
     ASSERT_TRUE(e.adhesion && e.maxSpeed && e.maxAccel && e.axleCount);
     EXPECT_FLOAT_EQ(static_cast<float>(*e.adhesion), 2.3f);  // config values are 32-bit floats
     EXPECT_EQ(*e.axleCount, 6);

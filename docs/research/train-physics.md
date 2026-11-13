@@ -97,3 +97,28 @@ air-pressure model:
 The full brake force is still the freight-wagon preset (0.52 m/s², an emergency figure). The
 enginespec's `pressure/*`, `brakeratio` and `max-decel` keys are read but not used, because
 their units are not established.
+
+## Air brake (2026-11-13)
+
+**From the files** (`content::EngineSpec`): the `pressure` container's `brakepipe` (charged),
+`brakeinitial`, `brakefull` and `mainreservoir`, times its `scale`. Values on the disc's 187
+enginespecs:
+
+- brake pipe: 0.00736041 (85), 0.00595441 (45), 0.00665741 (14), a few others;
+- main reservoir: 0.0081548 (96), 0.00946941 (56), …
+
+The unit is not established. If 0.00946941 is a 90 psi main reservoir (a common US value), one
+psi is ~1.052e-4. Then the SD40-2's pipe is 70 psi, its initial reduction 65.9 and its full
+service 42.8, all typical figures. The port uses that only to show approximate psi; the model
+itself works in the files' unit.
+
+**The port's model** (`game::AirBrake`, uncalibrated rates):
+
+- the handle moves an equalising reservoir: Application takes it to the initial reduction at
+  once, then on to full service in about 7 s; Release recharges it in about 20 s; Lap holds it;
+  Emergency vents it;
+- the brake pipe follows with a lag of 1 s + 0.05 s per car;
+- the brake demand is the fraction of the way from charged to full service.
+
+The `flowsize` and `volume` containers (pipes, reservoirs, cylinders) are not used yet. AI
+trains still set their brake directly.

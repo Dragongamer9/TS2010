@@ -99,6 +99,8 @@ struct RouteTrain {
         std::optional<RouteVehicle> vehicle;
     };
     std::vector<Car> cars;
+    // The train's air brake, with the pressures of its first car that has them (the locomotive).
+    AirBrake airBrake;
     bool parked = false;  // cars left behind by uncoupling: they stand (the AI does not drive them)
     bool fallbackPower = false;  // explicit train-level driving aid, never part of a car's real data
     std::optional<std::size_t> heldRedSignal;  // reached its braking margin; hold even after an overrun until it clears

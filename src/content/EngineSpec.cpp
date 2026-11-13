@@ -122,6 +122,20 @@ EngineSpec parseEngineSpec(const ConfigNode& root) {
         e.axleCount = nonnegativeCount(m->child("axle-count"));
         e.throttleNotches = nonnegativeCount(m->child("throttle-notches"));
     }
+    if (const ConfigNode* p = root.child("pressure"); p != nullptr && p->type == ConfigType::Group) {
+        double scale = 1;
+        if (const auto sc = number(p->child("scale")); sc && *sc > 0 && *sc < 100) {
+            scale = *sc;
+        }
+        auto read = [&](const char* key) -> std::optional<double> {
+            const auto v = number(p->child(key));
+            return v && *v >= 0 && *v < 1 ? std::optional<double>(*v * scale) : std::nullopt;
+        };
+        e.brakePipe = read("brakepipe");
+        e.brakeInitial = read("brakeinitial");
+        e.brakeFull = read("brakefull");
+        e.mainReservoir = read("mainreservoir");
+    }
     e.throttlePower = curves(root.child("throttle-power"));
     e.dynamicBrake = curves(root.child("dynamic-brake"));
     return e;

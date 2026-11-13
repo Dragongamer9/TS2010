@@ -119,6 +119,7 @@ std::optional<RouteTrain> makeRouteTrain(const trainz::sim::TrackNetwork& net, c
     RouteTrain t;
     t.index = index;
     std::vector<trainz::sim::VehicleSpec> specs;
+    bool havePressures = false;
     for (const auto& v : trains[index].vehicles) {
         // Its own physics data: the traincar's mass and its enginespec's curves.
         std::optional<double> mass;
@@ -136,6 +137,10 @@ std::optional<RouteTrain> makeRouteTrain(const trainz::sim::TrackNetwork& net, c
             }
         }
         t.withOwnMass += mass ? 1 : 0;
+        if (engine && engine->brakePipe && engine->brakeFull && !havePressures) {
+            t.airBrake.setPressures(engine->brakePipe, engine->brakeInitial, engine->brakeFull);
+            havePressures = true;
+        }
         specs.push_back(ownVehicleSpec(mass, engine ? &*engine : nullptr));
         t.powered += specs.back().driven ? 1 : 0;
         t.cars.push_back({specs.back(), std::nullopt});

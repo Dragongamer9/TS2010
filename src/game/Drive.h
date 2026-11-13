@@ -7,6 +7,8 @@
 #include "sim/TrainPhysics.h"
 #include "view/SceneRender.h"
 
+#include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace trainz::game {
@@ -28,6 +30,27 @@ struct BrakeHandle {
     // Moves the brake demand (0..1) for `seconds` at this position.
     void step(double& brake, double seconds) const;
     const char* name() const;
+};
+
+// An automatic air brake with the train's own pressures (the enginespec `pressure` container):
+// the handle moves the equalising reservoir, the brake pipe follows it (slower on a longer
+// train) and the brakes follow the pipe: none while it is charged (`brakepipe`), full service
+// when it has fallen to `brakefull`, linearly between; emergency vents the pipe. Pressures are
+// in the files' own unit. The RATES are the port's UNCALIBRATED choices (full service in about
+// 7 s, release in about 20 s), not the game's model (its flowsize/volume keys are not used yet).
+struct AirBrake {
+    double charged = 0.00736041;  // brakepipe (the disc's most common value)
+    double initial = 0.00693861;  // brakeinitial
+    double full = 0.0044992;      // brakefull
+    double equaliser = 0.00736041;
+    double pipe = 0.00736041;
+    // Uses the given pressures when they make sense (full < initial <= charged), else keeps
+    // the defaults above; starts charged (brakes off).
+    void setPressures(std::optional<double> brakePipe, std::optional<double> brakeInitial, std::optional<double> brakeFull);
+    // Moves the equaliser for the handle position and the pipe after it over `seconds`;
+    // `cars` sets how fast the pipe follows. Returns the brake demand 0..1.
+    double step(BrakeHandle::Position handle, double seconds, std::size_t cars);
+    double demand() const;
 };
 
 struct Drive {

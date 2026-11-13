@@ -556,8 +556,8 @@ int main(int argc, char** argv) {
                             std::clamp(driving.controls.throttle + ctl.forward * 0.5 * dt, 0.0, 1.0);
                     }
                 }
-                if (frames <= 0 || !keyScript.empty()) {
-                    brakeHandle.step(driving.controls.brake, frames > 0 ? 0.5 : dt);
+                if (frames <= 0 || !keyScript.empty()) {  // the air brake, with the train's own pressures
+                    driving.controls.brake = me.airBrake.step(brakeHandle.position, frames > 0 ? 0.5 : dt, me.cars.size());
                 }
                 // Touching another train: looked for before the step, over the distance it would move,
                 // so a fast train cannot jump past the contact. Slow (under 7 km/h) couples; faster is
@@ -721,15 +721,16 @@ int main(int argc, char** argv) {
                             std::snprintf(handle, sizeof handle, "notch %d of %d", driving.controls.notch, maxN);
                         }
                         std::snprintf(title, sizeof title,
-                                      "route-viewer  %.0f km/h  %s  brake %.0f%% (%s)  %s%s%s  (%u ms per frame)",
+                                      "route-viewer  %.0f km/h  %s  brake %.0f%% (%s, pipe ~%.0f psi)  %s%s%s  (%u ms per frame)",
                                       driving.speed * 3.6, handle, driving.controls.brake * 100, brakeHandle.name(),
+                                      trainz::content::approximatePsi(me.airBrake.pipe),
                                       driving.controls.reverser > 0 ? "forward" : "reverse",
                                       driving.atBuffer ? "  (buffer!)" : "", junction, static_cast<unsigned>(SDL_GetTicks() - t0));
                     } else {
                         std::snprintf(title, sizeof title,
-                                      "route-viewer  %.0f km/h  throttle %.0f%%  brake %.0f%% (%s)  %s%s%s  (%u ms per frame)",
+                                      "route-viewer  %.0f km/h  throttle %.0f%%  brake %.0f%% (%s, pipe ~%.0f psi)  %s%s%s  (%u ms per frame)",
                                       driving.speed * 3.6, driving.controls.throttle * 100, driving.controls.brake * 100,
-                                      brakeHandle.name(),
+                                      brakeHandle.name(), trainz::content::approximatePsi(me.airBrake.pipe),
                                       driving.controls.reverser > 0 ? "forward" : "reverse",
                                       driving.atBuffer ? "  (buffer!)" : "", junction, static_cast<unsigned>(SDL_GetTicks() - t0));
                     }

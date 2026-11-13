@@ -864,6 +864,9 @@ TEST_F(RealInstall, LocomotiveDrivesWithItsOwnEngineSpec) {
     EXPECT_EQ(*e.axleCount, 6);
     ASSERT_GE(e.throttlePower.size(), 9u);  // notches 0-8
     EXPECT_DOUBLE_EQ(e.tractiveForceN(1, 0), 165'000);
+    ASSERT_TRUE(e.brakePipe && e.brakeFull);  // its air-brake pressures
+    EXPECT_NEAR(*e.brakePipe, 0.00736041, 1e-8);
+    EXPECT_NEAR(*e.brakeFull, 0.0044992, 1e-8);
     const double m = mass->floats.empty() ? mass->ints.at(0) : mass->floats.at(0);
     const auto v = trainz::game::ownVehicleSpec(m, &e);
     EXPECT_TRUE(v.driven);

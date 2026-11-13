@@ -24,6 +24,11 @@ struct EngineSpec {
     // throttle-power: per notch (index = notch), points (speed m/s, force kN), sorted by speed.
     std::vector<std::vector<std::pair<double, double>>> throttlePower;
     std::vector<std::vector<std::pair<double, double>>> dynamicBrake;
+    // pressure container (in the file's own unit, times its `scale`): brake pipe charged,
+    // at the initial and at the full service reduction, main reservoir. OBSERVED values on the
+    // disc: brakepipe 0.00736041 (85 of 187), 0.00595441 (45), 0.00665741 (14); the unit is not
+    // established (if a 90 psi main reservoir is 0.00946941, it is ~1.052e-4 per psi).
+    std::optional<double> brakePipe, brakeInitial, brakeFull, mainReservoir;
 
     // The force (N) of a notch at a speed, interpolated linearly (0 past the curve's end or for
     // a missing notch).
@@ -38,6 +43,10 @@ EngineSpec parseEngineSpec(const ConfigNode& root);
 // Linear interpolation in a (x, y) curve sorted by x: the first y below the first point, 0
 // beyond the last (a curve ends where its force ends), and 0 for an empty curve or a NaN x.
 // A single point is a constant.
+// A pressure in the files' unit as approximate psi, ASSUMING 0.00946941 = 90 psi (a common US main
+// reservoir pressure); for display only.
+inline double approximatePsi(double fileUnits) { return fileUnits / (0.00946941 / 90.0); }
+
 double interpolateCurve(const std::vector<std::pair<double, double>>& curve, double x);
 
 }  // namespace trainz::content

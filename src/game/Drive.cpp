@@ -30,6 +30,51 @@ void BrakeHandle::step(double& brake, double seconds) const {
     brake = std::clamp(brake, 0.0, 1.0);
 }
 
+void AirBrake::setPressures(std::optional<double> brakePipe, std::optional<double> brakeInitial, std::optional<double> brakeFull) {
+    if (brakePipe && brakeFull && *brakeFull > 0 && *brakeFull < *brakePipe) {
+        charged = *brakePipe, full = *brakeFull;
+        initial = brakeInitial && *brakeInitial > full && *brakeInitial <= charged ? *brakeInitial : charged - 0.15 * (charged - full);
+    }
+    equaliser = pipe = charged;
+}
+
+double AirBrake::demand() const {
+    if (!(charged > full)) {
+        return 0;
+    }
+    if (pipe < 0.5 * full) {
+        return 1;  // vented: emergency
+    }
+    return std::clamp((charged - pipe) / (charged - full), 0.0, 1.0);
+}
+
+double AirBrake::step(BrakeHandle::Position handle, double seconds, std::size_t cars) {
+    const double dt = std::isfinite(seconds) && seconds > 0 ? std::min(seconds, 10.0) : 0.0;
+    const double span = charged - full;
+    switch (handle) {
+    case BrakeHandle::Position::Application:
+        // At least the initial reduction at once, then on toward full service.
+        equaliser = std::min(equaliser, initial);
+        equaliser = std::max(full, equaliser - span / 7.0 * dt);
+        break;
+    case BrakeHandle::Position::Lap:
+        break;
+    case BrakeHandle::Position::Release:
+        equaliser = std::min(charged, equaliser + span / 20.0 * dt);
+        break;
+    case BrakeHandle::Position::Emergency:
+        equaliser = 0;
+        break;
+    }
+    // The pipe follows the equaliser (at once in an emergency, which vents it at every car).
+    const double tau = 1.0 + 0.05 * static_cast<double>(cars);
+    pipe = handle == BrakeHandle::Position::Emergency ? 0.0 : pipe + (equaliser - pipe) * std::min(1.0, dt / tau);
+    if (!std::isfinite(pipe)) {
+        pipe = charged;
+    }
+    return demand();
+}
+
 const char* BrakeHandle::name() const {
     switch (position) {
     case Position::Release:

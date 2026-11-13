@@ -614,3 +614,56 @@ TEST(Coupling, TurnedRoundVehiclesAreDrawnTheOtherWay) {
     EXPECT_NEAR(a.triangles[0].p[0].x, 505, 1e-6);
     EXPECT_NEAR(b.triangles[0].p[0].x, 495, 1e-6);
 }
+
+TEST(AirBrake, PipeFollowsTheHandleAndTheBrakesFollowThePipe) {
+    using P = trainz::game::BrakeHandle::Position;
+    trainz::game::AirBrake b;
+    b.setPressures(0.0070, 0.0066, 0.0045);  // charged, initial, full service
+    EXPECT_DOUBLE_EQ(b.pipe, 0.0070);
+    EXPECT_DOUBLE_EQ(b.demand(), 0);
+    // Application: the initial reduction at once on the equaliser, the pipe catching up.
+    b.step(P::Application, 0.01, 1);
+    EXPECT_NEAR(b.equaliser, 0.0066 - 0.0025 / 7 * 0.01, 1e-9);
+    double d = 0;
+    for (int i = 0; i < 40; ++i) {  // 20 s: well past full service
+        d = b.step(P::Application, 0.5, 1);
+    }
+    EXPECT_NEAR(b.equaliser, 0.0045, 1e-12);
+    EXPECT_NEAR(d, 1.0, 1e-3);
+    // Release, then lap halfway: it holds.
+    for (int i = 0; i < 20; ++i) {
+        b.step(P::Release, 0.5, 1);
+    }
+    const double held = b.step(P::Lap, 0.5, 1);
+    EXPECT_GT(held, 0.1);
+    EXPECT_LT(held, 0.9);
+    for (int i = 0; i < 20; ++i) {
+        b.step(P::Lap, 0.5, 1);
+    }
+    EXPECT_NEAR(b.demand(), b.step(P::Lap, 0.5, 1), 0.02);  // the pipe settles on the equaliser and stays
+    // Emergency vents the pipe at once: full brake.
+    EXPECT_DOUBLE_EQ(b.step(P::Emergency, 0.1, 1), 1.0);
+    EXPECT_DOUBLE_EQ(b.pipe, 0);
+}
+
+TEST(AirBrake, LongerTrainsRespondSlowerAndBadPressuresAreIgnored) {
+    using P = trainz::game::BrakeHandle::Position;
+    trainz::game::AirBrake shortTrain, longTrain;
+    shortTrain.setPressures(0.0070, 0.0066, 0.0045);
+    longTrain.setPressures(0.0070, 0.0066, 0.0045);
+    for (int i = 0; i < 4; ++i) {
+        shortTrain.step(P::Application, 0.5, 2);
+        longTrain.step(P::Application, 0.5, 60);
+    }
+    EXPECT_GT(shortTrain.demand(), longTrain.demand());
+    trainz::game::AirBrake bad;
+    bad.setPressures(0.004, 0.005, 0.006);  // full above charged: nonsense, defaults kept
+    EXPECT_DOUBLE_EQ(bad.charged, 0.00736041);
+    bad.setPressures(std::nullopt, std::nullopt, 0.004);
+    EXPECT_DOUBLE_EQ(bad.full, 0.0044992);
+    trainz::game::AirBrake noInitial;
+    noInitial.setPressures(0.0070, std::nullopt, 0.0045);  // initial: 15% of the way down
+    EXPECT_NEAR(noInitial.initial, 0.0070 - 0.15 * 0.0025, 1e-12);
+    double nan = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_TRUE(std::isfinite(noInitial.step(P::Release, nan, 1)));
+}
