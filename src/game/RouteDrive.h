@@ -224,15 +224,16 @@ bool releaseIfOnlySelfHeld(RouteTrain& t, const trainz::sim::SignalSystem& signa
 //    stop at it (to) or pass it (via), and go on to the next order;
 //  - wait for: stand `timetowait` seconds (assumed to be seconds);
 //  - wait for trigger: stand until the named train's front is within 30 m of the named trigger;
-//  - couple: head for the nearest end of the train with `vehiclename` (`trainEnd(name, from)`)
-//    and creep the last 40 m; the caller couples on contact and calls finishCouple;
+//  - couple: head for the nearer (by the way along the track) of the two buffer ends of the train
+//    with `vehiclename` (`trainEnds(name)`), forward, backing or shunting; creep the last 40 m;
+//    the caller couples on contact and calls finishCouple;
 //  - anything else: the train stops and holds there (noted): skipping, say, a Load or Couple
 //    order would go on with a plan that no longer matches the session.
 // `marks` holds trackmarks and triggers by name; `trainFront(vehicleName)` the front of the train
 // with that vehicle, if any.
 void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
                const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds,
-               const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&, const trainz::sim::TrackPosition&)>& trainEnd = {});
+               const std::function<std::vector<trainz::sim::TrackPosition>(const std::string&)>& trainEnds = {});
 // Ends a Couple order once the caller has coupled: on to the next order.
 void finishCouple(RouteTrain& t);
 

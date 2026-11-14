@@ -854,7 +854,7 @@ bool advanceShunt(RouteTrain& t, trainz::sim::TrackNetwork& net) {
 
 void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
                const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds,
-               const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&, const trainz::sim::TrackPosition&)>& trainEnd) {
+               const std::function<std::vector<trainz::sim::TrackPosition>(const std::string&)>& trainEnds) {
     t.waitingForOrder = false;
     for (int guard = 0; guard < 64 && t.orderIndex < t.orders.size(); ++guard) {
         const DriverCommand& c = t.orders[t.orderIndex];
@@ -922,42 +922,63 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                 t.waitingForOrder = true;
                 return;
             }
-            if (t.coupleWith.empty()) {  // starting: head for the nearest end of that train, forward or backing
+            if (t.coupleWith.empty()) {  // starting: the nearer end of that train, forward, backing or shunting
                 const auto front = trainFrontEnd(net, t);
                 trainz::sim::TrackPosition back = trainRearEnd(net, t);
                 back.direction = -back.direction;
-                auto end = trainEnd ? trainEnd(vehicle, front) : std::nullopt;
-                auto r = end ? net.route(front, *end) : std::nullopt;
-                t.reversing = false;
-                if (!r) {
-                    end = trainEnd ? trainEnd(vehicle, back) : std::nullopt;
-                    r = end ? net.route(back, *end) : std::nullopt;
-                    t.reversing = r.has_value();
+                const auto ends = trainEnds ? trainEnds(vehicle) : std::vector<trainz::sim::TrackPosition>{};
+                // The shortest direct way from either of our ends to either of theirs.
+                double best = 1e300;
+                std::optional<trainz::sim::TrackNetwork::Route> way;
+                std::optional<trainz::sim::TrackPosition> target;
+                bool backing = false;
+                for (const auto& e : ends) {
+                    for (const bool b : {false, true}) {
+                        if (const auto r = net.route(b ? back : front, e); r && r->distance < best) {
+                            best = r->distance, way = r, target = e, backing = b;
+                        }
+                    }
                 }
                 t.legs.clear();
-                if (!r) {
-                    // Try a way with reversals to the nearer end of that train.
-                    const auto endF = trainEnd ? trainEnd(vehicle, front) : std::nullopt;
-                    const auto endB = trainEnd ? trainEnd(vehicle, back) : std::nullopt;
-                    const bool shunt = (endF && startShunt(t, net, *endF)) || (endB && startShunt(t, net, *endB));
-                    if (!shunt) {
+                if (way) {
+                    for (const auto& [vertex, piece] : way->switches) {
+                        net.switches[vertex] = piece;
+                    }
+                    t.reversing = backing;
+                    t.destination = *target;
+                } else {
+                    // A shunting way: plan one to each end and keep the shorter.
+                    std::optional<RouteTrain> bestPlan;
+                    double bestShunt = 1e300;
+                    for (const auto& e : ends) {
+                        RouteTrain trial = t;
+                        trainz::sim::TrackNetwork scratch = net;  // startShunt sets junctions: on a copy first
+                        if (startShunt(trial, scratch, e)) {
+                            double total = 0;
+                            trainz::sim::TrackPosition at = trial.reversing ? back : front;
+                            for (const auto& leg : trial.legs) {
+                                const auto r = scratch.route(at, leg.end, 20000);
+                                total += r ? r->distance : 1e6;
+                                at = leg.end;
+                                at.direction = leg.reverseAfter ? -at.direction : at.direction;
+                            }
+                            if (total < bestShunt) {
+                                bestShunt = total, bestPlan = trial, target = e;
+                            }
+                        }
+                    }
+                    if (!bestPlan || !startShunt(t, net, *target)) {
                         t.waitingForOrder = true;
                         t.orderNote = "holding: cannot reach '" + vehicle + "' to couple";
                         t.orderClock = 10;  // try again in 10 s, not every step
                         return;
                     }
-                    t.coupleWith = vehicle;
-                    t.destinationName = vehicle;
-                    t.orderNote = "to couple to '" + vehicle + "' (shunting, " + std::to_string(t.legs.size()) + " legs)";
-                    return;
-                }
-                for (const auto& [vertex, piece] : r->switches) {
-                    net.switches[vertex] = piece;
                 }
                 t.coupleWith = vehicle;
-                t.destination = *end;
                 t.destinationVia = false;
                 t.destinationName = vehicle;
+                t.orderNote = "to couple to '" + vehicle + "'" +
+                              (t.legs.empty() ? (t.reversing ? " (backing)" : "") : " (shunting, " + std::to_string(t.legs.size()) + " legs)");
             }
             advanceShunt(t, net);
             if (t.legs.empty()) {

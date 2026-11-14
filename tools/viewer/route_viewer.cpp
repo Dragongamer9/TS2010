@@ -821,38 +821,19 @@ int main(int argc, char** argv) {
                                 }
                                 return std::nullopt;
                             };
-                            const auto trainEnd = [&](const std::string& vehicle,
-                                                      const trainz::sim::TrackPosition& from) -> std::optional<trainz::sim::TrackPosition> {
+                            const auto trainEnds = [&](const std::string& vehicle) {
+                                std::vector<trainz::sim::TrackPosition> ends;
                                 for (std::size_t o = 0; o < otherTrains.size(); ++o) {
                                     const auto& vs = (*extras.trains)[otherTrains[o].index].vehicles;
-                                    if (o == t || otherTrains[o].cars.empty() ||
-                                        std::none_of(vs.begin(), vs.end(), [&](const trainz::content::Vehicle& v) { return v.name == vehicle; })) {
-                                        continue;
+                                    if (o != t && !otherTrains[o].cars.empty() &&
+                                        std::any_of(vs.begin(), vs.end(), [&](const trainz::content::Vehicle& v) { return v.name == vehicle; })) {
+                                        ends = {trainz::game::trainFrontEnd(*net, otherTrains[o]), trainz::game::trainRearEnd(*net, otherTrains[o])};
+                                        break;
                                     }
-                                    // The nearer of its two buffer ends, by the way along the track.
-                                    std::optional<trainz::sim::TrackPosition> best;
-                                    double bestD = 1e18;
-                                    const trainz::sim::TrackPosition ends[2] = {trainz::game::trainFrontEnd(*net, otherTrains[o]),
-                                                                                trainz::game::trainRearEnd(*net, otherTrains[o])};
-                                    for (const auto& end : ends) {
-                                        if (const auto r = net->route(from, end); r && r->distance < bestD) {
-                                            bestD = r->distance, best = end;
-                                        }
-                                    }
-                                    if (!best) {  // no direct way (a shunt may find one): the nearer end in a straight line
-                                        const auto f = net->point(from);
-                                        for (const auto& end : ends) {
-                                            const auto p = net->point(end);
-                                            if (f && p && std::hypot(p->x - f->x, p->y - f->y) < bestD) {
-                                                bestD = std::hypot(p->x - f->x, p->y - f->y), best = end;
-                                            }
-                                        }
-                                    }
-                                    return best;
                                 }
-                                return std::nullopt;
+                                return ends;
                             };
-                            trainz::game::runOrders(otherTrains[t], *net, marks, trainFront, frames > 0 ? 0.5 : dt, trainEnd);
+                            trainz::game::runOrders(otherTrains[t], *net, marks, trainFront, frames > 0 ? 0.5 : dt, trainEnds);
                         }
                         ai.control(otherTrains[t], *net, signals ? &*signals : nullptr, others);
                         otherTrains[t].drive.step(*net, frames > 0 ? 0.5 : dt);
@@ -1081,6 +1062,38 @@ int main(int argc, char** argv) {
                 if (!t.orders.empty()) {
                     std::printf("  train %zu orders: %zu of %zu done, now: %s\n", t.index + 1, t.orderIndex, t.orders.size(),
                                 t.orderNote.c_str());
+                }
+                if (!t.coupleWith.empty()) {  // where it is against the train it is to couple to
+                    const auto me2 = net->point(trainz::game::movingEnd(*net, t));
+                    const auto dest = t.destination ? net->point(*t.destination) : std::nullopt;
+                    for (const auto& o : otherTrains) {
+                        const auto& vs = (*extras.trains)[o.index].vehicles;
+                        if (std::none_of(vs.begin(), vs.end(), [&](const trainz::content::Vehicle& v) { return v.name == t.coupleWith; })) {
+                            continue;
+                        }
+                        const auto f = net->point(trainz::game::trainFrontEnd(*net, o));
+                        const auto r = net->point(trainz::game::trainRearEnd(*net, o));
+                        for (const bool ahead : {true, false}) {
+                            std::vector<trainz::game::RouteTrain> just{o};
+                            if (const auto c = trainz::game::findContact(*net, t, just, 30, ahead)) {
+                                std::printf("  train %zu couple: contact check from its %s finds the target's %s end %.1f m away\n", t.index + 1,
+                                            ahead ? "front" : "rear", c->theirFront ? "front" : "rear", c->gap);
+                            } else {
+                                std::printf("  train %zu couple: contact check from its %s finds nothing within 30 m\n", t.index + 1,
+                                            ahead ? "front" : "rear");
+                            }
+                        }
+                        const auto onPiece = [&](const trainz::sim::TrackPosition& p) { return std::to_string(p.piece) + "@" + std::to_string(static_cast<int>(p.offset)); };
+                        std::printf("  train %zu couple: its front %s, target ends %s / %s\n", t.index + 1,
+                                    onPiece(trainz::game::trainFrontEnd(*net, t)).c_str(), onPiece(trainz::game::trainFrontEnd(*net, o)).c_str(),
+                                    onPiece(trainz::game::trainRearEnd(*net, o)).c_str());
+                        if (me2 && f && r) {
+                            std::printf("  train %zu couple: its moving end %.0f m from the target's front end, %.0f m from its rear end; "
+                                        "sent to the %s end\n", t.index + 1, std::hypot(f->x - me2->x, f->y - me2->y),
+                                        std::hypot(r->x - me2->x, r->y - me2->y),
+                                        dest && std::hypot(dest->x - f->x, dest->y - f->y) < 1 ? "front" : "rear");
+                        }
+                    }
                 }
                 if (!t.legs.empty() && t.legIndex < t.legs.size()) {
                     const auto r = net->route(trainz::game::movingEnd(*net, t), t.legs[t.legIndex].end, 5000);

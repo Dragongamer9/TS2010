@@ -1016,18 +1016,10 @@ TEST(SessionOrders, CoupleBacksOntoWagonsBehind) {
     c.kind = "couple";
     c.properties["vehiclename"] = "Wagon";
     loco.orders = {c};
-    const auto end = [&](const std::string& name, const trainz::sim::TrackPosition& from) -> std::optional<trainz::sim::TrackPosition> {
-        if (name != "Wagon") {
-            return std::nullopt;
-        }
-        std::optional<trainz::sim::TrackPosition> best;
-        double bestD = 1e18;
-        for (const auto& e : {trainz::game::trainFrontEnd(net, others[0]), trainz::game::trainRearEnd(net, others[0])}) {
-            if (const auto r = net.route(from, e); r && r->distance < bestD) {
-                bestD = r->distance, best = e;
-            }
-        }
-        return best;
+    const auto end = [&](const std::string& name) {
+        return name == "Wagon" ? std::vector<trainz::sim::TrackPosition>{trainz::game::trainFrontEnd(net, others[0]),
+                                                                          trainz::game::trainRearEnd(net, others[0])}
+                               : std::vector<trainz::sim::TrackPosition>{};
     };
     const trainz::game::AiDriver ai;
     bool coupled = false;
