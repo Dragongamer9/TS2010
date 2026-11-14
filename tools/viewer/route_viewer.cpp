@@ -808,8 +808,7 @@ int main(int argc, char** argv) {
                     // A train held at a red signal that only it holds red (it overran into the
                     // block) would wait forever: release it, and say so.
                     for (std::size_t t = 0; t < otherTrains.size(); ++t) {
-                        auto& held = otherTrains[t].heldRedSignal;
-                        if (!held || signals->aspect(*held) != trainz::sim::Aspect::Stop) {
+                        if (!otherTrains[t].heldRedSignal) {
                             continue;
                         }
                         std::vector<trainz::sim::Occupied> others;
@@ -818,11 +817,8 @@ int main(int argc, char** argv) {
                                 others.insert(others.end(), takenBy[o].begin(), takenBy[o].end());
                             }
                         }
-                        auto probe = *signals;
-                        probe.update(others);
-                        if (probe.aspect(*held) != trainz::sim::Aspect::Stop) {
+                        if (trainz::game::releaseIfOnlySelfHeld(otherTrains[t], *signals, others)) {
                             std::printf("train %zu overran a red signal into its block; released\n", otherTrains[t].index + 1);
-                            held.reset();
                         }
                     }
                     signalClock = 0;

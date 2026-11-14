@@ -694,4 +694,18 @@ std::vector<DriverOrders> driverOrders(const std::vector<trainz::content::Behavi
     return out;
 }
 
+bool releaseIfOnlySelfHeld(RouteTrain& t, const trainz::sim::SignalSystem& signals, const std::vector<trainz::sim::Occupied>& others) {
+    if (!t.heldRedSignal || *t.heldRedSignal >= signals.signals().size() ||
+        signals.aspect(*t.heldRedSignal) != trainz::sim::Aspect::Stop) {
+        return false;
+    }
+    auto probe = signals;
+    probe.update(others);
+    if (probe.aspect(*t.heldRedSignal) == trainz::sim::Aspect::Stop) {
+        return false;  // something else holds it red: stay
+    }
+    t.heldRedSignal.reset();
+    return true;
+}
+
 }  // namespace trainz::game

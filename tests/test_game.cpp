@@ -12,6 +12,7 @@
 #include <numbers>
 #include <optional>
 #include <string>
+#include <tuple>
 
 using namespace trainz;
 
@@ -887,4 +888,61 @@ TEST(AiDriver, LongCarsStopWithTheirFrontShortOfARedSignal) {
     EXPECT_NEAR(t.drive.speed, 0, 1e-9);
     const auto front = trainz::game::trainFrontEnd(net, t);
     EXPECT_LT((front.piece == 1 ? 0 : 1000) + front.offset, 1200);  // the front buffer short of the signal
+}
+
+TEST(AiDriver, OverrunReleaseOnlyWhenTheTrainAloneHoldsItsSignal) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    trainz::sim::SignalSystem sig(net, {{{1, 500, +1}, "S"}});  // its block runs to the line end
+    trainz::game::RouteTrain t = aiTrain(510);                     // overran: 10 m past the signal
+    const auto mine = trainz::game::trainOccupies(net, t.drive.lead, 30);
+    sig.update(mine);
+    ASSERT_EQ(sig.aspect(0), trainz::sim::Aspect::Stop);
+    t.heldRedSignal = 0;
+    // Another train in the same block: stays held.
+    const std::vector<trainz::sim::Occupied> another{{2, 300}};
+    EXPECT_FALSE(trainz::game::releaseIfOnlySelfHeld(t, sig, another));
+    EXPECT_TRUE(t.heldRedSignal.has_value());
+    // Nothing else there: released.
+    EXPECT_TRUE(trainz::game::releaseIfOnlySelfHeld(t, sig, {}));
+    EXPECT_FALSE(t.heldRedSignal.has_value());
+    EXPECT_FALSE(trainz::game::releaseIfOnlySelfHeld(t, sig, {}));  // not held: nothing to do
+}
+
+TEST(AiDriver, OverrunReleaseFollowsTheJunctionIntoTheBlock) {
+    // A signal on the trunk before a junction: its block goes on along the leg the junction is set to.
+    struct L {
+        trainz::content::TrackLayout t;
+    } l;
+    trainz::content::TrackVertex v0, v1, v2, v3;
+    v0.index = 0, v1.index = 1, v2.index = 2, v3.index = 3;
+    v1.x = 100, v2.x = 200, v3.x = 190, v3.y = 40;
+    v0.links = {{1, 0}}, v1.links = {{1, 0}, {2, 1}, {3, 1}}, v2.links = {{2, 0}}, v3.links = {{3, 0}};
+    l.t.vertices = {{0, v0}, {1, v1}, {2, v2}, {3, v3}};
+    for (const auto& [i, f, to] : {std::tuple{1, 0, 1}, std::tuple{2, 1, 2}, std::tuple{3, 1, 3}}) {
+        trainz::content::TrackStretch s;
+        s.index = i, s.from = f, s.to = to, s.rest = {0x20, 0, 0, 0};
+        l.t.stretches.push_back(s);
+    }
+    trainz::sim::TrackNetwork net(l.t);
+    trainz::sim::SignalSystem sig(net, {{{1, 50, +1}, "S"}});
+    trainz::game::RouteTrain t;
+    t.drive.lead = {1, 60, +1};  // overran the signal by 10 m (no vehicles: its points are its lead)
+    t.heldRedSignal = 0;
+    const std::vector<trainz::sim::Occupied> mine{{1, 60}};
+    const std::vector<trainz::sim::Occupied> onBranch{{3, 20}};
+    std::vector<trainz::sim::Occupied> all = mine;
+    all.insert(all.end(), onBranch.begin(), onBranch.end());
+    // Set to the branch, where another train stands: stays held.
+    net.switches[1] = 3;
+    sig.update(all);
+    ASSERT_EQ(sig.aspect(0), trainz::sim::Aspect::Stop);
+    EXPECT_FALSE(trainz::game::releaseIfOnlySelfHeld(t, sig, onBranch));
+    EXPECT_TRUE(t.heldRedSignal.has_value());
+    // Set straight on: the other train is not in the block any more, only this one: released.
+    net.switches[1] = 2;
+    sig.update(all);
+    ASSERT_EQ(sig.aspect(0), trainz::sim::Aspect::Stop);  // still red, by its own lead
+    EXPECT_TRUE(trainz::game::releaseIfOnlySelfHeld(t, sig, onBranch));
+    EXPECT_FALSE(t.heldRedSignal.has_value());
 }

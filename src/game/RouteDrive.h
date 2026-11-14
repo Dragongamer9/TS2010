@@ -187,4 +187,10 @@ struct DriverOrders {
 };
 std::vector<DriverOrders> driverOrders(const std::vector<trainz::content::Behaviour>& rules);
 
+// A train held at a red signal (heldRedSignal) that only it holds red - it overran into the block
+// - would wait forever. Releases the hold when the signal would not be at stop with `others` (the
+// points every OTHER train takes; the signals' junction settings as they are) and returns true;
+// keeps it (false) while anything else is in the block, or when not held.
+bool releaseIfOnlySelfHeld(RouteTrain& t, const trainz::sim::SignalSystem& signals, const std::vector<trainz::sim::Occupied>& others);
+
 }  // namespace trainz::game
