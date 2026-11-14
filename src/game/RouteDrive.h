@@ -93,7 +93,8 @@ struct DriverCommand {
     std::map<std::string, std::string> properties;
     // What the port makes of it (set by the caller from the command asset's name):
     // "navigate-to-trackmark", "navigate-via-trackmark", "wait-for", "wait-for-trigger", "couple",
-// "no-effect" (horn, destination sign, pantograph: done at once), or "" (not followed: the train holds).
+// "no-effect" (horn, destination sign, pantograph: acknowledged and passed over, NOT performed),
+// or "" (not followed: the train holds).
     std::string kind;
     std::string name;  // the command asset's username, for notes
 };
@@ -128,6 +129,9 @@ struct RouteTrain {
     bool waitingForOrder = false;     // stand still: the current order is a wait
     std::string coupleWith;           // a Couple order: the vehicle to couple to (the caller couples on contact)
     bool reversing = false;           // the AI drives it backwards (its rear end leads)
+    // A shunting way (legs with a reversal between them) to the current order's place.
+    std::vector<trainz::sim::TrackNetwork::Leg> legs;
+    std::size_t legIndex = 0;
     std::string orderNote;            // what it is doing, for display  // reached its braking margin; hold even after an overrun until it clears
 };
 // Builds train `index` of the session: placed where it stands (trainStart), each vehicle's own

@@ -86,6 +86,23 @@ public:
     };
     std::optional<Route> route(const TrackPosition& from, const TrackPosition& to, double maxDistance = 20000) const;
 
+    // As route, but the train may also reverse (a shunting move): after running onto a piece
+    // through a junction far enough that it is clear of the junction (`clearance` metres: its
+    // length and a margin), it stops and backs out through that junction onto another way. The
+    // way comes in legs, each with its junction settings and where it ends (a stop to reverse at,
+    // facing the way it was going, or the target). nullopt if no way within maxDistance.
+    struct Leg {
+        std::vector<std::pair<std::int32_t, std::int32_t>> switches;
+        TrackPosition end;
+        bool reverseAfter = false;
+    };
+    struct ShuntRoute {
+        double distance = 0;
+        std::vector<Leg> legs;
+    };
+    std::optional<ShuntRoute> routeWithReversals(const TrackPosition& from, const TrackPosition& to, double clearance,
+                                                 double maxDistance = 20000) const;
+
     static constexpr int kSamples = 32;  // curve samples per piece for arc length
 
 private:

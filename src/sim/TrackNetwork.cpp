@@ -221,6 +221,112 @@ std::optional<TrackNetwork::Route> TrackNetwork::route(const TrackPosition& from
     return found;
 }
 
+std::optional<TrackNetwork::ShuntRoute> TrackNetwork::routeWithReversals(const TrackPosition& from, const TrackPosition& to,
+                                                                         double clearance, double maxDistance) const {
+    const auto start = pieces_.find(from.piece);
+    const auto goal = pieces_.find(to.piece);
+    if (start == pieces_.end() || goal == pieces_.end() || !(clearance > 0)) {
+        return std::nullopt;
+    }
+    const double startLen = start->second.cumulative.back(), goalLen = goal->second.cumulative.back();
+    const double startOffset = std::clamp(from.offset, 0.0, startLen), goalOffset = std::clamp(to.offset, 0.0, goalLen);
+    const int startDir = from.direction >= 0 ? 1 : -1;
+    if (from.piece == to.piece && (goalOffset - startOffset) * startDir >= 0) {
+        return ShuntRoute{std::fabs(goalOffset - startOffset), {Leg{{}, to, false}}};
+    }
+    // States (piece, direction); `entry` is the distance where it was entered (at its near
+    // vertex), so its far vertex is entry + length away. The start state is entered before 0.
+    using State = std::pair<std::int32_t, int>;
+    struct Came {
+        State prev;
+        std::int32_t vertex = -1;   // passed (normal step)
+        bool choice = false;
+        bool reversal = false;      // a reversal on this piece (prev = the same piece the other way)
+    };
+    std::map<State, double> entry;
+    std::map<State, Came> came;
+    std::priority_queue<std::pair<double, State>, std::vector<std::pair<double, State>>, std::greater<>> open;
+    const State first{from.piece, startDir};
+    entry[first] = -(startDir > 0 ? startOffset : startLen - startOffset);
+    open.push({entry[first], first});
+    double bestTotal = 1e300;
+    std::optional<State> bestState;
+    auto relax = [&](const State& ns, double e, const Came& how) {
+        const auto it = entry.find(ns);
+        if (it == entry.end() || e < it->second - 1e-9) {
+            entry[ns] = e;
+            came[ns] = how;
+            open.push({e, ns});
+        }
+    };
+    while (!open.empty()) {
+        const auto [e, st] = open.top();
+        open.pop();
+        if (e > entry[st] + 1e-9 || e >= bestTotal || e > maxDistance) {
+            continue;
+        }
+        const Piece& pc = pieces_.at(st.first);
+        const double len = pc.cumulative.back();
+        // The target on this piece, ahead of where it was entered.
+        if (st.first == to.piece && st != first) {
+            const double at = e + (st.second > 0 ? goalOffset : len - goalOffset);
+            if (at < bestTotal) {
+                bestTotal = at, bestState = st;
+            }
+        }
+        const double atFar = e + len;
+        const std::int32_t far = st.second > 0 ? pc.to : pc.from;
+        for (const std::int32_t next : exits(far, st.first)) {
+            const Piece& np = pieces_.at(next);
+            relax({next, np.from == far ? 1 : -1}, atFar, {st, far, exits(far, st.first).size() > 1, false});
+        }
+        // Reverse here: run `clearance` metres in (clear of the junction it came through), stop,
+        // and back out through that same vertex onto any way there. Costs 2 x clearance, never
+        // less than nothing, so the search stays sound (no shortcut loops).
+        const std::int32_t near = st.second > 0 ? pc.from : pc.to;
+        if (st != first && len >= clearance) {
+            const auto ways = exits(near, st.first);
+            for (const std::int32_t m : ways) {
+                const Piece& mp = pieces_.at(m);
+                relax({m, mp.from == near ? 1 : -1}, e + 2 * clearance, {st, near, ways.size() > 1, true});
+            }
+        }
+    }
+    if (!bestState) {
+        return std::nullopt;
+    }
+    // Rebuild the steps from the start, then cut them into legs at the reversals.
+    std::vector<std::pair<State, Came>> steps;
+    for (State st = *bestState; st != first;) {
+        const Came& c = came.at(st);
+        steps.push_back({st, c});
+        st = c.prev;
+    }
+    std::reverse(steps.begin(), steps.end());
+    ShuntRoute out;
+    out.distance = bestTotal;
+    Leg leg;
+    for (const auto& [st, c] : steps) {
+        if (c.reversal) {
+            // Stop `clearance` past the vertex it came in by, on the piece it reversed on; the
+            // next leg starts by backing through that vertex onto `st`.
+            const State was = c.prev;
+            const Piece& pc = pieces_.at(was.first);
+            const double len = pc.cumulative.back();
+            leg.end = TrackPosition{was.first, was.second > 0 ? clearance : len - clearance, was.second};
+            leg.reverseAfter = true;
+            out.legs.push_back(std::move(leg));
+            leg = Leg{};
+        }
+        if (c.choice) {
+            leg.switches.push_back({c.vertex, st.first});
+        }
+    }
+    leg.end = to;
+    out.legs.push_back(std::move(leg));
+    return out;
+}
+
 std::int32_t TrackNetwork::toggle(const JunctionAhead& j) {
     if (j.ways.empty()) {
         return -1;

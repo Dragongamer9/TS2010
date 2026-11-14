@@ -832,9 +832,20 @@ int main(int argc, char** argv) {
                                     // The nearer of its two buffer ends, by the way along the track.
                                     std::optional<trainz::sim::TrackPosition> best;
                                     double bestD = 1e18;
-                                    for (const auto& end : {trainz::game::trainFrontEnd(*net, otherTrains[o]), trainz::game::trainRearEnd(*net, otherTrains[o])}) {
+                                    const trainz::sim::TrackPosition ends[2] = {trainz::game::trainFrontEnd(*net, otherTrains[o]),
+                                                                                trainz::game::trainRearEnd(*net, otherTrains[o])};
+                                    for (const auto& end : ends) {
                                         if (const auto r = net->route(from, end); r && r->distance < bestD) {
                                             bestD = r->distance, best = end;
+                                        }
+                                    }
+                                    if (!best) {  // no direct way (a shunt may find one): the nearer end in a straight line
+                                        const auto f = net->point(from);
+                                        for (const auto& end : ends) {
+                                            const auto p = net->point(end);
+                                            if (f && p && std::hypot(p->x - f->x, p->y - f->y) < bestD) {
+                                                bestD = std::hypot(p->x - f->x, p->y - f->y), best = end;
+                                            }
                                         }
                                     }
                                     return best;
@@ -1070,6 +1081,15 @@ int main(int argc, char** argv) {
                 if (!t.orders.empty()) {
                     std::printf("  train %zu orders: %zu of %zu done, now: %s\n", t.index + 1, t.orderIndex, t.orders.size(),
                                 t.orderNote.c_str());
+                }
+                if (!t.legs.empty() && t.legIndex < t.legs.size()) {
+                    const auto r = net->route(trainz::game::movingEnd(*net, t), t.legs[t.legIndex].end, 5000);
+                    std::printf("  train %zu shunting: leg %zu of %zu, %s, %.1f km/h, %s\n", t.index + 1, t.legIndex + 1, t.legs.size(),
+                                r ? (std::to_string(static_cast<int>(r->distance)) + " m to its end").c_str() : "its end not ahead",
+                                std::fabs(t.drive.speed) * 3.6, t.reversing ? "backing" : "forward");
+                    if (const auto why = trainz::game::AiDriver{}.stopAhead(t, *net, signals ? &*signals : nullptr, standing)) {
+                        std::printf("  train %zu: nearest stop %s in %.0f m\n", t.index + 1, why->why, why->distance);
+                    }
                 }
                 if (t.destination) {
                     // Why it stands: the AI's own stop check, with every other train's real place.

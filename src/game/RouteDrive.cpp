@@ -402,6 +402,15 @@ void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, cons
     const double v = std::fabs(d.drive.speed);
     c.reverser = d.reversing ? -1 : +1;
     c.dynamicNotch = 0;
+    // A Couple order's final approach (last leg, within 150 m): a calling-on move, so a red
+    // signal neither stops nor holds it (see below).
+    const bool callingOn = !d.coupleWith.empty() && d.destination && (d.legs.empty() || d.legIndex + 1 >= d.legs.size()) && [&] {
+        const auto r = net.route(front, *d.destination, 160);
+        return r && r->distance < 150;
+    }();
+    if (callingOn) {
+        d.heldRedSignal.reset();
+    }
     if (d.heldRedSignal && signals != nullptr &&
         *d.heldRedSignal < signals->signals().size() &&
         signals->aspect(*d.heldRedSignal) != trainz::sim::Aspect::Stop) {
@@ -413,7 +422,7 @@ void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, cons
             const auto aspect = signals->aspect(sg->index);
             if (aspect == trainz::sim::Aspect::Caution) {
                 limit = cruise / 2;
-            } else if (aspect == trainz::sim::Aspect::Stop && sg->distance <= margin && !d.heldRedSignal) {
+            } else if (aspect == trainz::sim::Aspect::Stop && sg->distance <= margin && !d.heldRedSignal && !callingOn) {
                 // Remember before crossing: an overrun removes this signal from nextSignal.
                 d.heldRedSignal = sg->index;
             }
@@ -425,18 +434,20 @@ void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, cons
     }
     // Coupling: the last 40 m to the other train's end at walking pace, without stopping short
     // of it (its points would otherwise be a train ahead); signals still count.
-    if (!d.coupleWith.empty() && d.destination) {
-        if (const auto r = net.route(front, *d.destination, 60); r && r->distance < 40) {
-            const bool redAhead = signals != nullptr && [&] {
-                const auto sg = signals->nextSignal(front, r->distance + 1);
-                return sg && signals->aspect(sg->index) == trainz::sim::Aspect::Stop;
-            }();
-            if (!redAhead) {
-                c.brake = v > 1.2 ? 0.6 : 0.0;
-                c.notch = v < 0.8 ? 1 : 0;
-                c.throttle = v < 0.8 ? 0.15 : 0.0;
+    if (!d.coupleWith.empty() && d.destination && (d.legs.empty() || d.legIndex + 1 >= d.legs.size())) {  // the last leg only
+        // Within 150 m it may also pass a red signal at walking pace (a calling-on move: the block
+        // is usually red because the train it couples to stands in it). The port's rule.
+        if (const auto r = net.route(front, *d.destination, 160); r && r->distance < 150) {
+            if (r->distance >= 40) {  // still some way to go: a gentle approach at up to 10 km/h
+                c.brake = v > 3.0 ? 0.6 : 0.0;
+                c.notch = v < 2.5 ? 1 : 0;
+                c.throttle = v < 2.5 ? 0.2 : 0.0;
                 return;
             }
+            c.brake = v > 1.2 ? 0.6 : 0.0;  // the last 40 m at walking pace, up to the buffers
+            c.notch = v < 0.8 ? 1 : 0;
+            c.throttle = v < 0.8 ? 0.15 : 0.0;
+            return;
         }
     }
     const auto stop = stopAhead(d, net, signals, others);
@@ -770,10 +781,57 @@ void finishCouple(RouteTrain& t) {
     t.orderNote = "coupled to '" + t.coupleWith + "'";
     t.coupleWith.clear();
     t.reversing = false;
+    t.legs.clear();
     t.destination.reset();
     ++t.orderIndex;
     t.orderClock = 0;
 }
+
+namespace {
+// Plans a shunting way (with reversals) from either end of the train to `target`; on success sets
+// the legs, the first leg's junctions, the direction and the destination (its end).
+bool startShunt(RouteTrain& t, trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& target) {
+    const double clearance = t.length + 15;
+    trainz::sim::TrackPosition back = trainRearEnd(net, t);
+    back.direction = -back.direction;
+    auto r = net.routeWithReversals(trainFrontEnd(net, t), target, clearance);
+    bool backing = false;
+    if (const auto rb = net.routeWithReversals(back, target, clearance); rb && (!r || rb->distance < r->distance)) {
+        r = rb, backing = true;
+    }
+    if (!r || r->legs.empty()) {
+        return false;
+    }
+    t.legs = r->legs;
+    t.legIndex = 0;
+    t.reversing = backing;
+    for (const auto& [vertex, piece] : t.legs[0].switches) {
+        net.switches[vertex] = piece;
+    }
+    t.destination = t.legs[0].end;
+    t.destinationVia = false;
+    return true;
+}
+
+// On a shunting way: at the end of a leg (stopped there), reverse and start the next. Returns
+// true while legs remain before the last one.
+bool advanceShunt(RouteTrain& t, trainz::sim::TrackNetwork& net) {
+    if (t.legs.empty() || t.legIndex + 1 >= t.legs.size()) {
+        return false;
+    }
+    const auto& leg = t.legs[t.legIndex];
+    const auto r = net.route(movingEnd(net, t), leg.end, 200);
+    if ((!r || r->distance < 25) && std::fabs(t.drive.speed) < 0.1) {
+        ++t.legIndex;
+        t.reversing = !t.reversing;
+        for (const auto& [vertex, piece] : t.legs[t.legIndex].switches) {
+            net.switches[vertex] = piece;
+        }
+        t.destination = t.legs[t.legIndex].end;
+    }
+    return t.legIndex + 1 < t.legs.size();
+}
+}  // namespace
 
 void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
                const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds,
@@ -790,6 +848,7 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
             t.orderClock = 0;
             t.destination.reset();
             t.reversing = false;
+            t.legs.clear();
             t.orderNote = note;
         };
         if (c.kind == "navigate-to-trackmark" || c.kind == "navigate-via-trackmark") {
@@ -805,9 +864,16 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                 back.direction = -back.direction;
                 const auto behind = ahead ? std::nullopt : net.route(back, mark->second);
                 if (!ahead && !behind) {
+                    if (startShunt(t, net, mark->second)) {  // a way with reversals
+                        t.destinationName = mark->first;
+                        t.orderNote = std::string(via ? "via '" : "to '") + mark->first + "' (shunting, " +
+                                      std::to_string(t.legs.size()) + " legs)";
+                        return;
+                    }
                     next("cannot reach '" + mark->first + "'");
                     continue;
                 }
+                t.legs.clear();
                 t.reversing = !ahead;
                 const auto& r = ahead ? ahead : behind;
                 for (const auto& [vertex, piece] : r->switches) {
@@ -819,6 +885,9 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                 t.orderNote = std::string(via ? "via '" : "to '") + mark->first + "'" + (t.reversing ? " (backing)" : "");
                 return;
             }
+            if (advanceShunt(t, net)) {
+                return;  // still on an earlier leg
+            }
             const auto r = net.route(movingEnd(net, t), mark->second);
             const bool arrived = via ? (!r || r->distance < 5) : (r && r->distance < 25 && std::fabs(t.drive.speed) < 0.1);
             if (arrived) {
@@ -829,6 +898,11 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
         }
         if (c.kind == "couple") {
             const std::string vehicle = prop("vehiclename");
+            if (t.coupleWith.empty() && t.orderClock > 0) {  // a failed attempt: try again in a while
+                t.orderClock -= std::isfinite(seconds) && seconds > 0 ? seconds : 0;
+                t.waitingForOrder = true;
+                return;
+            }
             if (t.coupleWith.empty()) {  // starting: head for the nearest end of that train, forward or backing
                 const auto front = trainFrontEnd(net, t);
                 trainz::sim::TrackPosition back = trainRearEnd(net, t);
@@ -841,9 +915,21 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                     r = end ? net.route(back, *end) : std::nullopt;
                     t.reversing = r.has_value();
                 }
+                t.legs.clear();
                 if (!r) {
-                    t.waitingForOrder = true;
-                    t.orderNote = "holding: cannot reach '" + vehicle + "' to couple";
+                    // Try a way with reversals to the nearer end of that train.
+                    const auto endF = trainEnd ? trainEnd(vehicle, front) : std::nullopt;
+                    const auto endB = trainEnd ? trainEnd(vehicle, back) : std::nullopt;
+                    const bool shunt = (endF && startShunt(t, net, *endF)) || (endB && startShunt(t, net, *endB));
+                    if (!shunt) {
+                        t.waitingForOrder = true;
+                        t.orderNote = "holding: cannot reach '" + vehicle + "' to couple";
+                        t.orderClock = 10;  // try again in 10 s, not every step
+                        return;
+                    }
+                    t.coupleWith = vehicle;
+                    t.destinationName = vehicle;
+                    t.orderNote = "to couple to '" + vehicle + "' (shunting, " + std::to_string(t.legs.size()) + " legs)";
                     return;
                 }
                 for (const auto& [vertex, piece] : r->switches) {
@@ -854,11 +940,14 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                 t.destinationVia = false;
                 t.destinationName = vehicle;
             }
-            t.orderNote = "to couple to '" + vehicle + "'" + (t.reversing ? " (backing)" : "");
+            advanceShunt(t, net);
+            if (t.legs.empty()) {
+                t.orderNote = "to couple to '" + vehicle + "'" + (t.reversing ? " (backing)" : "");
+            }
             return;  // the caller couples on contact (finishCouple)
         }
         if (c.kind == "no-effect") {
-            next("did '" + c.name + "'");
+            next("passed over '" + c.name + "' (acknowledged, not performed)");
             continue;
         }
         if (c.kind == "wait-for") {

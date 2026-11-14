@@ -803,3 +803,33 @@ TEST(TrackAttachment, ReadsTheTrackmarkForm) {
     o.rest[o.rest.size() - 31 + 4] = 7;  // not the form's head: and not the 23-byte form either
     EXPECT_FALSE(trackAttachment(o).has_value());
 }
+
+TEST(TrackNetwork, ShuntingRouteReversesThroughAHeadshunt) {
+    // Junction at vertex 1 (100, 0): the trunk (piece 1) runs east to vertex 2; legs A (piece 2,
+    // from vertex 3) and B (piece 3, to vertex 4) both leave it westward.
+    Layout l;
+    l.vertex(1, 100, 0, {{1, 0}, {2, 1}, {3, 1}});
+    l.vertex(2, 300, 0, {{1, 0}});
+    l.vertex(3, 0, 10, {{2, 0}});
+    l.vertex(4, 0, -10, {{3, 0}});
+    l.piece(1, 1, 2);
+    l.piece(2, 3, 1);
+    l.piece(3, 1, 4);
+    TrackNetwork n(l.t);
+    const TrackPosition onA{2, 20, +1};   // on leg A, heading for the junction
+    const TrackPosition onB{3, 50, +1};   // a place on leg B
+    EXPECT_FALSE(n.route(onA, onB).has_value());  // no way without reversing
+    const auto r = n.routeWithReversals(onA, onB, 60);
+    ASSERT_TRUE(r.has_value());
+    ASSERT_EQ(r->legs.size(), 2u);
+    EXPECT_TRUE(r->legs[0].reverseAfter);
+    EXPECT_EQ(r->legs[0].end.piece, 1);           // onto the trunk...
+    EXPECT_NEAR(r->legs[0].end.offset, 60, 1e-9);  // ...60 m in (clear of the junction)
+    ASSERT_EQ(r->legs[1].switches.size(), 1u);
+    EXPECT_EQ(r->legs[1].switches[0], (std::pair<std::int32_t, std::int32_t>{1, 3}));  // back onto leg B
+    EXPECT_EQ(r->legs[1].end.piece, 3);
+    const double legA = n.length(2).value() - 20;
+    EXPECT_NEAR(r->distance, legA + 2 * 60 + 50, 1e-6);
+    // Too short a trunk to stand clear on: no way.
+    EXPECT_FALSE(n.routeWithReversals(onA, onB, 250).has_value());
+}

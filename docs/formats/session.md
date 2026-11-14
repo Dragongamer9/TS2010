@@ -152,8 +152,9 @@ Navigate Via Trackmark 255, Navigate To 178 (`industryname`, `trackname`), Load 
 custom ones. The port works through each driver's list in order (`game::runOrders`, its own
 logic; the game's command scripts are not run): navigate to / via a trackmark (route-finding,
 junction settings, stop or pass; backing up if the way lies behind), wait for (seconds
-assumed), wait for trigger, couple (drive to the named car's train, creep, couple), and the
-harmless horn / destination sign / pantograph orders. At any other order the train stops and
+assumed), wait for trigger, couple (drive to the named car's train, creep, couple), and the horn /
+destination sign / pantograph orders are acknowledged and passed over (not performed: no horn
+sounds, no sign or pantograph changes). At any other order the train stops and
 holds (skipping it could change everything after it). Not yet: routes that need a reversal on
 the way (shunting), Navigate To an industry, Load/Unload, Uncouple, Run Around. Trackmarks and triggers are found by name in the route's and the session's
 objects.
