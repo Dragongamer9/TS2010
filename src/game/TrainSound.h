@@ -32,6 +32,13 @@ public:
     // Clips by their file name ("idle 1.wav", "up 1 - 2.wav", "horn_loop.wav", ...).
     void addEngineClip(const std::string& name, SoundClip clip) { engine_[name] = std::move(clip); }
     void addHornClip(const std::string& name, SoundClip clip) { horn_[name] = std::move(clip); }
+    // General effects (Data.ja's sounds/...: wheel clacks, wheels over points, the air brake).
+    void addEffect(const std::string& name, SoundClip clip) { effects_[name] = std::move(clip); }
+    bool hasEffect(const std::string& name) const { return effects_.count(name) != 0; }
+    // Plays an effect once, after `delay` samples, at `volume` (up to 16 at a time; the oldest goes).
+    void play(const std::string& name, float volume, std::size_t delay = 0);
+    // Keeps an effect looping at `volume` while `on` (start/stop clips are played by the caller).
+    void loop(const std::string& name, bool on, float volume);
     bool hasEngine() const { return engine_.count("idle 1.wav") != 0; }
     bool hasHorn() const { return horn_.count("horn_loop.wav") != 0 || horn_.count("horn_start.wav") != 0; }
 
@@ -56,7 +63,14 @@ private:
     void nextEngineClip();
     void mixVoice(Voice& v, float* out, std::size_t count, float volume);
 
-    std::map<std::string, SoundClip> engine_, horn_;
+    std::map<std::string, SoundClip> engine_, horn_, effects_;
+    struct Shot {
+        Voice voice;
+        float volume = 1;
+        std::size_t delay = 0;
+    };
+    std::vector<Shot> shots_;
+    std::map<std::string, Shot> loops_;
     int current_ = 0, target_ = 0;
     Voice engineVoice_;
     std::string engineName_;
@@ -64,6 +78,47 @@ private:
     enum class Horn { Off, Start, Loop, End } horn_state_ = Horn::Off;
     bool hornHeld_ = false;
 };
+
+// The running sounds of a moving train, from the game's general sounds in Data.ja (OBSERVED
+// files: sounds/track/wheel_clang1..6.wav and _slow1/2, sounds/junction/wheels_over_points_1..6.wav,
+// sounds/airbrakes/start.wav, idle 1.wav, stop.wav). The port's rules, not the game's: a pair of
+// wheel clacks at every rail joint (every kJointSpacing metres, the axles kAxleGap apart), louder
+// with speed and the slow clips below 20 km/h; a wheels-over-points clip at a junction; the brake
+// hiss while the brake pipe is falling (start, loop, stop).
+struct RunningSounds {
+    static constexpr double kJointSpacing = 12.0;  // metres between rail joints: a GUESS (US 39 ft rails)
+    static constexpr double kAxleGap = 2.4;        // metres between the clacks of one bogie
+    double sinceJoint = 0;                         // metres run since the last joint
+    int clackIndex = 0, pointsIndex = 0;
+    bool hissing = false;
+    // One step: `speed` m/s, `moved` metres this step (signed), `seconds` long; `overPoints` when
+    // the train ran through a junction; `brakeFalling` when the brake pipe pressure fell.
+    void update(TrainSound& s, double speed, double moved, double seconds, bool overPoints, bool brakeFalling);
+};
+
+// The general sounds above, from the game's Data.ja (`readFile(name)` returns its bytes).
+template <class ReadFile>
+void loadRunningSounds(TrainSound& out, ReadFile&& readFile) {
+    std::vector<std::string> names;
+    for (int i = 1; i <= 6; ++i) {
+        names.push_back("sounds/track/wheel_clang" + std::to_string(i) + ".wav");
+        names.push_back("sounds/junction/wheels_over_points_" + std::to_string(i) + ".wav");
+    }
+    for (const char* n : {"sounds/track/wheel_clang_slow1.wav", "sounds/track/wheel_clang_slow2.wav", "sounds/airbrakes/start.wav",
+                          "sounds/airbrakes/idle 1.wav", "sounds/airbrakes/stop.wav"}) {
+        names.push_back(n);
+    }
+    for (const auto& n : names) {
+        const auto bytes = readFile(n);
+        if (!bytes) {
+            continue;
+        }
+        try {
+            out.addEffect(n, toClip(trainz::content::decodeWav(*bytes), TrainSound::kRate));
+        } catch (const std::exception&) {
+        }
+    }
+}
 
 // Loads a traincar's engine and horn sounds: the asset KUIDs from its config's `enginesound`
 // and `hornsound` keys, then their .wav files. `readFile(kuid, name)` returns a file of an asset.

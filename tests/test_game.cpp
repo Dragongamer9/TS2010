@@ -740,3 +740,55 @@ TEST(TrainSound, ClipsAreMixedToMonoAndResampled) {
     trainz::content::PcmSound empty;
     EXPECT_TRUE(trainz::game::toClip(empty, 22050).samples.empty());
 }
+
+// No time passing changes nothing, even with the handle in application or emergency (review).
+TEST(AirBrake, NoElapsedTimeChangesNothing) {
+    using P = trainz::game::BrakeHandle::Position;
+    trainz::game::AirBrake b;
+    b.setPressures(0.0070, 0.0066, 0.0045);
+    for (const double t : {0.0, -1.0, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
+        for (const P h : {P::Application, P::Emergency, P::Release, P::Lap}) {
+            EXPECT_DOUBLE_EQ(b.step(h, t, 10), 0.0);
+            EXPECT_DOUBLE_EQ(b.equaliser, 0.0070);
+            EXPECT_DOUBLE_EQ(b.pipe, 0.0070);
+        }
+    }
+}
+
+TEST(RunningSounds, ClacksAtEveryJointPointsAndBrakeHiss) {
+    trainz::game::TrainSound s;
+    // Every clip a 10-sample burst of its own level, so the mix shows what played and when.
+    s.addEffect("sounds/track/wheel_clang1.wav", constantClip(0.5f, 10));
+    s.addEffect("sounds/track/wheel_clang2.wav", constantClip(0.5f, 10));
+    s.addEffect("sounds/track/wheel_clang3.wav", constantClip(0.5f, 10));
+    s.addEffect("sounds/track/wheel_clang4.wav", constantClip(0.5f, 10));
+    s.addEffect("sounds/junction/wheels_over_points_1.wav", constantClip(0.25f, 10));
+    s.addEffect("sounds/airbrakes/start.wav", constantClip(0.1f, 10));
+    s.addEffect("sounds/airbrakes/idle 1.wav", constantClip(0.1f, 10));
+    s.addEffect("sounds/airbrakes/stop.wav", constantClip(0.1f, 10));
+    trainz::game::RunningSounds r;
+    // 25 m/s for 1 s: 25 m, joints at 12 m and 24 m -> two pairs of clacks.
+    r.update(s, 25, 25, 1.0, false, false);
+    std::vector<float> out(trainz::game::TrainSound::kRate * 6 / 5, 0.0f);  // 1.2 s: the last axle's clack is at 1.056 s
+    s.mix(out.data(), out.size(), 1.0f);
+    int bursts = 0;
+    for (std::size_t i = 1; i < out.size(); ++i) {
+        bursts += out[i] > 0.01f && out[i - 1] <= 0.01f ? 1 : 0;
+    }
+    EXPECT_EQ(bursts, 4);  // 2 joints x 2 axles
+    // Where the first clack falls: 12 m of 25 m into the second.
+    std::size_t first = 0;
+    while (first < out.size() && out[first] <= 0.01f) {
+        ++first;
+    }
+    EXPECT_NEAR(static_cast<double>(first), 12.0 / 25.0 * trainz::game::TrainSound::kRate, 2);
+    EXPECT_NEAR(r.sinceJoint, 1.0, 1e-9);  // 1 m past the last joint
+    // Standing still: no clacks. Over points: its clip. The brake pipe falling: the hiss.
+    r.update(s, 0, 0, 1.0, true, true);
+    std::vector<float> more(100, 0.0f);
+    s.mix(more.data(), more.size(), 1.0f);
+    EXPECT_NEAR(more[0], 0.25f * 0.3f + 0.1f * 0.5f + 0.1f * 0.4f, 1e-5);  // points, start, loop
+    EXPECT_TRUE(r.hissing);
+    r.update(s, 0, 0, 1.0, false, false);
+    EXPECT_FALSE(r.hissing);
+}

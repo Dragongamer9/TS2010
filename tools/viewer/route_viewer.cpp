@@ -304,6 +304,7 @@ int main(int argc, char** argv) {
         std::vector<std::int16_t> recorded;    // --record-sound: everything mixed
         double hornHeldFor = 1e9;              // seconds the horn has sounded this time
         bool hornKey = false;
+        trainz::game::RunningSounds runningSounds;  // wheel clacks, points, brake hiss
         std::vector<trainz::game::RouteTrain> otherTrains;  // drive mode: the session's other trains
         if (drive) {
             if (!extras.trains || !extras.track || !meshes) {
@@ -347,8 +348,30 @@ int main(int argc, char** argv) {
                     break;
                 }
             }
-            std::printf("sounds: engine %s, horn %s\n", trainSound.hasEngine() ? "from its enginesound" : "none",
-                        trainSound.hasHorn() ? "from its hornsound" : "none");
+            // The game's general running sounds (wheels, points, brake hiss) from the install's Data.ja.
+            std::optional<trainz::content::JaArchive> dataJa;
+            for (const char* name : {"Data.ja", "data.ja"}) {
+                const std::filesystem::path p = std::filesystem::path(installDir) / name;
+                std::error_code ec;
+                if (!dataJa && std::filesystem::is_regular_file(p, ec)) {
+                    try {
+                        dataJa.emplace(trainz::content::JaArchive::open(p));
+                    } catch (const std::exception&) {
+                    }
+                }
+            }
+            if (dataJa) {
+                trainz::game::loadRunningSounds(trainSound, [&](const std::string& name) -> std::optional<std::vector<std::uint8_t>> {
+                    const auto* e = dataJa->find(name);
+                    if (e == nullptr) {
+                        return std::nullopt;
+                    }
+                    return dataJa->readLimited(*e, std::size_t{8} << 20);
+                });
+            }
+            std::printf("sounds: engine %s, horn %s, running sounds %s\n", trainSound.hasEngine() ? "from its enginesound" : "none",
+                        trainSound.hasHorn() ? "from its hornsound" : "none",
+                        trainSound.hasEffect("sounds/track/wheel_clang1.wav") ? "from Data.ja" : "none");
             const auto p = net->point(driving.lead);
             if (!atX && p) {
                 atX = p->x, atY = p->y;
@@ -602,6 +625,7 @@ int main(int argc, char** argv) {
                             std::clamp(driving.controls.throttle + ctl.forward * 0.5 * dt, 0.0, 1.0);
                     }
                 }
+                const double pipeBefore = me.airBrake.pipe;  // for the brake hiss
                 if (frames <= 0 || !keyScript.empty()) {  // the air brake, with the train's own pressures
                     driving.controls.brake = me.airBrake.step(brakeHandle.position, frames > 0 ? 0.5 : dt, me.cars.size());
                 }
@@ -609,6 +633,8 @@ int main(int argc, char** argv) {
                 // so a fast train cannot jump past the contact. Slow (under 7 km/h) couples; faster is
                 // a collision that stops you at the contact.
                 const double stepSeconds = frames > 0 ? 0.5 : dt;
+                const auto junctionBefore = net->junctionAhead(driving.lead, 200);
+                const double speedBefore = driving.speed;
                 const double reach = std::fabs(driving.speed) * stepSeconds + 0.6;
                 const auto contact = trainz::game::findContact(*net, me, otherTrains, reach, driving.speed >= 0);
                 if (contact && ((driving.speed > 0.05 && contact->atOurFront) || (driving.speed < -0.05 && !contact->atOurFront))) {
@@ -650,6 +676,9 @@ int main(int argc, char** argv) {
                 signalClock += frames > 0 ? 0.5 : dt;
                 if (trainSound.hasEngine()) {  // the engine follows the notch (or the throttle), the horn sounds 1.5 s at least
                     const double seconds = frames > 0 ? 0.5 : dt;
+                    const double moved = 0.5 * (speedBefore + driving.speed) * seconds;
+                    const bool overPoints = junctionBefore && std::fabs(moved) >= junctionBefore->distance && speedBefore > 0;
+                    runningSounds.update(trainSound, driving.speed, moved, seconds, overPoints, me.airBrake.pipe < pipeBefore - 1e-9);
                     trainSound.setNotch(driving.spec.notchCurvesN.empty() ? static_cast<int>(std::lround(driving.controls.throttle * 8))
                                                                          : driving.controls.notch);
                     hornHeldFor += seconds;

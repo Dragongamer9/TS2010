@@ -105,6 +105,8 @@ void TrainSound::mixVoice(Voice& v, float* out, std::size_t count, float volume)
                 v.pos = 0;  // a notch change leaves the loop at once (in mix), so just go round
             } else if (&v == &engineVoice_) {
                 nextEngineClip();
+            } else if (&v != &hornVoice_) {  // an effect played once: done
+                v = {};
             } else {  // the horn
                 if (horn_state_ == Horn::Start && horn_.count("horn_loop.wav") != 0) {
                     horn_state_ = Horn::Loop;
@@ -118,6 +120,30 @@ void TrainSound::mixVoice(Voice& v, float* out, std::size_t count, float volume)
     }
 }
 
+void TrainSound::play(const std::string& name, float volume, std::size_t delay) {
+    const auto it = effects_.find(name);
+    if (it == effects_.end() || it->second.samples.empty() || !(volume > 0)) {
+        return;
+    }
+    if (shots_.size() >= 16) {
+        shots_.erase(shots_.begin());
+    }
+    shots_.push_back({{&it->second, 0, false}, volume, delay});
+}
+
+void TrainSound::loop(const std::string& name, bool on, float volume) {
+    const auto it = effects_.find(name);
+    if (!on || it == effects_.end() || it->second.samples.empty()) {
+        loops_.erase(name);
+        return;
+    }
+    auto& l = loops_[name];
+    if (l.voice.clip == nullptr) {
+        l.voice = {&it->second, 0, true};
+    }
+    l.volume = volume;
+}
+
 void TrainSound::mix(float* out, std::size_t count, float volume) {
     if (out == nullptr || count == 0) {
         return;
@@ -128,6 +154,50 @@ void TrainSound::mix(float* out, std::size_t count, float volume) {
     }
     mixVoice(engineVoice_, out, count, volume);
     mixVoice(hornVoice_, out, count, volume);
+    for (auto& [name, l] : loops_) {
+        mixVoice(l.voice, out, count, volume * l.volume);
+    }
+    for (auto& shot : shots_) {
+        const std::size_t wait = std::min(shot.delay, count);
+        shot.delay -= wait;
+        if (wait < count) {
+            mixVoice(shot.voice, out + wait, count - wait, volume * shot.volume);
+        }
+    }
+    shots_.erase(std::remove_if(shots_.begin(), shots_.end(), [](const Shot& s) { return s.voice.clip == nullptr; }), shots_.end());
+}
+
+void RunningSounds::update(TrainSound& s, double speed, double moved, double seconds, bool overPoints, bool brakeFalling) {
+    const double v = std::fabs(speed), dist = std::fabs(moved);
+    if (std::isfinite(dist) && dist > 0 && std::isfinite(seconds) && seconds > 0) {
+        const bool slow = v < 20 / 3.6;
+        const float volume = static_cast<float>(std::clamp(v / 25.0, 0.15, 0.8));
+        double at = kJointSpacing - sinceJoint;  // metres into this step of the next joint
+        while (at <= dist) {
+            const auto delay = [&](double metres) {
+                return static_cast<std::size_t>(std::max(0.0, metres / dist * seconds * TrainSound::kRate));
+            };
+            const std::string clip = slow ? "sounds/track/wheel_clang_slow" + std::to_string(1 + clackIndex % 2) + ".wav"
+                                          : "sounds/track/wheel_clang" + std::to_string(1 + clackIndex % 4) + ".wav";
+            s.play(clip, volume, delay(at));
+            s.play(clip, volume * 0.8f, delay(at) + static_cast<std::size_t>(kAxleGap / std::max(v, 0.5) * TrainSound::kRate));
+            ++clackIndex;
+            at += kJointSpacing;
+        }
+        sinceJoint = std::fmod(sinceJoint + dist, kJointSpacing);
+    }
+    if (overPoints) {
+        s.play("sounds/junction/wheels_over_points_" + std::to_string(1 + pointsIndex % 6) + ".wav",
+               static_cast<float>(std::clamp(v / 20.0, 0.3, 0.8)));
+        ++pointsIndex;
+    }
+    if (brakeFalling && !hissing) {
+        s.play("sounds/airbrakes/start.wav", 0.5f);
+    } else if (!brakeFalling && hissing) {
+        s.play("sounds/airbrakes/stop.wav", 0.5f);
+    }
+    hissing = brakeFalling;
+    s.loop("sounds/airbrakes/idle 1.wav", hissing, 0.4f);
 }
 
 }  // namespace trainz::game

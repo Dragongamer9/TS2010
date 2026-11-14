@@ -49,7 +49,10 @@ double AirBrake::demand() const {
 }
 
 double AirBrake::step(BrakeHandle::Position handle, double seconds, std::size_t cars) {
-    const double dt = std::isfinite(seconds) && seconds > 0 ? std::min(seconds, 10.0) : 0.0;
+    if (!(std::isfinite(seconds) && seconds > 0)) {
+        return demand();  // no time passed: nothing changes (ChatGPT review)
+    }
+    const double dt = std::min(seconds, 10.0);
     const double span = charged - full;
     switch (handle) {
     case BrakeHandle::Position::Application:

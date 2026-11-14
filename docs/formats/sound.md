@@ -102,3 +102,24 @@ volumes and pitch with speed are not traced):
 writes what was played to a `.wav` under `~/.local/share/trainz-native/routes/`; that is how
 it was checked here, since this PC runs offscreen with no speakers. Not done yet: wheel and
 brake sounds, sounds placed in 3D (other trains, scenery), `stop.wav`, the bell.
+
+## The game's general running sounds (Data.ja, observed)
+
+`Data.ja` ships the sounds common to all trains:
+
+- `sounds/track/wheel_clang1..6.wav`, `wheel_clang_slow1/2.wav` (and `_med`, `_slow`,
+  `_slow_med`, `in_between_wheel.wav`, `flange_squeal.wav`);
+- `sounds/junction/wheels_over_points_1..6.wav`;
+- `sounds/airbrakes/start.wav`, `idle 1.wav`, `stop.wav`;
+- `sounds/wheelslip/start.wav`, `idle 1.wav`, `stop.wav`.
+
+**The port's use** (`game::RunningSounds`, its own rules):
+
+- a pair of clacks at every rail joint, every 12 m (a GUESS: US 39 ft rails), the axles
+  2.4 m apart; louder with speed; the slow clips below 20 km/h;
+- a wheels-over-points clip when the train runs through a junction;
+- the brake hiss (start, loop, stop) while the brake pipe pressure is falling.
+
+The flange squeal, wheel slip and the `_med` clips are not used yet. Checked by recording two
+runs, with and without `Data.ja`, and comparing them: the running sounds start when the train
+moves, at about 2–3 clacks a second at speed.
