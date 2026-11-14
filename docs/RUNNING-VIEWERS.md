@@ -150,7 +150,7 @@ more). A train without notches steps its throttle 10% per W/S press as well.
 
 Your train's own engine sound follows the notch, **H** sounds its horn and **B** rings its bell (TS2010's keys); you also hear the wheels, the
 points, flange squeal on tight curves and the brakes.
-Add `--record-sound` to save what was played as a `.wav` next to the screenshots. Each vehicle's mass and the locomotives' pulling force come from their own files
+Add `--record-sound` to save what was played as a `.wav` next to the screenshots. `--mute` turns the sound off. Test runs (`--frames`) are silent unless you add `--sound`. Each vehicle's mass and the locomotives' pulling force come from their own files
 (`mass`, `enginespec`); resistance and brakes are still general defaults. Junctions start as the route sets
 them. The title also shows the next signal and its aspect (stop, caution or clear), worked
 out by the port's own simple rules. Each signal's lit lamps are drawn in its own colours. There are no sounds yet.

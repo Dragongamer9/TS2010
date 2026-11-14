@@ -856,3 +856,35 @@ TEST(SessionOrders, DriverSetupGivesEachVehicleItsCommands) {
     other.name = "Driver Command";
     EXPECT_TRUE(trainz::game::driverOrders({other}).empty());
 }
+
+// Long cars (25 m maglev sections): the AI plans from its front buffer, so the front stops short
+// of a red signal. (A guard, not a regression test: it passes on the old lead-based code too. The
+// real overrun on "Dejan to Clare Bay" came with a signal turning red close ahead; the viewer now
+// releases a train that only holds its own signal red.)
+TEST(AiDriver, LongCarsStopWithTheirFrontShortOfARedSignal) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    static const trainz::view::PreparedMesh mesh;
+    trainz::game::RouteTrain t;
+    for (int k = 0; k < 3; ++k) {
+        trainz::game::RouteVehicle v;
+        v.body = &mesh;
+        v.length = 25;
+        t.cars.push_back({trainz::sim::freightWagon(40), v});
+    }
+    t.cars.front().spec = trainz::sim::electricLocomotive();
+    t.drive.lead = {1, 100, +1};
+    trainz::game::refreshTrain(t);
+    trainz::sim::SignalSystem sig(net, {{{2, 200, +1}, "S"}});  // at 1,200 m
+    const std::vector<trainz::sim::Occupied> standing{{2, 500}};
+    sig.update(standing);
+    ASSERT_EQ(sig.aspect(0), trainz::sim::Aspect::Stop);
+    const trainz::game::AiDriver ai;
+    for (int i = 0; i < 1600; ++i) {
+        ai.control(t, net, &sig, standing);
+        t.drive.step(net, 0.5);
+    }
+    EXPECT_NEAR(t.drive.speed, 0, 1e-9);
+    const auto front = trainz::game::trainFrontEnd(net, t);
+    EXPECT_LT((front.piece == 1 ? 0 : 1000) + front.offset, 1200);  // the front buffer short of the signal
+}

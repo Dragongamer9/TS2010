@@ -335,6 +335,8 @@ std::optional<RouteTrain> uncoupleRear(const trainz::sim::TrackNetwork& net, Rou
 std::optional<AiDriver::StopAhead> AiDriver::stopAhead(const RouteTrain& d, const trainz::sim::TrackNetwork& net,
                                                        const trainz::sim::SignalSystem* signals,
                                                        const std::vector<trainz::sim::Occupied>& others, double look) const {
+    // Measured from the train's front buffer (its lead is the first car's middle).
+    const trainz::sim::TrackPosition front = trainFrontEnd(net, d);
     std::optional<StopAhead> best;
     auto consider = [&](double dist, const char* why) {
         if (dist >= 0 && (!best || dist < best->distance)) {
@@ -342,7 +344,7 @@ std::optional<AiDriver::StopAhead> AiDriver::stopAhead(const RouteTrain& d, cons
         }
     };
     if (signals != nullptr) {
-        if (const auto sg = signals->nextSignal(d.drive.lead, look); sg && signals->aspect(sg->index) == trainz::sim::Aspect::Stop) {
+        if (const auto sg = signals->nextSignal(front, look); sg && signals->aspect(sg->index) == trainz::sim::Aspect::Stop) {
             consider(sg->distance, "signal");
         }
     }
@@ -352,7 +354,7 @@ std::optional<AiDriver::StopAhead> AiDriver::stopAhead(const RouteTrain& d, cons
     }
     double walked = 0;
     bool ended = true;
-    net.walk(d.drive.lead, look, [&](const trainz::sim::TrackNetwork::Span& s) {
+    net.walk(front, look, [&](const trainz::sim::TrackNetwork::Span& s) {
         const auto [b, e] = taken.equal_range(s.piece);
         for (auto it = b; it != e; ++it) {
             const double along = (it->second - s.from) * s.direction;
@@ -368,7 +370,7 @@ std::optional<AiDriver::StopAhead> AiDriver::stopAhead(const RouteTrain& d, cons
         consider(walked, "line end");
     }
     if (d.destination) {  // its destination, if it lies ahead within `look`
-        net.walk(d.drive.lead, look, [&](const trainz::sim::TrackNetwork::Span& sp) {
+        net.walk(front, look, [&](const trainz::sim::TrackNetwork::Span& sp) {
             if (sp.piece == d.destination->piece) {
                 const double along = (d.destination->offset - sp.from) * sp.direction;
                 if (along >= 0 && along <= std::fabs(sp.to - sp.from)) {
@@ -384,6 +386,7 @@ std::optional<AiDriver::StopAhead> AiDriver::stopAhead(const RouteTrain& d, cons
 
 void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, const trainz::sim::SignalSystem* signals,
                        const std::vector<trainz::sim::Occupied>& others) const {
+    const trainz::sim::TrackPosition front = trainFrontEnd(net, d);  // distances from the front buffer
     auto& c = d.drive.controls;
     const double v = std::fabs(d.drive.speed);
     c.reverser = +1;
@@ -395,7 +398,7 @@ void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, cons
     }
     double limit = cruise;
     if (signals != nullptr) {
-        if (const auto sg = signals->nextSignal(d.drive.lead, 1500)) {
+        if (const auto sg = signals->nextSignal(front, 1500)) {
             const auto aspect = signals->aspect(sg->index);
             if (aspect == trainz::sim::Aspect::Caution) {
                 limit = cruise / 2;
@@ -419,7 +422,7 @@ void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, cons
         const auto& spec = d.drive.spec;
         constexpr double gravity = 9.81;
         double downhill = 0;
-        net.walk(d.drive.lead, stop->distance, [&](const trainz::sim::TrackNetwork::Span& s) {
+        net.walk(front, stop->distance, [&](const trainz::sim::TrackNetwork::Span& s) {
             for (const double offset : {s.from, (s.from + s.to) * 0.5, s.to}) {
                 if (const auto p = net.point({s.piece, offset, s.direction})) {
                     downhill = std::max(downhill, -p->grade);

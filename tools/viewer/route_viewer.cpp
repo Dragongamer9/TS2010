@@ -20,7 +20,8 @@
 // it to yours (faster is a collision: you stop); U (when stopped) leaves your rearmost car behind.
 // Sound: your train's own engine sounds follow the notch, H sounds its horn, B rings its bell
 // (TS2010's keys); wheel clacks, points, flange squeal on tight curves and the brake hiss play too;
-// --record-sound writes what was played to a .wav next to the screenshots. --train N picks the train (1 = the first; default: the first one that stands on track).
+// --record-sound writes what was played to a .wav next to the screenshots. --mute plays nothing;
+// test runs (--frames) are silent unless --sound is given. --train N picks the train (1 = the first; default: the first one that stands on track).
 // Physics: mass and notch curves from the install when present; resistance/brakes are presets.
 // Exit codes: 0 done, 1 error, 2 bad arguments, 3 no route/session matches NAME, 4 several do.
 //
@@ -97,7 +98,7 @@ int main(int argc, char** argv) {
     std::optional<double> atX, atY;
     double radius = 600;
     long frames = -1;  // -1: until Esc
-    bool drive = false, png = false, listSignals = false, aiTrains = false, recordSound = false;
+    bool drive = false, png = false, listSignals = false, aiTrains = false, recordSound = false, mute = false, sound = false;
     long watch = 0;  // --watch N / key T: the chase camera follows other train N (0 = your own)
     std::optional<std::array<double, 6>> startCamera;  // --camera EX EY EZ TX TY TZ
     std::multimap<long, SDL_Keycode> keyScript;        // --keys "FRAME:KEY,...": key presses in a test run
@@ -166,6 +167,10 @@ int main(int argc, char** argv) {
                 return 2;
             }
             watch = static_cast<long>(*n);
+        } else if (opt == "--mute") {
+            mute = true;
+        } else if (opt == "--sound") {
+            sound = true;
         } else if (opt == "--record-sound") {
             recordSound = true;
         } else if (opt == "--ai") {
@@ -520,7 +525,8 @@ int main(int argc, char** argv) {
         const auto start = trainz::view::FlyCamera::lookingAlong(startView);
         // Sound: an SDL audio queue when a device opens (none in offscreen test runs is fine).
         SDL_AudioDeviceID audio = 0;
-        if (drive && trainSound.hasEngine() && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+        // Test runs (--frames) stay silent unless --sound; --mute silences every run.
+        if (drive && trainSound.hasEngine() && !mute && (frames <= 0 || sound) && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
             SDL_AudioSpec want{}, have{};
             want.freq = trainz::game::TrainSound::kRate;
             want.format = AUDIO_S16SYS;
@@ -799,6 +805,26 @@ int main(int argc, char** argv) {
                         taken.insert(taken.end(), part.begin(), part.end());
                     }
                     signals->update(taken);
+                    // A train held at a red signal that only it holds red (it overran into the
+                    // block) would wait forever: release it, and say so.
+                    for (std::size_t t = 0; t < otherTrains.size(); ++t) {
+                        auto& held = otherTrains[t].heldRedSignal;
+                        if (!held || signals->aspect(*held) != trainz::sim::Aspect::Stop) {
+                            continue;
+                        }
+                        std::vector<trainz::sim::Occupied> others;
+                        for (std::size_t o = 0; o < takenBy.size(); ++o) {
+                            if (o != t + 1) {
+                                others.insert(others.end(), takenBy[o].begin(), takenBy[o].end());
+                            }
+                        }
+                        auto probe = *signals;
+                        probe.update(others);
+                        if (probe.aspect(*held) != trainz::sim::Aspect::Stop) {
+                            std::printf("train %zu overran a red signal into its block; released\n", otherTrains[t].index + 1);
+                            held.reset();
+                        }
+                    }
                     signalClock = 0;
                 }
                 dirty = true;
@@ -983,6 +1009,21 @@ int main(int argc, char** argv) {
                     if (const auto why = trainz::game::AiDriver{}.stopAhead(t, *net, signals ? &*signals : nullptr, others)) {
                         std::printf("  train %zu: nearest stop %s in %.0f m%s\n", t.index + 1, why->why, why->distance,
                                     t.heldRedSignal ? " (held at a red signal it reached)" : "");
+                    }
+                    if (t.heldRedSignal && signals) {  // would that signal clear without this train's own points?
+                        std::vector<trainz::sim::Occupied> withoutMe = trainz::game::trainOccupies(*net, me);
+                        for (const auto& o : otherTrains) {
+                            if (&o != &t) {
+                                const auto pts = trainz::game::trainOccupies(*net, o);
+                                withoutMe.insert(withoutMe.end(), pts.begin(), pts.end());
+                            }
+                        }
+                        withoutMe.insert(withoutMe.end(), standing.begin(), standing.end());
+                        auto probe = *signals;
+                        probe.update(withoutMe);
+                        std::printf("  train %zu: its held signal is %s now, %s without the train itself\n", t.index + 1,
+                                    trainz::sim::aspectName(signals->aspect(*t.heldRedSignal)),
+                                    trainz::sim::aspectName(probe.aspect(*t.heldRedSignal)));
                     }
                     const auto r = net->route(t.drive.lead, *t.destination);
                     std::printf("  train %zu -> '%s': %s, %.0f km/h\n", t.index + 1, t.destinationName.c_str(),
