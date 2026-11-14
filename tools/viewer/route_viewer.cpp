@@ -418,6 +418,7 @@ int main(int argc, char** argv) {
         // Signals (both modes, with track): turned to their track, placed on the network, and
         // their lamps drawn for the port's aspects. Without --drive every session train stands.
         std::map<std::string, trainz::content::SignalLook> looks;  // by formatted KUID
+        std::map<std::string, trainz::sim::TrackPosition> marks;   // trackmarks and triggers by name (for orders)
         if (extras.track) {
             if (!net) {
                 net.emplace(*extras.track);
@@ -437,42 +438,38 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            // The session's driver orders (--ai): the first "Navigate To Trackmark" of each driver.
+            // The session's driver orders (--ai): each driver's commands, worked through by runOrders.
             if (drive && aiTrains && extras.trains) {
-                auto marks = trainz::game::routeTrackmarks(*net, extras.sessionObjects);  // the session's own first
+                marks = trainz::game::routeTrackmarks(*net, extras.sessionObjects);  // the session's own first
                 for (const auto& [name, at] : trainz::game::routeTrackmarks(*net, extras.objects)) {
                     marks.emplace(name, at);
                 }
-                std::size_t given = 0, unreachable = 0;
-                for (const auto& order : trainz::game::driverOrders(extras.rules)) {
+                std::map<std::string, std::string> kinds;  // by formatted command KUID
+                std::size_t given = 0, followed = 0, all = 0;
+                for (auto order : trainz::game::driverOrders(extras.rules)) {
                     auto train = std::find_if(otherTrains.begin(), otherTrains.end(), [&](const trainz::game::RouteTrain& t) {
                         const auto& vs = (*extras.trains)[t.index].vehicles;
                         return std::any_of(vs.begin(), vs.end(), [&](const trainz::content::Vehicle& v) { return v.name == order.vehicle; });
                     });
-                    if (train == otherTrains.end()) {
+                    if (train == otherTrains.end() || order.commands.empty()) {
                         continue;
                     }
-                    for (const auto& c : order.commands) {
-                        const auto name = c.properties.find("trackmarkname");
-                        const auto mark = name == c.properties.end() ? marks.end() : marks.find(name->second);
-                        if (mark == marks.end()) {
-                            continue;
+                    for (auto& c : order.commands) {
+                        const std::string key = trainz::content::formatKuid(c.command);
+                        if (kinds.count(key) == 0) {
+                            const auto cfg = meshes->config(c.command);
+                            const auto* u = cfg ? cfg->child("username") : nullptr;
+                            kinds[key] = trainz::game::commandKind(u != nullptr ? u->text : std::string());
                         }
-                        if (const auto r = net->route(train->drive.lead, mark->second)) {
-                            for (const auto& [vertex, piece] : r->switches) {
-                                net->switches[vertex] = piece;
-                            }
-                            train->destination = mark->second;
-                            train->destinationName = mark->first;
-                            ++given;
-                        } else {
-                            ++unreachable;
-                        }
-                        break;
+                        c.kind = kinds[key];
+                        ++all;
+                        followed += c.kind.empty() ? 0 : 1;
                     }
+                    train->orders = std::move(order.commands);
+                    ++given;
                 }
-                std::printf("session orders: %zu trackmarks on the track, %zu AI trains sent to their trackmark (%zu unreachable)\n",
-                            marks.size(), given, unreachable);
+                std::printf("session orders: %zu trackmarks and triggers, %zu AI trains with orders, %zu of their %zu orders followed\n",
+                            marks.size(), given, followed, all);
             }
             std::printf("%zu signals on the track (%zu turned to it), %zu points taken by standing trains\n",
                         signals->signals().size(), turned, standing.size());
@@ -795,6 +792,24 @@ int main(int argc, char** argv) {
                                 others.insert(others.end(), takenBy[o].begin(), takenBy[o].end());
                             }
                         }
+                        if (!otherTrains[t].orders.empty()) {  // its session orders first
+                            const auto trainFront = [&](const std::string& vehicle) -> std::optional<trainz::sim::TrackPosition> {
+                                const auto has = [&](const trainz::content::Train& tr) {
+                                    return std::any_of(tr.vehicles.begin(), tr.vehicles.end(),
+                                                       [&](const trainz::content::Vehicle& v) { return v.name == vehicle; });
+                                };
+                                if (has((*extras.trains)[me.index])) {
+                                    return trainz::game::trainFrontEnd(*net, me);
+                                }
+                                for (const auto& o : otherTrains) {
+                                    if (has((*extras.trains)[o.index])) {
+                                        return trainz::game::trainFrontEnd(*net, o);
+                                    }
+                                }
+                                return std::nullopt;
+                            };
+                            trainz::game::runOrders(otherTrains[t], *net, marks, trainFront, frames > 0 ? 0.5 : dt);
+                        }
                         ai.control(otherTrains[t], *net, signals ? &*signals : nullptr, others);
                         otherTrains[t].drive.step(*net, frames > 0 ? 0.5 : dt);
                     }
@@ -946,10 +961,13 @@ int main(int argc, char** argv) {
                     }
                     if (watch > 0 && watch <= static_cast<long>(otherTrains.size())) {
                         const auto& w = otherTrains[static_cast<std::size_t>(watch - 1)];
-                        char line[160];
+                        char line[200];
                         std::snprintf(line, sizeof line, "watching train %zu (%s): %.0f km/h, brake %.0f%%", w.index + 1,
                                       aiTrains ? "AI" : "standing", std::fabs(w.drive.speed) * 3.6, w.drive.controls.brake * 100);
                         trainz::view::drawHudText(rgba, kW, kH, 8, 52, line, 2, {150, 220, 255});
+                        if (!w.orderNote.empty()) {
+                            trainz::view::drawHudText(rgba, kW, kH, 8, 74, "order: " + w.orderNote, 2, {150, 220, 255});
+                        }
                     }
                 }
                 SDL_UpdateTexture(tex, nullptr, rgba.data(), kW * 4);
@@ -992,6 +1010,10 @@ int main(int argc, char** argv) {
             }
             std::printf(" furthest from its start %.0f m\n", furthest);
             for (const auto& t : otherTrains) {
+                if (!t.orders.empty()) {
+                    std::printf("  train %zu orders: %zu of %zu done, now: %s\n", t.index + 1, t.orderIndex, t.orders.size(),
+                                t.orderNote.c_str());
+                }
                 if (t.destination) {
                     // Why it stands: the AI's own stop check, with every other train's real place.
                     std::vector<trainz::sim::Occupied> others = trainz::game::trainOccupies(*net, me);

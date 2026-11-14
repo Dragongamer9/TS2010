@@ -146,6 +146,11 @@ Record version 5: one session (`<kuid:-12:111224>` on `<kuid:-12:1002>`): 15 of 
   is not in their settings.
 - Sessions may also have their own `.obs` (objects they add); the port reads it.
 
-The port carries out each driver's first **Navigate To Trackmark** itself (route-finding,
-junction settings, the AI stopping at the trackmark). Its own logic; the game's command
-scripts are not run.
+Commands on the disc's sessions: WaitFor 381 (`timetowait`, e.g. 20), Navigate To Trackmark 260,
+Navigate Via Trackmark 255, Navigate To 178 (`industryname`, `trackname`), Load 78, WaitForTrigger 42
+(`trainid`, `triggerid`), Couple 36 (`vehiclename`), UnCouple, Unload, Run Around, and a few
+custom ones. The port works through each driver's list in order (`game::runOrders`, its own
+logic; the game's command scripts are not run): navigate to / via a trackmark (route-finding,
+junction settings, stop or pass), wait for (seconds assumed), wait for trigger; the others are
+skipped for now. Trackmarks and triggers are found by name in the route's and the session's
+objects.

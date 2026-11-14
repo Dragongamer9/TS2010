@@ -946,3 +946,53 @@ TEST(AiDriver, OverrunReleaseFollowsTheJunctionIntoTheBlock) {
     EXPECT_TRUE(trainz::game::releaseIfOnlySelfHeld(t, sig, onBranch));
     EXPECT_FALSE(t.heldRedSignal.has_value());
 }
+
+TEST(SessionOrders, RunnerWaitsDrivesViaAndToTrackmarksAndWaitsForTriggers) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    const std::map<std::string, trainz::sim::TrackPosition> marks{
+        {"Halfway", {1, 600, +1}}, {"End Stop", {2, 700, +1}}, {"Trigger", {2, 100, +1}}};
+    auto t = aiTrain(10);
+    auto cmd = [](const std::string& kind, std::map<std::string, std::string> props) {
+        trainz::game::DriverCommand c;
+        c.kind = kind;
+        c.properties = std::move(props);
+        return c;
+    };
+    t.orders = {cmd("wait-for", {{"timetowait", "10"}}), cmd("navigate-via-trackmark", {{"trackmarkname", "Halfway"}}),
+                cmd("", {}), cmd("navigate-to-trackmark", {{"trackmarkname", "End Stop"}}),
+                cmd("wait-for-trigger", {{"trainid", "Other"}, {"triggerid", "Trigger"}})};
+    std::optional<trainz::sim::TrackPosition> other;  // the other train: nowhere yet
+    const auto front = [&](const std::string& name) { return name == "Other" ? other : std::nullopt; };
+    const trainz::game::AiDriver ai;
+    auto run = [&](double seconds) {
+        for (double s = 0; s < seconds; s += 0.5) {
+            trainz::game::runOrders(t, net, marks, front, 0.5);
+            ai.control(t, net, nullptr, {});
+            t.drive.step(net, 0.5);
+        }
+    };
+    run(5);  // waiting: stands
+    EXPECT_EQ(t.orderIndex, 0u);
+    EXPECT_NEAR(t.drive.speed, 0, 1e-9);
+    run(6);  // 10 s done: on its way via Halfway
+    EXPECT_EQ(t.orderIndex, 1u);
+    EXPECT_TRUE(t.destinationVia);
+    run(300);  // passes Halfway without stopping, skips the unknown order, stops at End Stop
+    EXPECT_EQ(t.orderIndex, 4u);
+    EXPECT_NEAR(t.drive.speed, 0, 1e-9);
+    EXPECT_NEAR(along(t.drive.lead), 1700, 30);
+    EXPECT_TRUE(t.waitingForOrder);  // now waiting for the other train at the trigger
+    other = trainz::sim::TrackPosition{2, 95, +1};
+    run(1);
+    EXPECT_EQ(t.orderIndex, 5u);  // all done
+    EXPECT_FALSE(t.waitingForOrder);
+}
+
+TEST(SessionOrders, CommandKindsByName) {
+    EXPECT_EQ(trainz::game::commandKind("Navigate To Trackmark"), "navigate-to-trackmark");
+    EXPECT_EQ(trainz::game::commandKind("Navigate Via Trackmark"), "navigate-via-trackmark");
+    EXPECT_EQ(trainz::game::commandKind("WaitFor"), "wait-for");
+    EXPECT_EQ(trainz::game::commandKind("WaitForTrigger"), "wait-for-trigger");
+    EXPECT_EQ(trainz::game::commandKind("Load"), "");
+}

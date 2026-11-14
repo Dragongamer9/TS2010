@@ -14,6 +14,7 @@
 #include "view/SceneRender.h"
 
 #include <array>
+#include <functional>
 #include <map>
 #include <string>
 #include <optional>
@@ -87,6 +88,14 @@ RouteVehicle routeVehicle(const trainz::view::PreparedMesh& body, const trainz::
 int addRouteTrain(trainz::view::Scene& scene, const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& front,
                   const std::vector<RouteVehicle>& vehicles, double gap = 0.5);
 
+struct DriverCommand {
+    trainz::content::Kuid command;
+    std::map<std::string, std::string> properties;
+    // What the port makes of it (set by the caller from the command asset's name):
+    // "navigate-to-trackmark", "navigate-via-trackmark", "wait-for", "wait-for-trigger", or "" (not followed).
+    std::string kind;
+};
+
 // A session train ready to run: its place and physics (a Drive), its drawn vehicles and length.
 struct RouteTrain {
     std::size_t index = 0;  // in the session's trains
@@ -108,7 +117,14 @@ struct RouteTrain {
     std::optional<std::size_t> heldRedSignal;
     // A place to drive to and stop at (from the session's driver orders), and its name.
     std::optional<trainz::sim::TrackPosition> destination;
-    std::string destinationName;  // reached its braking margin; hold even after an overrun until it clears
+    std::string destinationName;
+    bool destinationVia = false;      // drive through it rather than stop at it
+    // Its session orders and where it is in them (see runOrders).
+    std::vector<DriverCommand> orders;
+    std::size_t orderIndex = 0;
+    double orderClock = 0;            // seconds waited in the current order
+    bool waitingForOrder = false;     // stand still: the current order is a wait
+    std::string orderNote;            // what it is doing, for display  // reached its braking margin; hold even after an overrun until it clears
 };
 // Builds train `index` of the session: placed where it stands (trainStart), each vehicle's own
 // mass and enginespec (ownVehicleSpec; the preset locomotive pulls when none has curves).
@@ -177,10 +193,9 @@ std::map<std::string, trainz::sim::TrackPosition> routeTrackmarks(const trainz::
 // A session's driver orders from its "Driver Setup" rules (observed settings): for each driver,
 // the name of the vehicle it drives and its commands in order, each a drivercommand asset KUID
 // and its properties (e.g. trackmarkname 'B Stop').
-struct DriverCommand {
-    trainz::content::Kuid command;
-    std::map<std::string, std::string> properties;
-};
+// The kind of a drivercommand asset by its username (e.g. "Navigate To Trackmark"); "" if the
+// port does not follow it.
+std::string commandKind(const std::string& username);
 struct DriverOrders {
     std::string vehicle;
     std::vector<DriverCommand> commands;
@@ -192,5 +207,17 @@ std::vector<DriverOrders> driverOrders(const std::vector<trainz::content::Behavi
 // points every OTHER train takes; the signals' junction settings as they are) and returns true;
 // keeps it (false) while anything else is in the block, or when not held.
 bool releaseIfOnlySelfHeld(RouteTrain& t, const trainz::sim::SignalSystem& signals, const std::vector<trainz::sim::Occupied>& others);
+
+// Works through a train's session orders, one step of `seconds` (the port's own reading of
+// the commands; the game's command scripts are not run):
+//  - navigate to / via a trackmark: route there (junction settings applied to `net`), then
+//    stop at it (to) or pass it (via), and go on to the next order;
+//  - wait for: stand `timetowait` seconds (assumed to be seconds);
+//  - wait for trigger: stand until the named train's front is within 30 m of the named trigger;
+//  - anything else: skipped (noted).
+// `marks` holds trackmarks and triggers by name; `trainFront(vehicleName)` the front of the train
+// with that vehicle, if any.
+void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
+               const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds);
 
 }  // namespace trainz::game

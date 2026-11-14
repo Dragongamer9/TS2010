@@ -3,7 +3,9 @@
 #include "content/TrackLayout.h"
 
 #include <algorithm>
+#include <cctype>
 #include <string>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <cmath>
@@ -369,7 +371,7 @@ std::optional<AiDriver::StopAhead> AiDriver::stopAhead(const RouteTrain& d, cons
     if (ended) {
         consider(walked, "line end");
     }
-    if (d.destination) {  // its destination, if it lies ahead within `look`
+    if (d.destination && !d.destinationVia) {  // its destination (to stop at), if it lies ahead within `look`
         net.walk(front, look, [&](const trainz::sim::TrackNetwork::Span& sp) {
             if (sp.piece == d.destination->piece) {
                 const double along = (d.destination->offset - sp.from) * sp.direction;
@@ -408,7 +410,7 @@ void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, cons
             }
         }
     }
-    if (d.heldRedSignal) {
+    if (d.heldRedSignal || d.waitingForOrder) {  // at a red signal it reached, or its order says wait
         c.notch = 0, c.throttle = 0, c.brake = 1;
         return;
     }
@@ -678,11 +680,17 @@ std::vector<DriverOrders> driverOrders(const std::vector<trainz::content::Behavi
                 if (!kuid) {
                     continue;
                 }
-                DriverCommand dc{*kuid, {}};
+                DriverCommand dc{*kuid, {}, {}};
                 if (const auto* props = c.child("properties"); props != nullptr) {
                     for (const auto& p : props->children) {
                         if (!p.text.empty()) {
                             dc.properties[p.key] = p.text;
+                        } else if (!p.ints.empty()) {
+                            dc.properties[p.key] = std::to_string(p.ints[0]);
+                        } else if (!p.floats.empty()) {
+                            char b[32];
+                            std::snprintf(b, sizeof b, "%g", static_cast<double>(p.floats[0]));
+                            dc.properties[p.key] = b;
                         }
                     }
                 }
@@ -706,6 +714,105 @@ bool releaseIfOnlySelfHeld(RouteTrain& t, const trainz::sim::SignalSystem& signa
     }
     t.heldRedSignal.reset();
     return true;
+}
+
+std::string commandKind(const std::string& username) {
+    std::string n = username;
+    std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (n == "navigate to trackmark") {
+        return "navigate-to-trackmark";
+    }
+    if (n == "navigate via trackmark") {
+        return "navigate-via-trackmark";
+    }
+    if (n == "waitfor" || n == "wait for") {
+        return "wait-for";
+    }
+    if (n == "waitfortrigger" || n == "wait for trigger") {
+        return "wait-for-trigger";
+    }
+    return {};
+}
+
+void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
+               const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds) {
+    t.waitingForOrder = false;
+    for (int guard = 0; guard < 64 && t.orderIndex < t.orders.size(); ++guard) {
+        const DriverCommand& c = t.orders[t.orderIndex];
+        auto prop = [&](const char* key) -> std::string {
+            const auto it = c.properties.find(key);
+            return it == c.properties.end() ? std::string() : it->second;
+        };
+        auto next = [&](const std::string& note) {
+            ++t.orderIndex;
+            t.orderClock = 0;
+            t.destination.reset();
+            t.orderNote = note;
+        };
+        if (c.kind == "navigate-to-trackmark" || c.kind == "navigate-via-trackmark") {
+            const bool via = c.kind == "navigate-via-trackmark";
+            const auto mark = marks.find(prop("trackmarkname"));
+            if (mark == marks.end()) {
+                next("no trackmark '" + prop("trackmarkname") + "'");
+                continue;
+            }
+            const auto front = trainFrontEnd(net, t);
+            const auto r = net.route(front, mark->second);
+            if (!t.destination) {  // starting this order: set the way
+                if (!r) {
+                    next("cannot reach '" + mark->first + "'");
+                    continue;
+                }
+                for (const auto& [vertex, piece] : r->switches) {
+                    net.switches[vertex] = piece;
+                }
+                t.destination = mark->second;
+                t.destinationName = mark->first;
+                t.destinationVia = via;
+                t.orderNote = std::string(via ? "via '" : "to '") + mark->first + "'";
+                return;
+            }
+            const bool arrived = via ? (!r || r->distance < 5) : (r && r->distance < 25 && std::fabs(t.drive.speed) < 0.1);
+            if (arrived) {
+                next(std::string(via ? "passed '" : "reached '") + mark->first + "'");
+                continue;
+            }
+            return;  // on its way
+        }
+        if (c.kind == "wait-for") {
+            t.waitingForOrder = true;
+            double wait = 0;
+            try {
+                wait = std::stod(prop("timetowait"));
+            } catch (const std::exception&) {
+            }
+            if (std::fabs(t.drive.speed) < 0.1 && std::isfinite(seconds) && seconds > 0) {
+                t.orderClock += seconds;
+            }
+            t.orderNote = "waiting " + std::to_string(static_cast<int>(t.orderClock)) + " of " + std::to_string(static_cast<int>(wait)) + " s";
+            if (t.orderClock >= wait) {
+                t.waitingForOrder = false;
+                next("waited " + std::to_string(static_cast<int>(wait)) + " s");
+                continue;
+            }
+            return;
+        }
+        if (c.kind == "wait-for-trigger") {
+            t.waitingForOrder = true;
+            const auto trig = marks.find(prop("triggerid"));
+            const auto other = trainFront ? trainFront(prop("trainid")) : std::nullopt;
+            const auto tp = trig != marks.end() ? net.point(trig->second) : std::nullopt;
+            const auto op = other ? net.point(*other) : std::nullopt;
+            t.orderNote = "waiting for '" + prop("trainid") + "' at '" + prop("triggerid") + "'";
+            if (trig == marks.end() || (tp && op && std::hypot(tp->x - op->x, tp->y - op->y) < 30)) {
+                t.waitingForOrder = false;
+                next(trig == marks.end() ? "no trigger '" + prop("triggerid") + "'" : "'" + prop("trainid") + "' reached '" + prop("triggerid") + "'");
+                continue;
+            }
+            return;
+        }
+        next("skipped an order the port does not follow yet");
+    }
 }
 
 }  // namespace trainz::game
