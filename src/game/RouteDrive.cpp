@@ -806,6 +806,34 @@ void finishCouple(RouteTrain& t) {
     t.orderClock = 0;
 }
 
+// Whether a place lies under the train (between its buffer ends).
+bool trainCovers(const trainz::sim::TrackNetwork& net, const RouteTrain& t, const trainz::sim::TrackPosition& p) {
+    bool covered = false;
+    net.walk(trainRearEnd(net, t), std::max(0.0, t.length - 0.5), [&](const trainz::sim::TrackNetwork::Span& s) {
+        covered = s.piece == p.piece && p.offset >= std::min(s.from, s.to) - 1e-6 && p.offset <= std::max(s.from, s.to) + 1e-6;
+        return !covered;
+    });
+    return covered;
+}
+
+// Whether going from `from` along `r` (its junction settings applied on a copy of the network)
+// meets `otherEnd` more than 1 m before the route's end: the way would run through the train.
+bool passesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
+                   const trainz::sim::TrackNetwork::Route& r, const trainz::sim::TrackPosition& otherEnd) {
+    trainz::sim::TrackNetwork scratch = net;
+    for (const auto& [vertex, piece] : r.switches) {
+        scratch.switches[vertex] = piece;
+    }
+    bool met = false;
+    scratch.walk(from, std::max(0.0, r.distance - 1.0), [&](const trainz::sim::TrackNetwork::Span& s) {
+        if (s.piece == otherEnd.piece && otherEnd.offset >= std::min(s.from, s.to) - 1e-6 && otherEnd.offset <= std::max(s.from, s.to) + 1e-6) {
+            met = true;
+        }
+        return !met;
+    });
+    return met;
+}
+
 namespace {
 // Plans a shunting way (with reversals) from either end of the train to `target`; on success sets
 // the legs, the first leg's junctions, the direction and the destination (its end).
@@ -832,15 +860,25 @@ bool startShunt(RouteTrain& t, trainz::sim::TrackNetwork& net, const trainz::sim
     return true;
 }
 
-// On a shunting way: at the end of a leg (stopped there), reverse and start the next. Returns
-// true while legs remain before the last one.
+// On a shunting way: at the end of a leg (stopped close before it or over it), reverse and
+// start the next. If the leg's end can no longer be reached (the plan no longer matches: a
+// junction set otherwise, an overrun), plan the way again from here to the final place.
+// Returns true while legs remain before the last one.
 bool advanceShunt(RouteTrain& t, trainz::sim::TrackNetwork& net) {
     if (t.legs.empty() || t.legIndex + 1 >= t.legs.size()) {
         return false;
     }
-    const auto& leg = t.legs[t.legIndex];
-    const auto r = net.route(movingEnd(net, t), leg.end, 200);
-    if ((!r || r->distance < 25) && std::fabs(t.drive.speed) < 0.1) {
+    const auto leg = t.legs[t.legIndex];
+    const auto r = net.route(movingEnd(net, t), leg.end, 400);
+    const bool stopped = std::fabs(t.drive.speed) < 0.1;
+    if (!r && stopped && !trainCovers(net, t, leg.end)) {
+        const auto finalPlace = t.legs.back().end;
+        if (!startShunt(t, net, finalPlace)) {  // not even a new plan: go on as best it can
+            ++t.legIndex;
+        }
+        return t.legIndex + 1 < t.legs.size();
+    }
+    if (stopped && ((r && r->distance < 25) || trainCovers(net, t, leg.end))) {
         ++t.legIndex;
         t.reversing = !t.reversing;
         for (const auto& [vertex, piece] : t.legs[t.legIndex].switches) {
@@ -908,10 +946,21 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                 return;  // still on an earlier leg
             }
             const auto r = net.route(movingEnd(net, t), mark->second);
-            const bool arrived = via ? (!r || r->distance < 5) : (r && r->distance < 25 && std::fabs(t.drive.speed) < 0.1);
+            // Arrived: stopped close before it, or stopped with it under the train (a longer train,
+            // or one backing, can stand over its mark).
+            const bool stopped = std::fabs(t.drive.speed) < 0.1;
+            const bool arrived = via ? (!r || r->distance < 5)
+                                     : stopped && ((r && r->distance < 25) || trainCovers(net, t, mark->second));
             if (arrived) {
                 next(std::string(via ? "passed '" : "reached '") + mark->first + "'");
                 continue;
+            }
+            if (!via && !r && stopped) {  // it cannot get there from here as planned: plan again
+                if (!startShunt(t, net, mark->second)) {
+                    t.waitingForOrder = true;
+                    t.orderNote = "holding: cannot reach '" + mark->first + "' from here";
+                }
+                return;
             }
             return;  // on its way
         }
@@ -932,10 +981,12 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                 std::optional<trainz::sim::TrackNetwork::Route> way;
                 std::optional<trainz::sim::TrackPosition> target;
                 bool backing = false;
-                for (const auto& e : ends) {
+                for (std::size_t k = 0; k < ends.size(); ++k) {
                     for (const bool b : {false, true}) {
-                        if (const auto r = net.route(b ? back : front, e); r && r->distance < best) {
-                            best = r->distance, way = r, target = e, backing = b;
+                        const auto r = net.route(b ? back : front, ends[k]);
+                        // Not through the train itself: its other end must not lie on the way (ChatGPT review).
+                        if (r && r->distance < best && !(ends.size() == 2 && passesThrough(net, b ? back : front, *r, ends[1 - k]))) {
+                            best = r->distance, way = r, target = ends[k], backing = b;
                         }
                     }
                 }

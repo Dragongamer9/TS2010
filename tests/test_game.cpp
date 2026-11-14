@@ -1094,3 +1094,54 @@ TEST(Coupling, ContactNeverFindsTheTrainItself) {
     EXPECT_EQ(c->other, 1u);  // the train ahead, not itself
     EXPECT_NEAR(c->gap, 0.5, 1e-6);
 }
+
+// ChatGPT review: the way to a coupling target must not run through the target train. Wagons
+// ahead (front end at 645, rear end at 614.5): the far end, 645, is reached only through them, so
+// the engine goes for the near end.
+TEST(SessionOrders, CoupleNeverPlansAWayThroughTheTarget) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    auto loco = carTrain(1, 500, +1, 1);
+    loco.cars.front().spec = trainz::sim::electricLocomotive();
+    trainz::game::refreshTrain(loco);
+    const auto wagons = carTrain(3, 640, +1, 10);
+    trainz::game::DriverCommand c;
+    c.kind = "couple";
+    c.properties["vehiclename"] = "W";
+    loco.orders = {c};
+    // The far end listed first: a plain "shortest way to either end" with no check would still
+    // pick the near one here, so also check the destination exactly.
+    const auto ends = [&](const std::string&) {
+        return std::vector<trainz::sim::TrackPosition>{trainz::game::trainFrontEnd(net, wagons), trainz::game::trainRearEnd(net, wagons)};
+    };
+    trainz::game::runOrders(loco, net, {}, {}, 0.5, ends);
+    ASSERT_TRUE(loco.destination.has_value());
+    EXPECT_NEAR(loco.destination->offset, trainz::game::trainRearEnd(net, wagons).offset, 1e-9);  // the near end
+    // The check itself: the way to the far end meets the near end on the way; the way to the
+    // near end does not meet the far one.
+    const auto front = trainz::game::trainFrontEnd(net, loco);
+    const auto nearEnd = trainz::game::trainRearEnd(net, wagons), farEnd = trainz::game::trainFrontEnd(net, wagons);
+    const auto toFar = net.route(front, farEnd), toNear = net.route(front, nearEnd);
+    ASSERT_TRUE(toFar && toNear);
+    EXPECT_TRUE(trainz::game::passesThrough(net, front, *toFar, nearEnd));
+    EXPECT_FALSE(trainz::game::passesThrough(net, front, *toNear, farEnd));
+}
+
+// A trackmark under the train counts as reached when it stands (a long train, or one backing,
+// can stop with its mark beneath it rather than ahead).
+TEST(SessionOrders, AMarkUnderTheStandingTrainIsReached) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    auto t = carTrain(3, 500, +1, 1);  // from 469.5 (rear end) to 505 (front end)
+    EXPECT_TRUE(trainz::game::trainCovers(net, t, {1, 480, +1}));
+    EXPECT_FALSE(trainz::game::trainCovers(net, t, {1, 520, +1}));
+    EXPECT_FALSE(trainz::game::trainCovers(net, t, {1, 460, +1}));
+    trainz::game::DriverCommand c;
+    c.kind = "navigate-to-trackmark";
+    c.properties["trackmarkname"] = "M";
+    t.orders = {c};
+    t.destination = trainz::sim::TrackPosition{1, 480, +1};  // already started on it
+    t.destinationName = "M";
+    trainz::game::runOrders(t, net, {{"M", {1, 480, +1}}}, {}, 0.5);
+    EXPECT_EQ(t.orderIndex, 1u);  // standing over it: reached
+}

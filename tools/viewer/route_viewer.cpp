@@ -1095,6 +1095,19 @@ int main(int argc, char** argv) {
                         }
                     }
                 }
+                if (t.destination) {
+                    const auto at = [&](const trainz::sim::TrackPosition& p) {
+                        return std::to_string(p.piece) + "@" + std::to_string(static_cast<int>(p.offset)) + (p.direction > 0 ? "+" : "-");
+                    };
+                    std::printf("  train %zu: destination %s, its ends %s / %s, under it: %s\n", t.index + 1, at(*t.destination).c_str(),
+                                at(trainz::game::trainFrontEnd(*net, t)).c_str(), at(trainz::game::trainRearEnd(*net, t)).c_str(),
+                                trainz::game::trainCovers(*net, t, *t.destination) ? "yes" : "no");
+                    if (!t.legs.empty()) {
+                        for (std::size_t k = 0; k < t.legs.size(); ++k) {
+                            std::printf("    leg %zu ends at %s%s\n", k + 1, at(t.legs[k].end).c_str(), t.legs[k].reverseAfter ? " (reverse)" : "");
+                        }
+                    }
+                }
                 if (!t.legs.empty() && t.legIndex < t.legs.size()) {
                     const auto r = net->route(trainz::game::movingEnd(*net, t), t.legs[t.legIndex].end, 5000);
                     std::printf("  train %zu shunting: leg %zu of %zu, %s, %.1f km/h, %s\n", t.index + 1, t.legIndex + 1, t.legs.size(),

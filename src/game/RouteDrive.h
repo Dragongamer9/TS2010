@@ -237,4 +237,13 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
 // Ends a Couple order once the caller has coupled: on to the next order.
 void finishCouple(RouteTrain& t);
 
+// Whether going from `from` along route `r` (its junction settings applied on a copy) meets
+// `otherEnd` more than 1 m before the route's end: a way to one end of a train that runs through
+// the train itself (its other end lies on the way).
+bool passesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
+                   const trainz::sim::TrackNetwork::Route& r, const trainz::sim::TrackPosition& otherEnd);
+
+// Whether a place lies under the train, between its buffer ends.
+bool trainCovers(const trainz::sim::TrackNetwork& net, const RouteTrain& t, const trainz::sim::TrackPosition& p);
+
 }  // namespace trainz::game
