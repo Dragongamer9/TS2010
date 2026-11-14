@@ -224,6 +224,15 @@ std::vector<trainz::sim::Occupied> trainOccupies(const trainz::sim::TrackNetwork
     return trainOccupies(net, trainFrontEnd(net, t), std::max(0.0, t.length - 0.5), step);
 }
 
+trainz::sim::TrackPosition movingEnd(const trainz::sim::TrackNetwork& net, const RouteTrain& t) {
+    if (!t.reversing) {
+        return trainFrontEnd(net, t);
+    }
+    trainz::sim::TrackPosition p = trainRearEnd(net, t);
+    p.direction = -p.direction;
+    return p;
+}
+
 trainz::sim::TrackPosition lastVehicleMiddle(const trainz::sim::TrackNetwork& net, const RouteTrain& t) {
     trainz::sim::TrackPosition p = t.drive.lead;
     net.advance(p, -(leadToRearEnd(t) - lastHalf(t)));
@@ -337,8 +346,8 @@ std::optional<RouteTrain> uncoupleRear(const trainz::sim::TrackNetwork& net, Rou
 std::optional<AiDriver::StopAhead> AiDriver::stopAhead(const RouteTrain& d, const trainz::sim::TrackNetwork& net,
                                                        const trainz::sim::SignalSystem* signals,
                                                        const std::vector<trainz::sim::Occupied>& others, double look) const {
-    // Measured from the train's front buffer (its lead is the first car's middle).
-    const trainz::sim::TrackPosition front = trainFrontEnd(net, d);
+    // Measured from the end it moves toward (the front buffer, or the rear one when reversing).
+    const trainz::sim::TrackPosition front = movingEnd(net, d);
     std::optional<StopAhead> best;
     auto consider = [&](double dist, const char* why) {
         if (dist >= 0 && (!best || dist < best->distance)) {
@@ -388,10 +397,10 @@ std::optional<AiDriver::StopAhead> AiDriver::stopAhead(const RouteTrain& d, cons
 
 void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, const trainz::sim::SignalSystem* signals,
                        const std::vector<trainz::sim::Occupied>& others) const {
-    const trainz::sim::TrackPosition front = trainFrontEnd(net, d);  // distances from the front buffer
+    const trainz::sim::TrackPosition front = movingEnd(net, d);  // distances from the end it moves toward
     auto& c = d.drive.controls;
     const double v = std::fabs(d.drive.speed);
-    c.reverser = +1;
+    c.reverser = d.reversing ? -1 : +1;
     c.dynamicNotch = 0;
     if (d.heldRedSignal && signals != nullptr &&
         *d.heldRedSignal < signals->signals().size() &&
@@ -413,6 +422,22 @@ void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, cons
     if (d.heldRedSignal || d.waitingForOrder) {  // at a red signal it reached, or its order says wait
         c.notch = 0, c.throttle = 0, c.brake = 1;
         return;
+    }
+    // Coupling: the last 40 m to the other train's end at walking pace, without stopping short
+    // of it (its points would otherwise be a train ahead); signals still count.
+    if (!d.coupleWith.empty() && d.destination) {
+        if (const auto r = net.route(front, *d.destination, 60); r && r->distance < 40) {
+            const bool redAhead = signals != nullptr && [&] {
+                const auto sg = signals->nextSignal(front, r->distance + 1);
+                return sg && signals->aspect(sg->index) == trainz::sim::Aspect::Stop;
+            }();
+            if (!redAhead) {
+                c.brake = v > 1.2 ? 0.6 : 0.0;
+                c.notch = v < 0.8 ? 1 : 0;
+                c.throttle = v < 0.8 ? 0.15 : 0.0;
+                return;
+            }
+        }
     }
     const auto stop = stopAhead(d, net, signals, others);
     bool fullBrake = false;
@@ -680,7 +705,7 @@ std::vector<DriverOrders> driverOrders(const std::vector<trainz::content::Behavi
                 if (!kuid) {
                     continue;
                 }
-                DriverCommand dc{*kuid, {}, {}};
+                DriverCommand dc{*kuid, {}, {}, {}};
                 if (const auto* props = c.child("properties"); props != nullptr) {
                     for (const auto& p : props->children) {
                         if (!p.text.empty()) {
@@ -731,11 +756,28 @@ std::string commandKind(const std::string& username) {
     if (n == "waitfortrigger" || n == "wait for trigger") {
         return "wait-for-trigger";
     }
+    if (n == "couple") {
+        return "couple";
+    }
+    // Orders that change nothing about where trains go or what they carry: done at once.
+    if (n == "hornz" || n == "horn" || n == "change destination sign" || n == "pantz") {
+        return "no-effect";
+    }
     return {};
 }
 
+void finishCouple(RouteTrain& t) {
+    t.orderNote = "coupled to '" + t.coupleWith + "'";
+    t.coupleWith.clear();
+    t.reversing = false;
+    t.destination.reset();
+    ++t.orderIndex;
+    t.orderClock = 0;
+}
+
 void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
-               const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds) {
+               const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds,
+               const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&, const trainz::sim::TrackPosition&)>& trainEnd) {
     t.waitingForOrder = false;
     for (int guard = 0; guard < 64 && t.orderIndex < t.orders.size(); ++guard) {
         const DriverCommand& c = t.orders[t.orderIndex];
@@ -747,6 +789,7 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
             ++t.orderIndex;
             t.orderClock = 0;
             t.destination.reset();
+            t.reversing = false;
             t.orderNote = note;
         };
         if (c.kind == "navigate-to-trackmark" || c.kind == "navigate-via-trackmark") {
@@ -756,28 +799,67 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                 next("no trackmark '" + prop("trackmarkname") + "'");
                 continue;
             }
-            const auto front = trainFrontEnd(net, t);
-            const auto r = net.route(front, mark->second);
-            if (!t.destination) {  // starting this order: set the way
-                if (!r) {
+            if (!t.destination) {  // starting this order: the way forward, else backward
+                const auto ahead = net.route(trainFrontEnd(net, t), mark->second);
+                trainz::sim::TrackPosition back = trainRearEnd(net, t);
+                back.direction = -back.direction;
+                const auto behind = ahead ? std::nullopt : net.route(back, mark->second);
+                if (!ahead && !behind) {
                     next("cannot reach '" + mark->first + "'");
                     continue;
                 }
+                t.reversing = !ahead;
+                const auto& r = ahead ? ahead : behind;
                 for (const auto& [vertex, piece] : r->switches) {
                     net.switches[vertex] = piece;
                 }
                 t.destination = mark->second;
                 t.destinationName = mark->first;
                 t.destinationVia = via;
-                t.orderNote = std::string(via ? "via '" : "to '") + mark->first + "'";
+                t.orderNote = std::string(via ? "via '" : "to '") + mark->first + "'" + (t.reversing ? " (backing)" : "");
                 return;
             }
+            const auto r = net.route(movingEnd(net, t), mark->second);
             const bool arrived = via ? (!r || r->distance < 5) : (r && r->distance < 25 && std::fabs(t.drive.speed) < 0.1);
             if (arrived) {
                 next(std::string(via ? "passed '" : "reached '") + mark->first + "'");
                 continue;
             }
             return;  // on its way
+        }
+        if (c.kind == "couple") {
+            const std::string vehicle = prop("vehiclename");
+            if (t.coupleWith.empty()) {  // starting: head for the nearest end of that train, forward or backing
+                const auto front = trainFrontEnd(net, t);
+                trainz::sim::TrackPosition back = trainRearEnd(net, t);
+                back.direction = -back.direction;
+                auto end = trainEnd ? trainEnd(vehicle, front) : std::nullopt;
+                auto r = end ? net.route(front, *end) : std::nullopt;
+                t.reversing = false;
+                if (!r) {
+                    end = trainEnd ? trainEnd(vehicle, back) : std::nullopt;
+                    r = end ? net.route(back, *end) : std::nullopt;
+                    t.reversing = r.has_value();
+                }
+                if (!r) {
+                    t.waitingForOrder = true;
+                    t.orderNote = "holding: cannot reach '" + vehicle + "' to couple";
+                    return;
+                }
+                for (const auto& [vertex, piece] : r->switches) {
+                    net.switches[vertex] = piece;
+                }
+                t.coupleWith = vehicle;
+                t.destination = *end;
+                t.destinationVia = false;
+                t.destinationName = vehicle;
+            }
+            t.orderNote = "to couple to '" + vehicle + "'" + (t.reversing ? " (backing)" : "");
+            return;  // the caller couples on contact (finishCouple)
+        }
+        if (c.kind == "no-effect") {
+            next("did '" + c.name + "'");
+            continue;
         }
         if (c.kind == "wait-for") {
             t.waitingForOrder = true;
@@ -814,9 +896,8 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
         // An order the port cannot follow yet: stop and hold here. Skipping it (a Load, a Couple)
         // would carry on with a plan that no longer matches the session (ChatGPT review).
         t.waitingForOrder = true;
-        t.orderNote = "holding: order " + std::to_string(t.orderIndex + 1) + " (" +
-                      (c.properties.empty() ? std::string("not followed yet") : c.properties.begin()->first + " " + c.properties.begin()->second) +
-                      ") is not followed yet";
+        t.orderNote = "holding: order " + std::to_string(t.orderIndex + 1) + " '" + (c.name.empty() ? std::string("?") : c.name) +
+                      "' is not followed yet";
         return;
     }
 }

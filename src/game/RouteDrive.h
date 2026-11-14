@@ -92,8 +92,10 @@ struct DriverCommand {
     trainz::content::Kuid command;
     std::map<std::string, std::string> properties;
     // What the port makes of it (set by the caller from the command asset's name):
-    // "navigate-to-trackmark", "navigate-via-trackmark", "wait-for", "wait-for-trigger", or "" (not followed).
+    // "navigate-to-trackmark", "navigate-via-trackmark", "wait-for", "wait-for-trigger", "couple",
+// "no-effect" (horn, destination sign, pantograph: done at once), or "" (not followed: the train holds).
     std::string kind;
+    std::string name;  // the command asset's username, for notes
 };
 
 // A session train ready to run: its place and physics (a Drive), its drawn vehicles and length.
@@ -124,6 +126,8 @@ struct RouteTrain {
     std::size_t orderIndex = 0;
     double orderClock = 0;            // seconds waited in the current order
     bool waitingForOrder = false;     // stand still: the current order is a wait
+    std::string coupleWith;           // a Couple order: the vehicle to couple to (the caller couples on contact)
+    bool reversing = false;           // the AI drives it backwards (its rear end leads)
     std::string orderNote;            // what it is doing, for display  // reached its braking margin; hold even after an overrun until it clears
 };
 // Builds train `index` of the session: placed where it stands (trainStart), each vehicle's own
@@ -164,6 +168,8 @@ void refreshTrain(RouteTrain& t);
 trainz::sim::TrackPosition trainFrontEnd(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
 trainz::sim::TrackPosition trainRearEnd(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
 trainz::sim::TrackPosition lastVehicleMiddle(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
+// The end it moves toward, facing outward: its front end, or its rear end turned round when reversing.
+trainz::sim::TrackPosition movingEnd(const trainz::sim::TrackNetwork& net, const RouteTrain& t);
 std::vector<trainz::sim::Occupied> trainOccupies(const trainz::sim::TrackNetwork& net, const RouteTrain& t, double step = 5.0);
 
 // Another train's end within `within` metres of the selected moving end, along the track.
@@ -214,11 +220,16 @@ bool releaseIfOnlySelfHeld(RouteTrain& t, const trainz::sim::SignalSystem& signa
 //    stop at it (to) or pass it (via), and go on to the next order;
 //  - wait for: stand `timetowait` seconds (assumed to be seconds);
 //  - wait for trigger: stand until the named train's front is within 30 m of the named trigger;
+//  - couple: head for the nearest end of the train with `vehiclename` (`trainEnd(name, from)`)
+//    and creep the last 40 m; the caller couples on contact and calls finishCouple;
 //  - anything else: the train stops and holds there (noted): skipping, say, a Load or Couple
 //    order would go on with a plan that no longer matches the session.
 // `marks` holds trackmarks and triggers by name; `trainFront(vehicleName)` the front of the train
 // with that vehicle, if any.
 void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
-               const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds);
+               const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds,
+               const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&, const trainz::sim::TrackPosition&)>& trainEnd = {});
+// Ends a Couple order once the caller has coupled: on to the next order.
+void finishCouple(RouteTrain& t);
 
 }  // namespace trainz::game

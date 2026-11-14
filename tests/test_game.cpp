@@ -999,4 +999,51 @@ TEST(SessionOrders, CommandKindsByName) {
     EXPECT_EQ(trainz::game::commandKind("WaitFor"), "wait-for");
     EXPECT_EQ(trainz::game::commandKind("WaitForTrigger"), "wait-for-trigger");
     EXPECT_EQ(trainz::game::commandKind("Load"), "");
+    EXPECT_EQ(trainz::game::commandKind("Hornz"), "no-effect");
+    EXPECT_EQ(trainz::game::commandKind("Change Destination Sign"), "no-effect");
+    EXPECT_EQ(trainz::game::commandKind("Couple"), "couple");
+}
+
+// A Couple order whose wagons stand behind the locomotive: it backs onto them and couples.
+TEST(SessionOrders, CoupleBacksOntoWagonsBehind) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    auto loco = carTrain(1, 500, +1, 1);  // one 10 m car, facing +x, front end at 505
+    loco.cars.front().spec = trainz::sim::electricLocomotive();
+    trainz::game::refreshTrain(loco);
+    std::vector<trainz::game::RouteTrain> others{carTrain(3, 400, +1, 10)};  // wagons behind: front end at 405
+    trainz::game::DriverCommand c;
+    c.kind = "couple";
+    c.properties["vehiclename"] = "Wagon";
+    loco.orders = {c};
+    const auto end = [&](const std::string& name, const trainz::sim::TrackPosition& from) -> std::optional<trainz::sim::TrackPosition> {
+        if (name != "Wagon") {
+            return std::nullopt;
+        }
+        std::optional<trainz::sim::TrackPosition> best;
+        double bestD = 1e18;
+        for (const auto& e : {trainz::game::trainFrontEnd(net, others[0]), trainz::game::trainRearEnd(net, others[0])}) {
+            if (const auto r = net.route(from, e); r && r->distance < bestD) {
+                bestD = r->distance, best = e;
+            }
+        }
+        return best;
+    };
+    const trainz::game::AiDriver ai;
+    bool coupled = false;
+    for (int i = 0; i < 600 && !coupled; ++i) {
+        trainz::game::runOrders(loco, net, {}, {}, 0.5, end);
+        ai.control(loco, net, nullptr, {});
+        loco.drive.step(net, 0.5);
+        if (const auto touch = trainz::game::findContact(net, loco, others, 0.6, loco.drive.speed >= 0)) {
+            trainz::game::coupleTrains(net, loco, others[0], *touch);
+            trainz::game::finishCouple(loco);
+            coupled = true;
+        }
+    }
+    ASSERT_TRUE(coupled);
+    EXPECT_EQ(loco.cars.size(), 4u);
+    EXPECT_EQ(loco.orderIndex, 1u);
+    EXPECT_FALSE(loco.reversing);
+    EXPECT_EQ(order(loco), "electric locomotive 10 11 12 ");  // the wagons behind it
 }

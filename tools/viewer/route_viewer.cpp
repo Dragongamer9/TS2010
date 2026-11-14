@@ -414,6 +414,17 @@ int main(int argc, char** argv) {
                 }
             }
             standing = trainz::game::standingTrains(*net, unbuilt, -1);
+            if (!unbuilt.empty()) {
+                std::printf("trains not built (no readable model, or not on the track):");
+                for (std::size_t t = 0; t < trains.size(); ++t) {
+                    const bool built = t == chosen || std::any_of(otherTrains.begin(), otherTrains.end(),
+                                                                  [t](const trainz::game::RouteTrain& o) { return o.index == t; });
+                    if (!built) {
+                        std::printf(" %zu", t + 1);
+                    }
+                }
+                std::printf("\n");
+            }
         }
         // Signals (both modes, with track): turned to their track, placed on the network, and
         // their lamps drawn for the port's aspects. Without --drive every session train stands.
@@ -444,7 +455,7 @@ int main(int argc, char** argv) {
                 for (const auto& [name, at] : trainz::game::routeTrackmarks(*net, extras.objects)) {
                     marks.emplace(name, at);
                 }
-                std::map<std::string, std::string> kinds;  // by formatted command KUID
+                std::map<std::string, std::string> kinds, names;  // by formatted command KUID
                 std::size_t given = 0, followed = 0, all = 0;
                 for (auto order : trainz::game::driverOrders(extras.rules)) {
                     auto train = std::find_if(otherTrains.begin(), otherTrains.end(), [&](const trainz::game::RouteTrain& t) {
@@ -459,9 +470,11 @@ int main(int argc, char** argv) {
                         if (kinds.count(key) == 0) {
                             const auto cfg = meshes->config(c.command);
                             const auto* u = cfg ? cfg->child("username") : nullptr;
+                            names[key] = u != nullptr ? u->text : key;
                             kinds[key] = trainz::game::commandKind(u != nullptr ? u->text : std::string());
                         }
                         c.kind = kinds[key];
+                        c.name = names[key];
                         ++all;
                         followed += c.kind.empty() ? 0 : 1;
                     }
@@ -808,11 +821,55 @@ int main(int argc, char** argv) {
                                 }
                                 return std::nullopt;
                             };
-                            trainz::game::runOrders(otherTrains[t], *net, marks, trainFront, frames > 0 ? 0.5 : dt);
+                            const auto trainEnd = [&](const std::string& vehicle,
+                                                      const trainz::sim::TrackPosition& from) -> std::optional<trainz::sim::TrackPosition> {
+                                for (std::size_t o = 0; o < otherTrains.size(); ++o) {
+                                    const auto& vs = (*extras.trains)[otherTrains[o].index].vehicles;
+                                    if (o == t || otherTrains[o].cars.empty() ||
+                                        std::none_of(vs.begin(), vs.end(), [&](const trainz::content::Vehicle& v) { return v.name == vehicle; })) {
+                                        continue;
+                                    }
+                                    // The nearer of its two buffer ends, by the way along the track.
+                                    std::optional<trainz::sim::TrackPosition> best;
+                                    double bestD = 1e18;
+                                    for (const auto& end : {trainz::game::trainFrontEnd(*net, otherTrains[o]), trainz::game::trainRearEnd(*net, otherTrains[o])}) {
+                                        if (const auto r = net->route(from, end); r && r->distance < bestD) {
+                                            bestD = r->distance, best = end;
+                                        }
+                                    }
+                                    return best;
+                                }
+                                return std::nullopt;
+                            };
+                            trainz::game::runOrders(otherTrains[t], *net, marks, trainFront, frames > 0 ? 0.5 : dt, trainEnd);
                         }
                         ai.control(otherTrains[t], *net, signals ? &*signals : nullptr, others);
                         otherTrains[t].drive.step(*net, frames > 0 ? 0.5 : dt);
                     }
+                }
+                // Couple orders: an AI train touching the train it is to couple to joins it.
+                for (std::size_t t = 0; t < otherTrains.size(); ++t) {
+                    auto& ai = otherTrains[t];
+                    if (ai.coupleWith.empty()) {
+                        continue;
+                    }
+                    const auto touch = trainz::game::findContact(*net, ai, otherTrains, 0.6, ai.drive.speed >= 0);
+                    if (!touch || touch->other == t) {
+                        continue;
+                    }
+                    auto& other = otherTrains[touch->other];
+                    const auto& vs = (*extras.trains)[other.index].vehicles;
+                    if (std::none_of(vs.begin(), vs.end(), [&](const trainz::content::Vehicle& v) { return v.name == ai.coupleWith; })) {
+                        continue;
+                    }
+                    std::printf("AI train %zu coupled to train %zu ('%s')\n", ai.index + 1, other.index + 1, ai.coupleWith.c_str());
+                    trainz::game::coupleTrains(*net, ai, other, *touch);
+                    trainz::game::finishCouple(ai);
+                    otherTrains.erase(otherTrains.begin() + static_cast<std::ptrdiff_t>(touch->other));
+                    if (watch > static_cast<long>(otherTrains.size())) {
+                        watch = 0;
+                    }
+                    break;  // indexes changed: the rest next step
                 }
                 if (signals && signalClock >= 0.5) {  // aspects twice a second
                     std::vector<trainz::sim::Occupied> taken;
