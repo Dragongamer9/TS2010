@@ -148,7 +148,8 @@ Drive slowly into another train (under 7 km/h) and it couples to yours; faster i
 collision, which stops you. Stopped, **U** leaves your rearmost car behind (press again for
 more). A train without notches steps its throttle 10% per W/S press as well.
 
-Your train's own engine sound follows the notch, and **H** sounds its horn (TS2010's keys).
+Your train's own engine sound follows the notch, **H** sounds its horn and **B** rings its bell (TS2010's keys); you also hear the wheels, the
+points, flange squeal on tight curves and the brakes.
 Add `--record-sound` to save what was played as a `.wav` next to the screenshots. Each vehicle's mass and the locomotives' pulling force come from their own files
 (`mass`, `enginespec`); resistance and brakes are still general defaults. Junctions start as the route sets
 them. The title also shows the next signal and its aspect (stop, caution or clear), worked

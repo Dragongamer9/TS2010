@@ -792,3 +792,32 @@ TEST(RunningSounds, ClacksAtEveryJointPointsAndBrakeHiss) {
     r.update(s, 0, 0, 1.0, false, false);
     EXPECT_FALSE(r.hissing);
 }
+
+TEST(RunningSounds, FlangeSquealOnTightCurvesAtSpeedAndTheBell) {
+    trainz::game::TrainSound s;
+    s.addEffect("sounds/track/flange_squeal.wav", constantClip(0.5f, 100));
+    trainz::game::RunningSounds r;
+    auto level = [&](double speed, double radius) {
+        r.update(s, speed, 0, 0.5, false, false, radius);
+        std::vector<float> out(10, 0.0f);
+        s.mix(out.data(), out.size(), 1.0f);
+        return out[0];
+    };
+    EXPECT_FLOAT_EQ(level(20, std::numeric_limits<double>::infinity()), 0.0f);  // straight: none
+    EXPECT_FLOAT_EQ(level(20, 400), 0.0f);                                     // gentle curve: none
+    EXPECT_GT(level(20, 150), 0.0f);                                           // tight: squeal
+    EXPECT_GT(level(20, 80), level(20, 150));                                  // tighter: louder
+    EXPECT_FLOAT_EQ(level(1, 80), 0.0f);                                       // crawling: none
+    // The bell loops while on.
+    trainz::game::TrainSound b;
+    b.addHornClip("w_bell_1.wav", constantClip(0.5f, 40));
+    ASSERT_TRUE(b.hasBell());
+    b.setBell(true);
+    std::vector<float> out(100, 0.0f);
+    b.mix(out.data(), out.size(), 1.0f);
+    EXPECT_FLOAT_EQ(out[90], 0.25f);  // 0.5 at the bell's 0.5 volume, still going after one pass
+    b.setBell(false);
+    std::vector<float> quiet(10, 0.0f);
+    b.mix(quiet.data(), quiet.size(), 1.0f);
+    EXPECT_FLOAT_EQ(quiet[0], 0.0f);
+}

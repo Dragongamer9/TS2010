@@ -120,6 +120,15 @@ void TrainSound::mixVoice(Voice& v, float* out, std::size_t count, float volume)
     }
 }
 
+void TrainSound::setBell(bool on) {
+    const auto it = horn_.find("w_bell_1.wav");
+    if (it == horn_.end() || it->second.samples.empty()) {
+        return;
+    }
+    effects_["bell"] = it->second;  // as a looping effect
+    loop("bell", on, 0.5f);
+}
+
 void TrainSound::play(const std::string& name, float volume, std::size_t delay) {
     const auto it = effects_.find(name);
     if (it == effects_.end() || it->second.samples.empty() || !(volume > 0)) {
@@ -167,7 +176,8 @@ void TrainSound::mix(float* out, std::size_t count, float volume) {
     shots_.erase(std::remove_if(shots_.begin(), shots_.end(), [](const Shot& s) { return s.voice.clip == nullptr; }), shots_.end());
 }
 
-void RunningSounds::update(TrainSound& s, double speed, double moved, double seconds, bool overPoints, bool brakeFalling) {
+void RunningSounds::update(TrainSound& s, double speed, double moved, double seconds, bool overPoints, bool brakeFalling,
+                           double curveRadius) {
     const double v = std::fabs(speed), dist = std::fabs(moved);
     if (std::isfinite(dist) && dist > 0 && std::isfinite(seconds) && seconds > 0) {
         const bool slow = v < 20 / 3.6;
@@ -198,6 +208,9 @@ void RunningSounds::update(TrainSound& s, double speed, double moved, double sec
     }
     hissing = brakeFalling;
     s.loop("sounds/airbrakes/idle 1.wav", hissing, 0.4f);
+    const bool squeal = v > 10 / 3.6 && std::isfinite(curveRadius) && curveRadius > 0 && curveRadius < kSquealRadius;
+    s.loop("sounds/track/flange_squeal.wav", squeal,
+           squeal ? static_cast<float>(std::clamp((kSquealRadius - curveRadius) / kSquealRadius, 0.1, 0.6)) : 0.0f);
 }
 
 }  // namespace trainz::game

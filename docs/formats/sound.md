@@ -120,6 +120,9 @@ brake sounds, sounds placed in 3D (other trains, scenery), `stop.wav`, the bell.
 - a wheels-over-points clip when the train runs through a junction;
 - the brake hiss (start, loop, stop) while the brake pipe pressure is falling.
 
-The flange squeal, wheel slip and the `_med` clips are not used yet. Checked by recording two
+Flange squeal (`flange_squeal.wav`) loops on curves tighter than 250 m above 10 km/h, louder
+when tighter (the radius from the heading change over the next 10 m); the bell
+(`w_bell_1.wav` of the hornsound asset) loops while B has it on. Wheel slip and the `_med`
+clips are not used yet. Checked by recording two
 runs, with and without `Data.ja`, and comparing them: the running sounds start when the train
 moves, at about 2–3 clacks a second at speed.

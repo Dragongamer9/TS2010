@@ -18,7 +18,8 @@
 // signals at stop, trains ahead and line ends). T (or --watch N) makes the chase camera follow
 // another train; T again moves on, back to your own. Running into a train below 7 km/h couples
 // it to yours (faster is a collision: you stop); U (when stopped) leaves your rearmost car behind.
-// Sound: your train's own engine sounds follow the notch, H sounds its horn (TS2010's keys);
+// Sound: your train's own engine sounds follow the notch, H sounds its horn, B rings its bell
+// (TS2010's keys); wheel clacks, points, flange squeal on tight curves and the brake hiss play too;
 // --record-sound writes what was played to a .wav next to the screenshots. --train N picks the train (1 = the first; default: the first one that stands on track).
 // Physics: mass and notch curves from the install when present; resistance/brakes are presets.
 // Exit codes: 0 done, 1 error, 2 bad arguments, 3 no route/session matches NAME, 4 several do.
@@ -69,7 +70,9 @@
 #include <cerrno>
 #include <exception>
 #include <iostream>
+#include <limits>
 #include <map>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <vector>
@@ -306,6 +309,7 @@ int main(int argc, char** argv) {
         std::vector<std::int16_t> recorded;    // --record-sound: everything mixed
         double hornHeldFor = 1e9;              // seconds the horn has sounded this time
         bool hornKey = false;
+        bool bellOn = false;
         trainz::game::RunningSounds runningSounds;  // wheel clacks, points, brake hiss
         std::vector<trainz::game::RouteTrain> otherTrains;  // drive mode: the session's other trains
         if (drive) {
@@ -551,6 +555,9 @@ int main(int argc, char** argv) {
                     // A train without notches: each press moves the smooth throttle by 10% (holding moves it too).
                     driving.controls.throttle =
                         std::clamp(driving.controls.throttle + (ev.key.keysym.sym == SDLK_w ? 0.1 : -0.1), 0.0, 1.0);
+                } else if (drive && ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_b && ev.key.repeat == 0) {
+                    bellOn = !bellOn;  // TS2010's bell key (keyboard.txt train_bell)
+                    trainSound.setBell(bellOn);
                 } else if (drive && (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) && ev.key.keysym.sym == SDLK_h) {
                     hornKey = ev.type == SDL_KEYDOWN;  // TS2010's horn key (keyboard.txt train_horn)
                     if (hornKey && ev.key.repeat == 0) {
@@ -695,7 +702,19 @@ int main(int argc, char** argv) {
                     const double seconds = frames > 0 ? 0.5 : dt;
                     const double moved = 0.5 * (speedBefore + driving.speed) * seconds;
                     const bool overPoints = junctionBefore && std::fabs(moved) >= junctionBefore->distance && speedBefore > 0;
-                    runningSounds.update(trainSound, driving.speed, moved, seconds, overPoints, me.airBrake.pipe < pipeBefore - 1e-9);
+                    // The curve under the train: the heading change over the next 10 m.
+                    double curveRadius = std::numeric_limits<double>::infinity();
+                    if (const auto here = net->point(driving.lead)) {
+                        trainz::sim::TrackPosition ahead = driving.lead;
+                        const auto m = net->advance(ahead, driving.speed >= 0 ? 10.0 : -10.0);
+                        const auto there = net->point(ahead);
+                        const double turn = there ? std::fabs(std::remainder(there->heading - here->heading, 2 * std::numbers::pi)) : 0.0;
+                        if (turn > 1e-6 && std::fabs(m.moved) > 5) {
+                            curveRadius = std::fabs(m.moved) / turn;
+                        }
+                    }
+                    runningSounds.update(trainSound, driving.speed, moved, seconds, overPoints, me.airBrake.pipe < pipeBefore - 1e-9,
+                                         curveRadius);
                     trainSound.setNotch(driving.spec.notchCurvesN.empty() ? static_cast<int>(std::lround(driving.controls.throttle * 8))
                                                                          : driving.controls.notch);
                     hornHeldFor += seconds;

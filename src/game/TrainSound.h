@@ -11,6 +11,7 @@
 #include "content/SoundFile.h"
 
 #include <cstddef>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -45,6 +46,9 @@ public:
     // The notch the engine should be in (0..), and whether the horn is held.
     void setNotch(int notch);
     void setHorn(bool held);
+    // The bell (the hornsound asset's w_bell_1.wav), looping while on.
+    void setBell(bool on);
+    bool hasBell() const { return horn_.count("w_bell_1.wav") != 0; }
 
     // Mixes the next `count` samples into `out` (added, not replaced), at `volume`.
     void mix(float* out, std::size_t count, float volume = 0.6f);
@@ -92,8 +96,12 @@ struct RunningSounds {
     int clackIndex = 0, pointsIndex = 0;
     bool hissing = false;
     // One step: `speed` m/s, `moved` metres this step (signed), `seconds` long; `overPoints` when
-    // the train ran through a junction; `brakeFalling` when the brake pipe pressure fell.
-    void update(TrainSound& s, double speed, double moved, double seconds, bool overPoints, bool brakeFalling);
+    // the train ran through a junction; `brakeFalling` when the brake pipe pressure fell;
+    // `curveRadius` the track's radius under the train in metres (infinity on the straight):
+    // flange squeal on curves tighter than kSquealRadius above 10 km/h.
+    void update(TrainSound& s, double speed, double moved, double seconds, bool overPoints, bool brakeFalling,
+                double curveRadius = std::numeric_limits<double>::infinity());
+    static constexpr double kSquealRadius = 250.0;  // metres: the port's choice
 };
 
 // The general sounds above, from the game's Data.ja (`readFile(name)` returns its bytes).
@@ -105,7 +113,7 @@ void loadRunningSounds(TrainSound& out, ReadFile&& readFile) {
         names.push_back("sounds/junction/wheels_over_points_" + std::to_string(i) + ".wav");
     }
     for (const char* n : {"sounds/track/wheel_clang_slow1.wav", "sounds/track/wheel_clang_slow2.wav", "sounds/airbrakes/start.wav",
-                          "sounds/airbrakes/idle 1.wav", "sounds/airbrakes/stop.wav"}) {
+                          "sounds/airbrakes/idle 1.wav", "sounds/airbrakes/stop.wav", "sounds/track/flange_squeal.wav"}) {
         names.push_back(n);
     }
     for (const auto& n : names) {
@@ -154,7 +162,7 @@ void loadTrainSounds(TrainSound& out, std::optional<trainz::content::Kuid> engin
         }
     }
     if (horn) {
-        for (const char* name : {"horn_start.wav", "horn_loop.wav", "horn_end.wav"}) {
+        for (const char* name : {"horn_start.wav", "horn_loop.wav", "horn_end.wav", "w_bell_1.wav"}) {
             if (auto c = load(*horn, name)) {
                 out.addHornClip(name, std::move(*c));
             }
