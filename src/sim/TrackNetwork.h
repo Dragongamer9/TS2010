@@ -1,0 +1,123 @@
+// Driving along track: a position on a track piece as metres along its curve, moved forward or
+// back across vertices into the next piece. Built from a TrackLayout (the port's curve model,
+// content/TrackLayout.h), so it works for decoded routes and for the game's own track alike.
+// At a vertex a train continues onto a piece on the OTHER side of the vertex (link flags are
+// vertex sides); at a junction it takes the piece chosen by the junction setting (default: the
+// one that turns least). A line end stops it (a buffer).
+#pragma once
+
+#include "content/TrackLayout.h"
+
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <optional>
+#include <vector>
+
+namespace trainz::sim {
+
+struct TrackPosition {
+    std::int32_t piece = -1;
+    double offset = 0;   // metres along the piece's curve from its `from` vertex
+    int direction = +1;  // +1: moving forward goes toward `to`; -1: toward `from`
+};
+
+struct TrackPoint {
+    double x = 0, y = 0, z = 0;  // world metres
+    double heading = 0;          // radians, the direction of travel (direction applied)
+    double grade = 0;            // rise per metre of travel (dz / ds)
+};
+
+class TrackNetwork {
+public:
+    // Junctions start set as the layout stores them (content::junctionSetting, observed).
+    explicit TrackNetwork(const trainz::content::TrackLayout& layout);
+
+    // The piece's length along its curve (metres), or nullopt if it is not in the network.
+    std::optional<double> length(std::int32_t piece) const;
+    std::optional<TrackPoint> point(const TrackPosition& p) const;
+
+    struct Move {
+        double moved = 0;          // metres actually moved (less than asked at a line end)
+        bool stoppedAtEnd = false;  // ran into a line end
+    };
+    // Moves `metres` along the direction of travel (negative: backwards). Junctions: a piece
+    // index in `switches` (by vertex) picks the way, else the one that turns least.
+    Move advance(TrackPosition& p, double metres) const;
+
+    // The track position nearest to a world point (x, y), facing toward the piece's `to` end,
+    // or nullopt if no piece comes within maxDistance metres. Checks every piece's samples.
+    std::optional<TrackPosition> locate(double x, double y, double maxDistance = 5.0) const;
+
+    // Which way a train leaving `vertex` on this side may go: the pieces on the other side.
+    std::vector<std::int32_t> exits(std::int32_t vertex, std::int32_t arrivingPiece) const;
+
+    std::map<std::int32_t, std::int32_t> switches;  // vertex -> chosen piece at that junction
+
+    // The next junction a train at `p` would run through facing its trunk (so the switch decides
+    // its way), within `maxDistance` metres ahead along the current settings; nullopt if none.
+    struct JunctionAhead {
+        std::int32_t vertex = -1;
+        std::vector<std::int32_t> ways;  // the pieces it can be set to
+        double distance = 0;             // metres ahead
+    };
+    std::optional<JunctionAhead> junctionAhead(const TrackPosition& p, double maxDistance = 500) const;
+    // Sets that junction to its next way (wrapping), returning the piece now chosen.
+    std::int32_t toggle(const JunctionAhead& j);
+
+    // Walks the track ahead of `start` along the current junction settings (the way `advance`
+    // would go), calling `visit` for each stretch of a piece: entry and exit offsets, the
+    // direction (+1: offsets grow) and the metres from `start` at entry. Stops when `visit`
+    // returns false, at a line end or after maxDistance metres.
+    struct Span {
+        std::int32_t piece = -1;
+        double from = 0, to = 0;
+        int direction = +1;
+        double startDistance = 0;
+    };
+    void walk(const TrackPosition& start, double maxDistance, const std::function<bool(const Span&)>& visit) const;
+
+    // The shortest way along the track from `from` (in its direction of travel, no reversing) to
+    // the piece and offset of `to` (reached either way), within maxDistance metres: its length
+    // and the junction settings it needs (vertex -> piece, only where there is a choice).
+    struct Route {
+        double distance = 0;
+        std::vector<std::pair<std::int32_t, std::int32_t>> switches;
+    };
+    std::optional<Route> route(const TrackPosition& from, const TrackPosition& to, double maxDistance = 20000) const;
+
+    // As route, but the train may also reverse (a shunting move): after running onto a piece
+    // through a junction far enough that it is clear of the junction (`clearance` metres: its
+    // length and a margin), it stops and backs out through that junction onto another way. The
+    // way comes in legs, each with its junction settings and where it ends (a stop to reverse at,
+    // facing the way it was going, or the target). nullopt if no way within maxDistance.
+    struct Leg {
+        std::vector<std::pair<std::int32_t, std::int32_t>> switches;
+        TrackPosition end;
+        bool reverseAfter = false;
+    };
+    struct ShuntRoute {
+        double distance = 0;
+        std::vector<Leg> legs;
+    };
+    std::optional<ShuntRoute> routeWithReversals(const TrackPosition& from, const TrackPosition& to, double clearance,
+                                                 double maxDistance = 20000) const;
+
+    static constexpr int kSamples = 32;  // curve samples per piece for arc length
+
+private:
+    // The way out of `vertex` for a train arriving as `arrivingAt`: the switch setting if it is
+    // one of `options`, else the one that turns least.
+    std::int32_t chooseExit(std::int32_t vertex, const TrackPosition& arrivingAt, const std::vector<std::int32_t>& options) const;
+
+    struct Piece {
+        std::int32_t from = 0, to = 0;
+        trainz::content::TrackCurve curve;
+        std::vector<double> cumulative;  // arc length at sample k (kSamples + 1 values)
+    };
+    double paramAt(const Piece& pc, double offset) const;  // curve parameter 0..1 for an arc length
+    std::map<std::int32_t, Piece> pieces_;
+    std::map<std::int32_t, std::vector<std::pair<std::int32_t, int>>> links_;  // vertex -> (piece, side)
+};
+
+}  // namespace trainz::sim

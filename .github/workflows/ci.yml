@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: ${{ matrix.compiler }} / ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+      # LeakSanitizer needs ptrace inside the container.
+      options: --cap-add=SYS_PTRACE
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        variant: [asan-ubsan, release]
+    env:
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+    steps:
+      - name: Install Debian packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git cmake ninja-build g++ clang libclang-rt-dev libgtest-dev libsdl2-dev libgl-dev python3 \
+            pkg-config libmpg123-dev \
+            libjpeg62-turbo-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: |
+          if [ "${{ matrix.compiler }}" = gcc ]; then CXX=g++; else CXX=clang++; fi
+          if [ "${{ matrix.variant }}" = asan-ubsan ]; then
+            EXTRA="-DCMAKE_BUILD_TYPE=Debug -DTRAINZ_SANITIZE=ON"
+          else
+            EXTRA="-DCMAKE_BUILD_TYPE=Release"
+          fi
+          cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=$CXX -DTRAINZ_WERROR=ON $EXTRA
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Check the model viewer was built
+        run: test -x build/model-viewer && test -x build/sound-player && test -x build/key-tester && test -x build/route-viewer && test -x build/sdl_input_tests
+
+      - name: Install into a temporary prefix
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/inst"
+          for f in bin/route-tool bin/route-viewer bin/model-viewer bin/trainz-route-viewer; do test -x "$RUNNER_TEMP/inst/$f"; done
+          test -f "$RUNNER_TEMP/inst/share/applications/trainz-route-viewer.desktop"
+          grep -Fx "Exec=\"$RUNNER_TEMP/inst/bin/trainz-route-viewer\"" "$RUNNER_TEMP/inst/share/applications/trainz-route-viewer.desktop"
+          grep -F "trainz-route-viewer.desktop" build/install_manifest.txt
+          sh -n "$RUNNER_TEMP/inst/bin/trainz-route-viewer"
+
+      - name: Check MP3 decoding was built in
+        run: grep -q TRAINZ_HAVE_MPG123 build/compile_commands.json
+
+      - name: Test (includes the real game data in testdata/ts2010, read-only)
+        env:
+          TRAINZ_DATA_DIR: ${{ github.workspace }}/testdata/ts2010
+          TRAINZ_FULL_VERIFY: "1"
+          TRAINZ_REQUIRE_JPEG: "1"
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Real game data report
+        shell: bash
+        env:
+          TRAINZ_DATA_DIR: ${{ github.workspace }}/testdata/ts2010
+        run: |
+          set -o pipefail
+          status=0
+          ./build/content_tests --gtest_filter='RealInstall.*' > report.txt 2>&1 || status=$?
+          grep -vE '^  index warning:' report.txt | tail -n 80
+          exit $status
+
+      - name: CLI smoke test
+        run: |
+          ./build/ja-tool > usage.txt 2>&1 || true
+          grep -q usage usage.txt
+          if ./build/ja-tool info /nonexistent.ja; then
+            echo "ja-tool should fail on a missing file"; exit 1
+          fi
+
+      - name: Debian package (cpack)
+        if: matrix.compiler == 'gcc' && matrix.variant == 'release'
+        run: |
+          # CI-only version: starts with a digit (dpkg requires that) and is not a release.
+          # Owner sets the real TRAINZ_PACKAGE_VERSION; never invent one for shipping.
+          cmake -S . -B build -DTRAINZ_PACKAGE_VERSION='0~ci'
+          cpack --config build/CPackConfig.cmake -G DEB -B build  # the .deb goes into build/
+          deb=$(ls build/trainz-native-0+tci_0~ci_amd64.deb)
+          test -f "$deb"
+          dpkg-deb -c "$deb" | tee deb-contents.txt
+          grep -F './opt/trainz-native/0~ci/bin/route-viewer' deb-contents.txt
+          grep -F './opt/trainz-native/0~ci/bin/trainz-route-viewer' deb-contents.txt
+          grep -F './opt/trainz-native/0~ci/share/applications/trainz-route-viewer.desktop' deb-contents.txt
+          # The menu entry runs that version's launcher by full path and says which version it is.
+          dpkg-deb --fsys-tarfile "$deb" | tar -xO ./opt/trainz-native/0~ci/share/applications/trainz-route-viewer.desktop > deb-desktop.txt
+          cat deb-desktop.txt
+          grep -Fx 'Exec="/opt/trainz-native/0~ci/bin/trainz-route-viewer"' deb-desktop.txt
+          grep -Fx 'Name=Trainz Route Viewer (TS2010 port) 0~ci' deb-desktop.txt
+          # Every packaged path must stay under /opt (no shared /usr files).
+          if grep -E ' \./usr/' deb-contents.txt; then
+            echo "package must not install under /usr"; exit 1
+          fi
+          grep -E ' \./opt/trainz-native/0~ci/' deb-contents.txt | head -1
+          # Member names of files and links (not folders, which end in / and stay; not a
+          # link's target, which `dpkg-deb -c` prints after "->").
+          dpkg-deb --fsys-tarfile "$deb" | tar -t | grep -v '/$' | sed 's|^\./|/|' > deb-paths.txt
+          test -s deb-paths.txt
+          # Install it for real (CI runs as root in a throwaway container), run it, remove it.
+          apt-get install -y --no-install-recommends "./$deb"
+          /opt/trainz-native/0~ci/bin/route-tool > usage.txt 2>&1 || true
+          grep -q usage usage.txt
+          /opt/trainz-native/0~ci/bin/trainz-route-viewer --set-install /nonexistent && exit 1 || true
+          SDL_VIDEODRIVER=offscreen /opt/trainz-native/0~ci/bin/route-viewer --install testdata/ts2010 --route springfield --radius 100 --frames 1
+          apt-get remove -y trainz-native-0+tci
+          leftover=0
+          while IFS= read -r f; do
+            if [ -e "$f" ] || [ -L "$f" ]; then
+              echo "left behind: $f"
+              leftover=1
+            fi
+          done < deb-paths.txt
+          test "$leftover" -eq 0
+
+      # gcc/release only: clean job downloads this artifact (no rebuild there).
+      - name: Upload Debian package
+        if: matrix.compiler == 'gcc' && matrix.variant == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trainz-native-deb
+          path: "build/trainz-native-0+tci_0~ci_amd64.deb"
+          if-no-files-found: error
+
+  # Fresh debian:13 — no Mesa/xvfb/-dev preinstall. Only apt-get update, then the .deb;
+  # apt must pull every runtime dependency from the package's Depends.
+  package-runtime:
+    name: Debian package (clean install)
+    needs: build-test
+    runs-on: ubuntu-latest
+    container:
+      image: debian:13
+    steps:
+      # Checkout first: without git in the image it downloads the repo and may clear the folder.
+      - uses: actions/checkout@v4
+
+      - name: Download Debian package
+        uses: actions/download-artifact@v4
+        with:
+          name: trainz-native-deb
+          path: deb
+
+      - name: Install package (apt resolves dependencies)
+        run: |
+          apt-get update
+          deb=$(ls deb/trainz-native-0+tci_0~ci_amd64.deb)
+          test -f "$deb"
+          dpkg-deb -c "$deb" | tee deb-contents.txt
+          # Member names of files and links (not folders, which end in / and stay; not a
+          # link's target, which `dpkg-deb -c` prints after "->").
+          dpkg-deb --fsys-tarfile "$deb" | tar -t | grep -v '/$' | sed 's|^\./|/|' > deb-paths.txt
+          test -s deb-paths.txt
+          # No other packages installed before this line.
+          apt-get install -y --no-install-recommends "./$deb"
+
+      - name: Run installed tools
+        run: |
+          /opt/trainz-native/0~ci/bin/route-tool > usage.txt 2>&1 || true
+          grep -q usage usage.txt
+          SDL_VIDEODRIVER=offscreen /opt/trainz-native/0~ci/bin/route-viewer \
+            --install testdata/ts2010 --route springfield --radius 100 --frames 1
+
+      - name: Remove package (every packaged file/link must be gone)
+        run: |
+          apt-get remove -y trainz-native-0+tci
+          leftover=0
+          while IFS= read -r f; do
+            if [ -e "$f" ] || [ -L "$f" ]; then
+              echo "left behind: $f"
+              leftover=1
+            fi
+          done < deb-paths.txt
+          test "$leftover" -eq 0
