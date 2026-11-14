@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <queue>
+#include <map>
 #include <numbers>
 
 namespace trainz::sim {
@@ -138,6 +140,85 @@ std::optional<TrackNetwork::JunctionAhead> TrackNetwork::junctionAhead(const Tra
         p = np.from == vertex ? TrackPosition{options.front(), 0.0, +1} : TrackPosition{options.front(), np.cumulative.back(), -1};
     }
     return std::nullopt;
+}
+
+std::optional<TrackNetwork::Route> TrackNetwork::route(const TrackPosition& from, const TrackPosition& to, double maxDistance) const {
+    const auto start = pieces_.find(from.piece);
+    const auto goal = pieces_.find(to.piece);
+    if (start == pieces_.end() || goal == pieces_.end()) {
+        return std::nullopt;
+    }
+    const double startLen = start->second.cumulative.back(), goalLen = goal->second.cumulative.back();
+    const double startOffset = std::clamp(from.offset, 0.0, startLen), goalOffset = std::clamp(to.offset, 0.0, goalLen);
+    const int startDir = from.direction >= 0 ? 1 : -1;
+    // Already on the target piece, ahead of us.
+    if (from.piece == to.piece && (goalOffset - startOffset) * startDir >= 0) {
+        return Route{std::fabs(goalOffset - startOffset), {}};
+    }
+    // Dijkstra over (piece, direction) states, each reached at the vertex it is entered by.
+    using State = std::pair<std::int32_t, int>;
+    struct Came {
+        State prev;
+        std::int32_t vertex = -1;
+        bool choice = false;
+    };
+    std::map<State, double> best;
+    std::map<State, Came> came;
+    std::priority_queue<std::pair<double, State>, std::vector<std::pair<double, State>>, std::greater<>> open;
+    const double toEnd = startDir > 0 ? startLen - startOffset : startOffset;
+    best[{from.piece, startDir}] = 0;  // the start state (its far end is toEnd away)
+    open.push({0.0, {from.piece, startDir}});
+    std::optional<Route> found;
+    std::optional<State> foundState;
+    while (!open.empty()) {
+        const auto [d, st] = open.top();
+        open.pop();
+        if (d > best[st] + 1e-9 || (found && d >= found->distance)) {
+            continue;
+        }
+        const Piece& pc = pieces_.at(st.first);
+        // Distance from the search start to this state's far end.
+        const double atEnd = st == State{from.piece, startDir} ? toEnd : d + pc.cumulative.back();
+        if (atEnd > maxDistance) {
+            continue;
+        }
+        const std::int32_t vertex = st.second > 0 ? pc.to : pc.from;
+        const auto options = exits(vertex, st.first);
+        for (const std::int32_t next : options) {
+            const Piece& np = pieces_.at(next);
+            const int dir = np.from == vertex ? 1 : -1;
+            const State ns{next, dir};
+            if (next == to.piece) {  // arrives on the target piece
+                const double total = atEnd + (dir > 0 ? goalOffset : np.cumulative.back() - goalOffset);
+                if (!found || total < found->distance) {
+                    found = Route{total, {}};
+                    foundState = ns;
+                    came[ns] = {st, vertex, options.size() > 1};
+                }
+            }
+            const auto it = best.find(ns);
+            if (it == best.end() || atEnd < it->second) {
+                best[ns] = atEnd;
+                if (next != to.piece) {
+                    came[ns] = {st, vertex, options.size() > 1};
+                }
+                open.push({atEnd, ns});
+            }
+        }
+    }
+    if (!found) {
+        return std::nullopt;
+    }
+    // The junction settings, from the start onward.
+    for (State st = *foundState; came.count(st) != 0 && st != State{from.piece, startDir};) {
+        const Came& c = came.at(st);
+        if (c.choice) {
+            found->switches.push_back({c.vertex, st.first});
+        }
+        st = c.prev;
+    }
+    std::reverse(found->switches.begin(), found->switches.end());
+    return found;
 }
 
 std::int32_t TrackNetwork::toggle(const JunctionAhead& j) {

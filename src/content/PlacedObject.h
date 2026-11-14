@@ -61,7 +61,9 @@ std::optional<PlacedObject> decodePlacedObject(const ObjectItem& item);
 // (the `trackside` offset). Per route the signals keep to one side of the track relative to
 // that direction (90% or more on 33 of the 43 routes with 30+ signals: left on the British ECML, right
 // on most others), so the direction is read as the direction of travel the signal is for.
-// The same layout ends 15,992 tsO2 objects. nullopt if the tail doesn't start 2, 0, 0.
+// The same layout ends 15,992 tsO2 objects. A second, 31-byte form ends trackmarks, triggers and
+// junction levers (u32 2, u8 1, f32, f32, u32 0, i32 piece, f32 distance, u8 direction, 5 bytes;
+// observed, e.g. the trackmark "B Stop"); it is tried first. nullopt if neither fits.
 struct TrackAttachment {
     std::int32_t piece = -1;
     float distance = 0;         // metres along the piece, from the end trains enter by

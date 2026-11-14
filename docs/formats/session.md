@@ -130,3 +130,22 @@ Record version 5: one session (`<kuid:-12:111224>` on `<kuid:-12:1002>`): 15 of 
 - The 3 behaviours that fit neither layout.
 - `profile.lyr` (25 bytes; contains `session-layer`).
 - How the game applies a session's `.obs`/`.trk` over the route's.
+
+## Rules that give orders (2026-11-13, observed)
+
+- **Driver Setup**: `drivers/<n>/` with `vehicle` (the name of the vehicle the driver is on),
+  `driver` (a driver character KUID), `name`, and `driver-commands/<n>/` each with `command`
+  (a `drivercommand` asset: e.g. `<kuid:-3:10149>` Navigate To Trackmark, `<kuid:-3:10058>`
+  Navigate To, `<kuid:-3:10090>` WaitFor, all TrainzScript classes) and `properties`
+  (e.g. `trackmarkname 'B Stop'`, `triggerid`, `trainid`).
+- **Set Junctions**: `junctionslist/<name>/` per junction, its `junctionlistitem.junctionname`
+  (the junction object's name), `junctionsetting` with `enumeratedpropertyhandler.itemindex`
+  (0 left, 1 centre, 2 right, 3 none, -1 unchanged) and `junctionlock` (`genericboolhandler.boolvalue`).
+  On the disc: 306 such rules, 550 left, 594 right, 15 none, 409 unchanged settings. When a
+  rule runs (at the start, or as a child of a trigger) is not decoded: the nesting of rules
+  is not in their settings.
+- Sessions may also have their own `.obs` (objects they add); the port reads it.
+
+The port carries out each driver's first **Navigate To Trackmark** itself (route-finding,
+junction settings, the AI stopping at the trackmark). Its own logic; the game's command
+scripts are not run.

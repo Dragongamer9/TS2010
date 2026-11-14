@@ -754,3 +754,52 @@ TEST(TrainPhysics, DynamicBrakeSlowsWithItsCurveAndCutsTraction) {
     EXPECT_NEAR(slow, slowFree, 1e-12);
     EXPECT_NEAR(coast(Controls{0, 0, 1, 0, 9}), free, 1e-9);  // an unknown dynamic notch is off
 }
+
+TEST(TrackNetwork, RouteFindsTheWayAndTheJunctionSettings) {
+    // 0 --1-- 1, then 2 straight on to (200, 0) and 3 off to (190, 40); 4 beyond 3 to (280, 80).
+    Layout l;
+    l.vertex(0, 0, 0, {{1, 0}});
+    l.vertex(1, 100, 0, {{1, 0}, {2, 1}, {3, 1}});
+    l.vertex(2, 200, 0, {{2, 0}});
+    l.vertex(3, 190, 40, {{3, 0}, {4, 1}});
+    l.vertex(4, 280, 80, {{4, 0}});
+    l.piece(1, 0, 1);
+    l.piece(2, 1, 2);
+    l.piece(3, 1, 3);
+    l.piece(4, 3, 4);
+    TrackNetwork n(l.t);
+    const auto r = n.route({1, 10, +1}, {4, 50, +1});
+    ASSERT_TRUE(r.has_value());
+    ASSERT_EQ(r->switches.size(), 1u);
+    EXPECT_EQ(r->switches[0], (std::pair<std::int32_t, std::int32_t>{1, 3}));  // set the junction to the branch
+    EXPECT_NEAR(r->distance, 90 + n.length(3).value() + 50, 1e-6);
+    // Straight on: the junction set to piece 2.
+    const auto s = n.route({1, 10, +1}, {2, 30, +1});
+    ASSERT_TRUE(s.has_value());
+    ASSERT_EQ(s->switches.size(), 1u);
+    EXPECT_EQ(s->switches[0].second, 2);
+    // Same piece, ahead: no junctions. Behind (no reversing) or too far: none.
+    EXPECT_NEAR(n.route({1, 10, +1}, {1, 60, +1})->distance, 50, 1e-9);
+    EXPECT_FALSE(n.route({1, 60, +1}, {1, 10, +1}).has_value());
+    EXPECT_FALSE(n.route({1, 10, +1}, {4, 50, +1}, 100).has_value());
+    EXPECT_FALSE(n.route({2, 10, +1}, {4, 50, +1}).has_value());  // from the straight leg it cannot get there
+}
+
+// The 31-byte trackside form (trackmarks, triggers, junction levers), as in the trackmark "B Stop".
+TEST(TrackAttachment, ReadsTheTrackmarkForm) {
+    PlacedObject o;
+    o.tag = "tsO2";
+    o.rest = {0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 'B', ' ', 'S', 't', 'o', 'p', 0};
+    const std::uint8_t tail[31] = {2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0xa0, 0x41, 0, 0, 0, 0, 0xd7, 0x08, 0, 0,
+                                   0, 0, 0x3e, 0x42, 1, 0, 0, 0, 0, 0};
+    o.rest.insert(o.rest.end(), tail, tail + 31);
+    const auto a = trackAttachment(o);
+    ASSERT_TRUE(a.has_value());
+    EXPECT_EQ(a->piece, 0x08d7);
+    EXPECT_FLOAT_EQ(a->distance, 47.5f);
+    EXPECT_TRUE(a->alongPiece);
+    o.rest[o.rest.size() - 31 + 25] = 0;
+    EXPECT_FALSE(trackAttachment(o)->alongPiece);
+    o.rest[o.rest.size() - 31 + 4] = 7;  // not the form's head: and not the 23-byte form either
+    EXPECT_FALSE(trackAttachment(o).has_value());
+}

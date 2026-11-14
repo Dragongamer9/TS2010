@@ -14,6 +14,8 @@
 #include "view/SceneRender.h"
 
 #include <array>
+#include <map>
+#include <string>
 #include <optional>
 #include <vector>
 
@@ -103,7 +105,10 @@ struct RouteTrain {
     AirBrake airBrake;
     bool parked = false;  // cars left behind by uncoupling: they stand (the AI does not drive them)
     bool fallbackPower = false;  // explicit train-level driving aid, never part of a car's real data
-    std::optional<std::size_t> heldRedSignal;  // reached its braking margin; hold even after an overrun until it clears
+    std::optional<std::size_t> heldRedSignal;
+    // A place to drive to and stop at (from the session's driver orders), and its name.
+    std::optional<trainz::sim::TrackPosition> destination;
+    std::string destinationName;  // reached its braking margin; hold even after an overrun until it clears
 };
 // Builds train `index` of the session: placed where it stands (trainStart), each vehicle's own
 // mass and enginespec (ownVehicleSpec; the preset locomotive pulls when none has curves).
@@ -163,5 +168,23 @@ void coupleTrains(const trainz::sim::TrackNetwork& net, RouteTrain& me, RouteTra
 // Uncouples the rearmost `count` cars of `me` (at least one car stays) as a new standing train
 // just behind the rest. nullopt if there is nothing to uncouple.
 std::optional<RouteTrain> uncoupleRear(const trainz::sim::TrackNetwork& net, RouteTrain& me, std::size_t count = 1);
+
+// Named trackmarks on the track: tsO2 objects with a name and a track attachment (the same
+// 23-byte tail as signals; observed), by name.
+std::map<std::string, trainz::sim::TrackPosition> routeTrackmarks(const trainz::sim::TrackNetwork& net,
+                                                                  const std::vector<trainz::content::PlacedObject>& objects);
+
+// A session's driver orders from its "Driver Setup" rules (observed settings): for each driver,
+// the name of the vehicle it drives and its commands in order, each a drivercommand asset KUID
+// and its properties (e.g. trackmarkname 'B Stop').
+struct DriverCommand {
+    trainz::content::Kuid command;
+    std::map<std::string, std::string> properties;
+};
+struct DriverOrders {
+    std::string vehicle;
+    std::vector<DriverCommand> commands;
+};
+std::vector<DriverOrders> driverOrders(const std::vector<trainz::content::Behaviour>& rules);
 
 }  // namespace trainz::game

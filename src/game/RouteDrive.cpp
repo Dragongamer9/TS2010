@@ -12,14 +12,15 @@
 namespace trainz::game {
 
 namespace {
-// The name in a signal's record: after 8 or 9 zero bytes a u32 length and the text, ending
-// where the 23-byte track attachment starts (observed). "" if it doesn't fit.
+// The name in a trackside record: after 8 or 9 zero bytes a u32 length and the text, ending
+// where the 31- or 23-byte track attachment starts (observed). "" if it doesn't fit.
 std::string signalName(const trainz::content::PlacedObject& o) {
     const auto& r = o.rest;
-    if (r.size() < 23 + 12) {
-        return {};
+    for (const std::size_t tailSize : {std::size_t{31}, std::size_t{23}}) {  // trackmark/trigger form, then the signal form
+    if (r.size() < tailSize + 12) {
+        continue;
     }
-    const std::size_t tail = r.size() - 23;
+    const std::size_t tail = r.size() - tailSize;
     for (std::size_t at : {std::size_t{8}, std::size_t{9}}) {
         std::uint32_t n = 0;
         std::memcpy(&n, r.data() + at, 4);
@@ -28,6 +29,7 @@ std::string signalName(const trainz::content::PlacedObject& o) {
             name.erase(std::find(name.begin(), name.end(), '\0'), name.end());
             return name;
         }
+    }
     }
     return {};
 }
@@ -365,6 +367,18 @@ std::optional<AiDriver::StopAhead> AiDriver::stopAhead(const RouteTrain& d, cons
     if (ended) {
         consider(walked, "line end");
     }
+    if (d.destination) {  // its destination, if it lies ahead within `look`
+        net.walk(d.drive.lead, look, [&](const trainz::sim::TrackNetwork::Span& sp) {
+            if (sp.piece == d.destination->piece) {
+                const double along = (d.destination->offset - sp.from) * sp.direction;
+                if (along >= 0 && along <= std::fabs(sp.to - sp.from)) {
+                    consider(sp.startDistance + along + margin, "destination");  // stop AT it, not short of it
+                    return false;
+                }
+            }
+            return true;
+        });
+    }
     return best;
 }
 
@@ -616,6 +630,65 @@ int addRouteTrain(Scene& scene, const TrackNetwork& net, const TrackPosition& fr
         ++placed;
     }
     return placed;
+}
+
+std::map<std::string, trainz::sim::TrackPosition> routeTrackmarks(const trainz::sim::TrackNetwork& net,
+                                                                  const std::vector<trainz::content::PlacedObject>& objects) {
+    std::map<std::string, trainz::sim::TrackPosition> out;
+    for (const auto& o : objects) {
+        if (o.tag != "tsO2") {
+            continue;
+        }
+        const auto a = trainz::content::trackAttachment(o);
+        const auto len = a ? net.length(a->piece) : std::nullopt;
+        const std::string name = signalName(o);
+        if (!a || !len || name.empty() || out.count(name) != 0) {
+            continue;
+        }
+        const double d = std::clamp(static_cast<double>(a->distance), 0.0, *len);
+        out[name] = {a->piece, a->alongPiece ? d : *len - d, a->alongPiece ? +1 : -1};
+    }
+    return out;
+}
+
+std::vector<DriverOrders> driverOrders(const std::vector<trainz::content::Behaviour>& rules) {
+    std::vector<DriverOrders> out;
+    for (const auto& rule : rules) {
+        if (rule.name != "Driver Setup") {
+            continue;
+        }
+        const auto* drivers = rule.settings.root.child("drivers");
+        if (drivers == nullptr || drivers->type != trainz::content::ConfigType::Group) {
+            continue;
+        }
+        for (const auto& d : drivers->children) {
+            const auto* vehicle = d.child("vehicle");
+            const auto* cmds = d.child("driver-commands");
+            if (vehicle == nullptr || vehicle->text.empty() || cmds == nullptr) {
+                continue;
+            }
+            DriverOrders o;
+            o.vehicle = vehicle->text;
+            for (const auto& c : cmds->children) {
+                const auto* k = c.child("command");
+                const auto kuid = k != nullptr ? trainz::view::configKuid(*k) : std::nullopt;
+                if (!kuid) {
+                    continue;
+                }
+                DriverCommand dc{*kuid, {}};
+                if (const auto* props = c.child("properties"); props != nullptr) {
+                    for (const auto& p : props->children) {
+                        if (!p.text.empty()) {
+                            dc.properties[p.key] = p.text;
+                        }
+                    }
+                }
+                o.commands.push_back(std::move(dc));
+            }
+            out.push_back(std::move(o));
+        }
+    }
+    return out;
 }
 
 }  // namespace trainz::game

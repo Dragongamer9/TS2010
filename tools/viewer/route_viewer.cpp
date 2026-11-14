@@ -432,6 +432,43 @@ int main(int argc, char** argv) {
                     }
                 }
             }
+            // The session's driver orders (--ai): the first "Navigate To Trackmark" of each driver.
+            if (drive && aiTrains && extras.trains) {
+                auto marks = trainz::game::routeTrackmarks(*net, extras.sessionObjects);  // the session's own first
+                for (const auto& [name, at] : trainz::game::routeTrackmarks(*net, extras.objects)) {
+                    marks.emplace(name, at);
+                }
+                std::size_t given = 0, unreachable = 0;
+                for (const auto& order : trainz::game::driverOrders(extras.rules)) {
+                    auto train = std::find_if(otherTrains.begin(), otherTrains.end(), [&](const trainz::game::RouteTrain& t) {
+                        const auto& vs = (*extras.trains)[t.index].vehicles;
+                        return std::any_of(vs.begin(), vs.end(), [&](const trainz::content::Vehicle& v) { return v.name == order.vehicle; });
+                    });
+                    if (train == otherTrains.end()) {
+                        continue;
+                    }
+                    for (const auto& c : order.commands) {
+                        const auto name = c.properties.find("trackmarkname");
+                        const auto mark = name == c.properties.end() ? marks.end() : marks.find(name->second);
+                        if (mark == marks.end()) {
+                            continue;
+                        }
+                        if (const auto r = net->route(train->drive.lead, mark->second)) {
+                            for (const auto& [vertex, piece] : r->switches) {
+                                net->switches[vertex] = piece;
+                            }
+                            train->destination = mark->second;
+                            train->destinationName = mark->first;
+                            ++given;
+                        } else {
+                            ++unreachable;
+                        }
+                        break;
+                    }
+                }
+                std::printf("session orders: %zu trackmarks on the track, %zu AI trains sent to their trackmark (%zu unreachable)\n",
+                            marks.size(), given, unreachable);
+            }
             std::printf("%zu signals on the track (%zu turned to it), %zu points taken by standing trains\n",
                         signals->signals().size(), turned, standing.size());
         }
@@ -932,6 +969,14 @@ int main(int argc, char** argv) {
                 std::printf(" %d %s;", v, k.c_str());
             }
             std::printf(" furthest from its start %.0f m\n", furthest);
+            for (const auto& t : otherTrains) {
+                if (t.destination) {
+                    const auto r = net->route(t.drive.lead, *t.destination);
+                    std::printf("  train %zu -> '%s': %s, %.0f km/h\n", t.index + 1, t.destinationName.c_str(),
+                                r ? (r->distance < 30 ? "there" : (std::to_string(static_cast<int>(r->distance)) + " m to go").c_str()) : "passed it",
+                                std::fabs(t.drive.speed) * 3.6);
+                }
+            }
         }
         if (testRun) {
             std::printf("slowest frame: %u ms\n", slowestFrame);

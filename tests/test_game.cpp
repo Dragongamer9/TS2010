@@ -821,3 +821,38 @@ TEST(RunningSounds, FlangeSquealOnTightCurvesAtSpeedAndTheBell) {
     b.mix(quiet.data(), quiet.size(), 1.0f);
     EXPECT_FLOAT_EQ(quiet[0], 0.0f);
 }
+
+TEST(SessionOrders, DriverSetupGivesEachVehicleItsCommands) {
+    trainz::content::Behaviour rule;
+    rule.name = "Driver Setup";
+    const std::string text = R"(drivers
+{
+  0
+  {
+    vehicle "Maglev B"
+    name "Ami"
+    driver-commands
+    {
+      0
+      {
+        command <kuid:-3:10149>
+        properties
+        {
+          trackmarkname "B Stop"
+        }
+      }
+    }
+  }
+}
+)";
+    rule.settings = trainz::content::parseConfigText(std::vector<std::uint8_t>(text.begin(), text.end()));
+    const auto orders = trainz::game::driverOrders({rule});
+    ASSERT_EQ(orders.size(), 1u);
+    EXPECT_EQ(orders[0].vehicle, "Maglev B");
+    ASSERT_EQ(orders[0].commands.size(), 1u);
+    EXPECT_EQ(orders[0].commands[0].command.content, 10149);
+    EXPECT_EQ(orders[0].commands[0].properties.at("trackmarkname"), "B Stop");
+    trainz::content::Behaviour other = rule;
+    other.name = "Driver Command";
+    EXPECT_TRUE(trainz::game::driverOrders({other}).empty());
+}

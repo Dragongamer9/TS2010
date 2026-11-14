@@ -29,11 +29,29 @@ RouteExtras loadRouteExtras(const JaArchive& archive, const std::string& routeFo
             throw ContentError("'" + sessionFolder + "/profile.dat' is not in " + sessionArchive);
         }
         r.trains.emplace();
+        // The session's own .obs: objects it adds to the route (observed: trackmarks, signals...).
+        for (const auto& e : sa.entries()) {
+            const std::string prefix = sessionFolder + "/";
+            if (e.name.rfind(prefix, 0) != 0 || e.name.size() < prefix.size() + 5 || e.name.substr(e.name.size() - 4) != ".obs" ||
+                e.name.find('/', prefix.size()) != std::string::npos) {
+                continue;
+            }
+            for (const auto& c : parseRouteObjectFile(sa.readLimited(e, std::size_t{256} << 20)).containers) {
+                for (const auto& item : c.items) {
+                    if (auto p = decodePlacedObject(item)) {
+                        r.sessionObjects.push_back(std::move(*p));
+                    }
+                }
+            }
+            break;
+        }
         for (const auto& blk : parseSessionProfile(sa.readLimited(*pe, std::size_t{256} << 20)).blocks) {
             if (blk.container) {
                 for (const auto& item : blk.container->items) {
                     if (auto t = decodeTrain(item)) {
                         r.trains->push_back(std::move(*t));
+                    } else if (auto b = decodeBehaviour(item)) {
+                        r.rules.push_back(std::move(*b));
                     }
                 }
             }

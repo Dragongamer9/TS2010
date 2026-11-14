@@ -68,6 +68,22 @@ std::optional<PlacedObject> decodePlacedObject(const ObjectItem& item) {
 }
 
 std::optional<TrackAttachment> trackAttachment(const PlacedObject& o) {
+    // The 31-byte form (trackmarks, triggers, junction levers): u32 2, u8 1, f32, f32, u32 0,
+    // then the same piece, distance, direction and 5 bytes.
+    if (o.rest.size() >= 31) {
+        const std::uint8_t* t = o.rest.data() + (o.rest.size() - 31);
+        static constexpr std::uint8_t kHead31[5] = {2, 0, 0, 0, 1};
+        if (std::equal(kHead31, kHead31 + 5, t) && t[13] == 0 && t[14] == 0 && t[15] == 0 && t[16] == 0 && t[25] <= 1) {
+            TrackAttachment a;
+            std::memcpy(&a.piece, t + 17, 4);
+            std::memcpy(&a.distance, t + 21, 4);
+            if (std::isfinite(a.distance) && a.piece >= 0) {
+                a.alongPiece = t[25] == 1;
+                std::copy(t + 26, t + 31, a.tail);
+                return a;
+            }
+        }
+    }
     constexpr std::size_t kTail = 23;
     if (o.rest.size() < kTail) {
         return std::nullopt;

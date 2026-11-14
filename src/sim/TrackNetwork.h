@@ -77,6 +77,15 @@ public:
     };
     void walk(const TrackPosition& start, double maxDistance, const std::function<bool(const Span&)>& visit) const;
 
+    // The shortest way along the track from `from` (in its direction of travel, no reversing) to
+    // the piece and offset of `to` (reached either way), within maxDistance metres: its length
+    // and the junction settings it needs (vertex -> piece, only where there is a choice).
+    struct Route {
+        double distance = 0;
+        std::vector<std::pair<std::int32_t, std::int32_t>> switches;
+    };
+    std::optional<Route> route(const TrackPosition& from, const TrackPosition& to, double maxDistance = 20000) const;
+
     static constexpr int kSamples = 32;  // curve samples per piece for arc length
 
 private:
