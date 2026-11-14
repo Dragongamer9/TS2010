@@ -971,6 +971,19 @@ int main(int argc, char** argv) {
             std::printf(" furthest from its start %.0f m\n", furthest);
             for (const auto& t : otherTrains) {
                 if (t.destination) {
+                    // Why it stands: the AI's own stop check, with every other train's real place.
+                    std::vector<trainz::sim::Occupied> others = trainz::game::trainOccupies(*net, me);
+                    for (const auto& o : otherTrains) {
+                        if (&o != &t) {
+                            const auto pts = trainz::game::trainOccupies(*net, o);
+                            others.insert(others.end(), pts.begin(), pts.end());
+                        }
+                    }
+                    others.insert(others.end(), standing.begin(), standing.end());
+                    if (const auto why = trainz::game::AiDriver{}.stopAhead(t, *net, signals ? &*signals : nullptr, others)) {
+                        std::printf("  train %zu: nearest stop %s in %.0f m%s\n", t.index + 1, why->why, why->distance,
+                                    t.heldRedSignal ? " (held at a red signal it reached)" : "");
+                    }
                     const auto r = net->route(t.drive.lead, *t.destination);
                     std::printf("  train %zu -> '%s': %s, %.0f km/h\n", t.index + 1, t.destinationName.c_str(),
                                 r ? (r->distance < 30 ? "there" : (std::to_string(static_cast<int>(r->distance)) + " m to go").c_str()) : "passed it",
