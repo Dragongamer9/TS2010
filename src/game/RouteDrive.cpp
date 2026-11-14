@@ -254,7 +254,7 @@ std::optional<Contact> findContact(const trainz::sim::TrackNetwork& net, const R
         net.walk(from, within, [&](const trainz::sim::TrackNetwork::Span& s) {
             const double lo = std::min(s.from, s.to), hi = std::max(s.from, s.to);
             for (std::size_t i = 0; i < others.size(); ++i) {
-                if (others[i].cars.empty()) {
+                if (others[i].cars.empty() || &others[i] == &me) {  // never itself (its own ends are 0 m away)
                     continue;
                 }
                 const trainz::sim::TrackPosition ends[2] = {trainFrontEnd(net, others[i]), trainRearEnd(net, others[i])};

@@ -1082,3 +1082,15 @@ TEST(SessionOrders, CallingOnNeverPassesAnotherTrainInTheWay) {
     EXPECT_GT(front, 690);                      // past the red signal, up to the target
     EXPECT_LT(std::fabs(loco2.drive.speed), 1.5);  // at walking pace
 }
+
+// A train in the list it searches never touches itself: its own front end is 0 m from its
+// front, which hid every real contact when AI trains searched the list they are in.
+TEST(Coupling, ContactNeverFindsTheTrainItself) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    std::vector<trainz::game::RouteTrain> trains{carTrain(1, 500, +1, 1), carTrain(2, 521, +1, 10)};  // the second: rear end 505.5, 0.5 m ahead
+    const auto c = trainz::game::findContact(net, trains[0], trains, 1.0, true);
+    ASSERT_TRUE(c.has_value());
+    EXPECT_EQ(c->other, 1u);  // the train ahead, not itself
+    EXPECT_NEAR(c->gap, 0.5, 1e-6);
+}

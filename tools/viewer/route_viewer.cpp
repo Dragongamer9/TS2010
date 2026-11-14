@@ -846,7 +846,7 @@ int main(int argc, char** argv) {
                         continue;
                     }
                     const auto touch = trainz::game::findContact(*net, ai, otherTrains, 0.6, ai.drive.speed >= 0);
-                    if (!touch || touch->other == t) {
+                    if (!touch) {
                         continue;
                     }
                     auto& other = otherTrains[touch->other];
