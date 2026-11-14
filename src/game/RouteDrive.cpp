@@ -404,9 +404,28 @@ void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, cons
     c.dynamicNotch = 0;
     // A Couple order's final approach (last leg, within 150 m): a calling-on move, so a red
     // signal neither stops nor holds it (see below).
+    // Only when nothing else stands between: the target's own points begin at its end (the
+    // destination), so any point of the others nearer than that belongs to another train (ChatGPT
+    // review: proximity alone must not pass a red caused by an unrelated train).
     const bool callingOn = !d.coupleWith.empty() && d.destination && (d.legs.empty() || d.legIndex + 1 >= d.legs.size()) && [&] {
         const auto r = net.route(front, *d.destination, 160);
-        return r && r->distance < 150;
+        if (!r || r->distance >= 150) {
+            return false;
+        }
+        std::multimap<std::int32_t, double> taken;
+        for (const auto& o : others) {
+            taken.emplace(o.piece, o.offset);
+        }
+        bool between = false;
+        net.walk(front, std::max(0.0, r->distance - 2.0), [&](const trainz::sim::TrackNetwork::Span& sp) {
+            const auto [b, e] = taken.equal_range(sp.piece);
+            const double lo = std::min(sp.from, sp.to), hi = std::max(sp.from, sp.to);
+            for (auto it = b; it != e && !between; ++it) {
+                between = it->second >= lo && it->second <= hi;
+            }
+            return !between;
+        });
+        return !between;
     }();
     if (callingOn) {
         d.heldRedSignal.reset();
@@ -434,7 +453,7 @@ void AiDriver::control(RouteTrain& d, const trainz::sim::TrackNetwork& net, cons
     }
     // Coupling: the last 40 m to the other train's end at walking pace, without stopping short
     // of it (its points would otherwise be a train ahead); signals still count.
-    if (!d.coupleWith.empty() && d.destination && (d.legs.empty() || d.legIndex + 1 >= d.legs.size())) {  // the last leg only
+    if (callingOn) {  // the last leg of a Couple order, nothing else between
         // Within 150 m it may also pass a red signal at walking pace (a calling-on move: the block
         // is usually red because the train it couples to stands in it). The port's rule.
         if (const auto r = net.route(front, *d.destination, 160); r && r->distance < 150) {

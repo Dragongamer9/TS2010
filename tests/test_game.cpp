@@ -1047,3 +1047,46 @@ TEST(SessionOrders, CoupleBacksOntoWagonsBehind) {
     EXPECT_FALSE(loco.reversing);
     EXPECT_EQ(order(loco), "electric locomotive 10 11 12 ");  // the wagons behind it
 }
+
+// ChatGPT review: the calling-on move must not pass a red signal caused by an unrelated train
+// standing between the engine and the train it is to couple to.
+TEST(SessionOrders, CallingOnNeverPassesAnotherTrainInTheWay) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    auto loco = carTrain(1, 560, +1, 1);  // front end at 565
+    loco.cars.front().spec = trainz::sim::electricLocomotive();
+    trainz::game::refreshTrain(loco);
+    trainz::sim::SignalSystem sig(net, {{{1, 580, +1}, "S"}});      // red: its block holds the trains ahead
+    const auto target = carTrain(3, 726, +1, 10);                   // rear end at 700.5: the coupling target
+    const auto intruder = carTrain(1, 625, +1, 20);                 // another train in between (620..630)
+    std::vector<trainz::sim::Occupied> others = trainz::game::trainOccupies(net, target);
+    const auto mid = trainz::game::trainOccupies(net, intruder);
+    others.insert(others.end(), mid.begin(), mid.end());
+    sig.update(others);
+    ASSERT_EQ(sig.aspect(0), trainz::sim::Aspect::Stop);
+    loco.coupleWith = "Target";
+    loco.destination = trainz::game::trainRearEnd(net, target);
+    const trainz::game::AiDriver ai;
+    for (int i = 0; i < 400; ++i) {
+        ai.control(loco, net, &sig, others);
+        loco.drive.step(net, 0.5);
+    }
+    EXPECT_LT(trainz::game::trainFrontEnd(net, loco).offset, 580);  // held at the red signal, short of the intruder
+    // Without the intruder the same move may pass the signal at walking pace, up to the target.
+    auto loco2 = carTrain(1, 560, +1, 1);
+    loco2.cars.front().spec = trainz::sim::electricLocomotive();
+    trainz::game::refreshTrain(loco2);
+    loco2.coupleWith = "Target";
+    loco2.destination = trainz::game::trainRearEnd(net, target);
+    const auto onlyTarget = trainz::game::trainOccupies(net, target);
+    sig.update(onlyTarget);
+    ASSERT_EQ(sig.aspect(0), trainz::sim::Aspect::Stop);
+    double front = 0;
+    for (int i = 0; i < 600 && front < 699.5; ++i) {
+        ai.control(loco2, net, &sig, onlyTarget);
+        loco2.drive.step(net, 0.5);
+        front = trainz::game::trainFrontEnd(net, loco2).offset;
+    }
+    EXPECT_GT(front, 690);                      // past the red signal, up to the target
+    EXPECT_LT(std::fabs(loco2.drive.speed), 1.5);  // at walking pace
+}
