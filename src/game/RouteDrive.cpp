@@ -811,7 +811,13 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
             }
             return;
         }
-        next("skipped an order the port does not follow yet");
+        // An order the port cannot follow yet: stop and hold here. Skipping it (a Load, a Couple)
+        // would carry on with a plan that no longer matches the session (ChatGPT review).
+        t.waitingForOrder = true;
+        t.orderNote = "holding: order " + std::to_string(t.orderIndex + 1) + " (" +
+                      (c.properties.empty() ? std::string("not followed yet") : c.properties.begin()->first + " " + c.properties.begin()->second) +
+                      ") is not followed yet";
+        return;
     }
 }
 

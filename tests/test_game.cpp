@@ -960,8 +960,8 @@ TEST(SessionOrders, RunnerWaitsDrivesViaAndToTrackmarksAndWaitsForTriggers) {
         return c;
     };
     t.orders = {cmd("wait-for", {{"timetowait", "10"}}), cmd("navigate-via-trackmark", {{"trackmarkname", "Halfway"}}),
-                cmd("", {}), cmd("navigate-to-trackmark", {{"trackmarkname", "End Stop"}}),
-                cmd("wait-for-trigger", {{"trainid", "Other"}, {"triggerid", "Trigger"}})};
+                cmd("navigate-to-trackmark", {{"trackmarkname", "End Stop"}}),
+                cmd("wait-for-trigger", {{"trainid", "Other"}, {"triggerid", "Trigger"}}), cmd("", {{"vehiclename", "X"}})};
     std::optional<trainz::sim::TrackPosition> other;  // the other train: nowhere yet
     const auto front = [&](const std::string& name) { return name == "Other" ? other : std::nullopt; };
     const trainz::game::AiDriver ai;
@@ -978,15 +978,19 @@ TEST(SessionOrders, RunnerWaitsDrivesViaAndToTrackmarksAndWaitsForTriggers) {
     run(6);  // 10 s done: on its way via Halfway
     EXPECT_EQ(t.orderIndex, 1u);
     EXPECT_TRUE(t.destinationVia);
-    run(300);  // passes Halfway without stopping, skips the unknown order, stops at End Stop
-    EXPECT_EQ(t.orderIndex, 4u);
+    run(300);  // passes Halfway without stopping, stops at End Stop
+    EXPECT_EQ(t.orderIndex, 3u);
     EXPECT_NEAR(t.drive.speed, 0, 1e-9);
     EXPECT_NEAR(along(t.drive.lead), 1700, 30);
     EXPECT_TRUE(t.waitingForOrder);  // now waiting for the other train at the trigger
     other = trainz::sim::TrackPosition{2, 95, +1};
     run(1);
-    EXPECT_EQ(t.orderIndex, 5u);  // all done
-    EXPECT_FALSE(t.waitingForOrder);
+    EXPECT_EQ(t.orderIndex, 4u);  // on to the last order: one the port does not follow
+    EXPECT_TRUE(t.waitingForOrder);  // so it holds there rather than skip it
+    EXPECT_NE(t.orderNote.find("not followed yet"), std::string::npos);
+    run(60);
+    EXPECT_EQ(t.orderIndex, 4u);
+    EXPECT_NEAR(t.drive.speed, 0, 1e-9);
 }
 
 TEST(SessionOrders, CommandKindsByName) {
