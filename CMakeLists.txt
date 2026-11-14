@@ -59,6 +59,7 @@ add_library(trainz_content
   src/game/Drive.cpp
   src/game/GeneratedWorld.cpp
   src/game/RouteDrive.cpp
+  src/game/TrainSound.cpp
   src/sim/TrackNetwork.cpp
   src/sim/Signals.cpp
   src/sim/TrainPhysics.cpp

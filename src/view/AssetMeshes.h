@@ -123,6 +123,10 @@ public:
     // The asset's config (the same copy of the asset `get` would draw), or nothing if it is
     // not in the index, not in an archive, or unreadable.
     std::optional<trainz::content::ConfigNode> config(const trainz::content::Kuid& kuid);
+    // A file in the asset's folder (name relative to it, compared without case as the archive
+    // stores names), at most `limit` bytes; nothing if there is no such file.
+    std::optional<std::vector<std::uint8_t>> file(const trainz::content::Kuid& kuid, const std::string& name,
+                                                  std::size_t limit = std::size_t{32} << 20);
 
     // Counts of why assets had no model, for reporting.
     const std::map<std::string, std::size_t>& misses() const { return misses_; }

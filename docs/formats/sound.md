@@ -78,3 +78,27 @@ clear "MP3 decoding is not built in" / "MP3 inside a WAV file: ..." error.
 **Not done yet:**
 - How sounds are used in the game: config `soundscript` blocks, 3D
   positioning, looping. That's the rest of roadmap step 9.
+
+## A train's own engine and horn sounds (2026-11-13, observed, not traced)
+
+A traincar config names its sounds with `enginesound <kuid>` and `hornsound <kuid>` (the
+SD40-2 `<kuid:-12:3534>`: `<kuid:-1:42003000>` and `<kuid:-1:42003101>`).
+
+- **`enginesound`** (kind `enginesound`): one loop per notch, `idle 1.wav` … `idle 8.wav`; a
+  clip for every notch change, `up 1 - 2.wav` … `up 7 - 8.wav` and `down 2 - 1.wav` …
+  `down 8 - 7.wav`; and `stop.wav`.
+- **`hornsound`** (kind `hornsound`, `two-part 1`): `horn_start.wav`, `horn_loop.wav`,
+  `horn_end.wav` (this one also ships `w_bell_1.wav` and `idle 1.wav`).
+
+**The port's use** (`game::TrainSound`; its own rules, not the game's, whose soundscript,
+volumes and pitch with speed are not traced):
+
+- notch 0 plays `idle 1`;
+- a notch change plays the clips step by step, then the new loop;
+- the horn starts, loops while H is held (1.5 s at least) and ends;
+- everything is mixed to mono at 22,050 Hz.
+
+`route-viewer --drive` plays it through SDL when an audio device opens. `--record-sound`
+writes what was played to a `.wav` under `~/.local/share/trainz-native/routes/`; that is how
+it was checked here, since this PC runs offscreen with no speakers. Not done yet: wheel and
+brake sounds, sounds placed in 3D (other trains, scenery), `stop.wav`, the bell.

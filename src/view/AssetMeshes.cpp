@@ -7,6 +7,7 @@
 #include "content/TextureFile.h"
 
 #include <algorithm>
+#include <cctype>
 #include <array>
 #include <cstring>
 #include <cmath>
@@ -329,6 +330,33 @@ const JaArchive* AssetMeshes::archive(const std::filesystem::path& path) {
         slot = std::make_unique<JaArchive>(JaArchive::open(path));
     }
     return slot.get();
+}
+
+std::optional<std::vector<std::uint8_t>> AssetMeshes::file(const Kuid& kuid, const std::string& name, std::size_t limit) {
+    auto records = index_.find(kuid);
+    if (records.empty()) {
+        records = index_.allVersions(kuid.user, kuid.content);
+        if (!records.empty()) {
+            records.assign(1, records.back());
+        }
+    }
+    if (records.empty() || records.front()->where.container != AssetLocation::Container::Archive) {
+        return std::nullopt;
+    }
+    const AssetRecord& rec = *records.front();
+    try {
+        const JaArchive* a = archive(rec.where.source);
+        std::string lower = name;
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        const std::string base = rec.where.folder.empty() ? std::string() : rec.where.folder + "/";
+        const JaEntry* e = a->find(base + lower);
+        if (e == nullptr) {
+            return std::nullopt;
+        }
+        return a->readLimited(*e, limit);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
 }
 
 std::optional<ConfigNode> AssetMeshes::config(const Kuid& kuid) {

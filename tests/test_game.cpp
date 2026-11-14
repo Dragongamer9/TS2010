@@ -2,6 +2,7 @@
 #include "game/Drive.h"
 #include "game/GeneratedWorld.h"
 #include "game/RouteDrive.h"
+#include "game/TrainSound.h"
 
 #include <gtest/gtest.h>
 
@@ -666,4 +667,76 @@ TEST(AirBrake, LongerTrainsRespondSlowerAndBadPressuresAreIgnored) {
     EXPECT_NEAR(noInitial.initial, 0.0070 - 0.15 * 0.0025, 1e-12);
     double nan = std::numeric_limits<double>::quiet_NaN();
     EXPECT_TRUE(std::isfinite(noInitial.step(P::Release, nan, 1)));
+}
+
+namespace {
+trainz::game::SoundClip constantClip(float value, std::size_t n) {
+    trainz::game::SoundClip c;
+    c.samples.assign(n, value);
+    return c;
+}
+float mixedLevel(trainz::game::TrainSound& s, std::size_t n) {
+    std::vector<float> out(n, 0.0f);
+    s.mix(out.data(), n, 1.0f);
+    return out.back();
+}
+}  // namespace
+
+TEST(TrainSound, NotchChangesStepThroughTheirClipsThenLoop) {
+    trainz::game::TrainSound s;
+    s.addEngineClip("idle 1.wav", constantClip(0.1f, 100));
+    s.addEngineClip("idle 2.wav", constantClip(0.2f, 100));
+    s.addEngineClip("idle 3.wav", constantClip(0.3f, 100));
+    s.addEngineClip("up 1 - 2.wav", constantClip(0.5f, 50));
+    s.addEngineClip("up 2 - 3.wav", constantClip(0.6f, 50));
+    s.addEngineClip("down 3 - 2.wav", constantClip(0.7f, 50));
+    ASSERT_TRUE(s.hasEngine());
+    s.setNotch(0);
+    EXPECT_FLOAT_EQ(mixedLevel(s, 30), 0.1f);  // notch 0 plays idle 1
+    EXPECT_EQ(s.playing(), "idle 1.wav");
+    s.setNotch(3);
+    EXPECT_FLOAT_EQ(mixedLevel(s, 10), 0.5f);  // at once: the 1 -> 2 clip
+    EXPECT_EQ(s.playing(), "up 1 - 2.wav");
+    EXPECT_FLOAT_EQ(mixedLevel(s, 50), 0.6f);  // then 2 -> 3
+    EXPECT_FLOAT_EQ(mixedLevel(s, 60), 0.3f);  // then the notch 3 loop
+    EXPECT_FLOAT_EQ(mixedLevel(s, 250), 0.3f);  // and it loops
+    s.setNotch(2);
+    EXPECT_FLOAT_EQ(mixedLevel(s, 10), 0.7f);  // down 3 -> 2
+    EXPECT_FLOAT_EQ(mixedLevel(s, 60), 0.2f);
+    // A step without its clip goes straight to the next loop.
+    s.addEngineClip("idle 4.wav", constantClip(0.4f, 100));
+    s.setNotch(4);  // up 2 - 3 exists, up 3 - 4 does not
+    mixedLevel(s, 60);
+    EXPECT_FLOAT_EQ(mixedLevel(s, 10), 0.4f);
+}
+
+TEST(TrainSound, HornStartsLoopsWhileHeldAndEnds) {
+    trainz::game::TrainSound s;
+    s.addHornClip("horn_start.wav", constantClip(0.25f, 40));
+    s.addHornClip("horn_loop.wav", constantClip(0.5f, 40));
+    s.addHornClip("horn_end.wav", constantClip(0.75f, 40));
+    ASSERT_TRUE(s.hasHorn());
+    EXPECT_FLOAT_EQ(mixedLevel(s, 10), 0.0f);  // silent: no engine, horn off
+    s.setHorn(true);
+    EXPECT_FLOAT_EQ(mixedLevel(s, 10), 0.25f);
+    EXPECT_FLOAT_EQ(mixedLevel(s, 40), 0.5f);   // looping
+    EXPECT_FLOAT_EQ(mixedLevel(s, 200), 0.5f);
+    s.setHorn(false);
+    EXPECT_FLOAT_EQ(mixedLevel(s, 10), 0.75f);  // the end clip
+    EXPECT_FLOAT_EQ(mixedLevel(s, 40), 0.0f);   // then silence
+}
+
+TEST(TrainSound, ClipsAreMixedToMonoAndResampled) {
+    trainz::content::PcmSound pcm;
+    pcm.channels = 2;
+    pcm.sampleRate = 44100;
+    for (int i = 0; i < 4410; ++i) {  // 0.1 s: left 0.5, right -0.25
+        pcm.samples.push_back(16384);
+        pcm.samples.push_back(-8192);
+    }
+    const auto c = trainz::game::toClip(pcm, 22050);
+    EXPECT_NEAR(static_cast<double>(c.samples.size()), 2205, 1);
+    EXPECT_NEAR(c.samples[100], 0.125f, 1e-4);
+    trainz::content::PcmSound empty;
+    EXPECT_TRUE(trainz::game::toClip(empty, 22050).samples.empty());
 }

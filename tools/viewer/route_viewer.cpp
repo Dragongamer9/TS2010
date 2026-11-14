@@ -17,7 +17,9 @@
 // other trains stand where they are; with --ai the port's simple AI drives them (it stops for
 // signals at stop, trains ahead and line ends). T (or --watch N) makes the chase camera follow
 // another train; T again moves on, back to your own. Running into a train below 7 km/h couples
-// it to yours (faster is a collision: you stop); U (when stopped) leaves your rearmost car behind. --train N picks the train (1 = the first; default: the first one that stands on track).
+// it to yours (faster is a collision: you stop); U (when stopped) leaves your rearmost car behind.
+// Sound: your train's own engine sounds follow the notch, H sounds its horn (TS2010's keys);
+// --record-sound writes what was played to a .wav next to the screenshots. --train N picks the train (1 = the first; default: the first one that stands on track).
 // Physics: mass and notch curves from the install when present; resistance/brakes are presets.
 // Exit codes: 0 done, 1 error, 2 bad arguments, 3 no route/session matches NAME, 4 several do.
 //
@@ -45,6 +47,7 @@
 #include "input/SdlGamepad.h"
 #include "game/Drive.h"
 #include "game/RouteDrive.h"
+#include "game/TrainSound.h"
 #include "view/FlyCamera.h"
 #include "view/HudText.h"
 #include "view/RouteCatalog.h"
@@ -89,7 +92,7 @@ int main(int argc, char** argv) {
     std::optional<double> atX, atY;
     double radius = 600;
     long frames = -1;  // -1: until Esc
-    bool drive = false, png = false, listSignals = false, aiTrains = false;
+    bool drive = false, png = false, listSignals = false, aiTrains = false, recordSound = false;
     long watch = 0;  // --watch N / key T: the chase camera follows other train N (0 = your own)
     std::optional<std::array<double, 6>> startCamera;  // --camera EX EY EZ TX TY TZ
     std::multimap<long, SDL_Keycode> keyScript;        // --keys "FRAME:KEY,...": key presses in a test run
@@ -158,6 +161,8 @@ int main(int argc, char** argv) {
                 return 2;
             }
             watch = static_cast<long>(*n);
+        } else if (opt == "--record-sound") {
+            recordSound = true;
         } else if (opt == "--ai") {
             aiTrains = true;
         } else if (opt == "--signals") {
@@ -295,6 +300,10 @@ int main(int argc, char** argv) {
         std::string notice;                     // a short message on screen (coupled, collision)
         double noticeClock = 0;
         trainz::game::BrakeHandle brakeHandle;
+        trainz::game::TrainSound trainSound;   // drive mode: your train's engine and horn
+        std::vector<std::int16_t> recorded;    // --record-sound: everything mixed
+        double hornHeldFor = 1e9;              // seconds the horn has sounded this time
+        bool hornKey = false;
         std::vector<trainz::game::RouteTrain> otherTrains;  // drive mode: the session's other trains
         if (drive) {
             if (!extras.trains || !extras.track || !meshes) {
@@ -323,6 +332,23 @@ int main(int argc, char** argv) {
                 return 1;
             }
             me = std::move(*mine);
+            // Its sounds: the first car whose config names an enginesound (and its hornsound).
+            for (const auto& v : trains[chosen].vehicles) {
+                const auto cfg = meshes->config(v.kuid);
+                const auto* es = cfg ? cfg->child("enginesound") : nullptr;
+                if (es == nullptr) {
+                    continue;
+                }
+                const auto* hs = cfg->child("hornsound");
+                trainz::game::loadTrainSounds(trainSound, trainz::view::configKuid(*es),
+                                              hs != nullptr ? trainz::view::configKuid(*hs) : std::nullopt,
+                                              [&](const trainz::content::Kuid& k, const std::string& name) { return meshes->file(k, name); });
+                if (trainSound.hasEngine()) {
+                    break;
+                }
+            }
+            std::printf("sounds: engine %s, horn %s\n", trainSound.hasEngine() ? "from its enginesound" : "none",
+                        trainSound.hasHorn() ? "from its hornsound" : "none");
             const auto p = net->point(driving.lead);
             if (!atX && p) {
                 atX = p->x, atY = p->y;
@@ -425,6 +451,19 @@ int main(int argc, char** argv) {
             }
         }
         const auto start = trainz::view::FlyCamera::lookingAlong(startView);
+        // Sound: an SDL audio queue when a device opens (none in offscreen test runs is fine).
+        SDL_AudioDeviceID audio = 0;
+        if (drive && trainSound.hasEngine() && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+            SDL_AudioSpec want{}, have{};
+            want.freq = trainz::game::TrainSound::kRate;
+            want.format = AUDIO_S16SYS;
+            want.channels = 1;
+            want.samples = 1024;
+            audio = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
+            if (audio != 0) {
+                SDL_PauseAudioDevice(audio, 0);
+            }
+        }
         trainz::view::Camera lastCamera = startView;
         const bool testRun = frames > 0;
         auto cam = start;
@@ -442,6 +481,8 @@ int main(int argc, char** argv) {
                 SDL_Event press{};
                 press.type = SDL_KEYDOWN;
                 press.key.keysym.sym = it->second;
+                SDL_PushEvent(&press);
+                press.type = SDL_KEYUP;  // a tap: down, then up
                 SDL_PushEvent(&press);
             }
             while (SDL_PollEvent(&ev)) {
@@ -482,6 +523,11 @@ int main(int argc, char** argv) {
                     // A train without notches: each press moves the smooth throttle by 10% (holding moves it too).
                     driving.controls.throttle =
                         std::clamp(driving.controls.throttle + (ev.key.keysym.sym == SDLK_w ? 0.1 : -0.1), 0.0, 1.0);
+                } else if (drive && (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) && ev.key.keysym.sym == SDLK_h) {
+                    hornKey = ev.type == SDL_KEYDOWN;  // TS2010's horn key (keyboard.txt train_horn)
+                    if (hornKey && ev.key.repeat == 0) {
+                        hornHeldFor = 0;
+                    }
                 } else if (drive && ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_u && ev.key.repeat == 0) {
                     if (std::fabs(driving.speed) < 0.1) {  // uncouple the rearmost car (when stopped)
                         if (auto rest = trainz::game::uncoupleRear(*net, me)) {
@@ -602,6 +648,26 @@ int main(int argc, char** argv) {
                                 static_cast<unsigned>(SDL_GetTicks() - r0));
                 }
                 signalClock += frames > 0 ? 0.5 : dt;
+                if (trainSound.hasEngine()) {  // the engine follows the notch (or the throttle), the horn sounds 1.5 s at least
+                    const double seconds = frames > 0 ? 0.5 : dt;
+                    trainSound.setNotch(driving.spec.notchCurvesN.empty() ? static_cast<int>(std::lround(driving.controls.throttle * 8))
+                                                                         : driving.controls.notch);
+                    hornHeldFor += seconds;
+                    trainSound.setHorn(hornKey || hornHeldFor < 1.5);
+                    const std::size_t want = static_cast<std::size_t>(seconds * trainz::game::TrainSound::kRate);
+                    std::vector<float> mixed(want, 0.0f);
+                    trainSound.mix(mixed.data(), mixed.size());
+                    std::vector<std::int16_t> pcm(want);
+                    for (std::size_t i = 0; i < want; ++i) {
+                        pcm[i] = static_cast<std::int16_t>(std::lround(std::clamp(mixed[i], -1.0f, 1.0f) * 32767.0f));
+                    }
+                    if (audio != 0 && SDL_GetQueuedAudioSize(audio) < static_cast<Uint32>(trainz::game::TrainSound::kRate)) {
+                        SDL_QueueAudio(audio, pcm.data(), static_cast<Uint32>(pcm.size() * sizeof(std::int16_t)));
+                    }
+                    if (recordSound) {
+                        recorded.insert(recorded.end(), pcm.begin(), pcm.end());
+                    }
+                }
                 // The other trains: each takes the points along its length; with --ai each is driven.
                 std::vector<std::vector<trainz::sim::Occupied>> takenBy(otherTrains.size() + 2);
                 takenBy[0] = trainz::game::trainOccupies(*net, me);
@@ -804,6 +870,34 @@ int main(int argc, char** argv) {
         if (testRun) {  // for reproducing a test frame with --camera
             std::printf("last camera: --camera %.2f %.2f %.2f %.2f %.2f %.2f\n", lastCamera.eye.x, lastCamera.eye.y, lastCamera.eye.z,
                         lastCamera.target.x, lastCamera.target.y, lastCamera.target.z);
+        }
+        if (audio != 0) {
+            SDL_CloseAudioDevice(audio);
+        }
+        if (recordSound && !recorded.empty()) {  // what was mixed, under ~/.local/share/trainz-native/routes/
+            trainz::content::PcmSound out;
+            out.channels = 1;
+            out.sampleRate = trainz::game::TrainSound::kRate;
+            out.samples = std::move(recorded);
+            const auto bytes = trainz::content::encodePcmWav(out);
+            const auto dir = trainz::common::SafeOutputDir::open(trainz::common::portDataDir() / "routes",
+                                                                 trainz::common::protectedDirsFor(archivePath));
+            const std::string file = "route-viewer-" + std::to_string(static_cast<long>(::time(nullptr))) + ".wav";
+            dir.createFile(file, [&](int fd) {
+                std::size_t done = 0;
+                while (done < bytes.size()) {
+                    const ssize_t n = ::write(fd, bytes.data() + done, bytes.size() - done);
+                    if (n <= 0) {
+                        if (n < 0 && errno == EINTR) {
+                            continue;
+                        }
+                        throw std::runtime_error("cannot write the sound file");
+                    }
+                    done += static_cast<std::size_t>(n);
+                }
+            });
+            std::printf("wrote %s (%.1f s of sound)\n", (dir.path() / file).c_str(),
+                        static_cast<double>(out.samples.size()) / trainz::game::TrainSound::kRate);
         }
         if (png && !rgba.empty()) {  // the last frame, under ~/.local/share/trainz-native/routes/
             const auto bytes = trainz::common::encodePngRgba(kW, kH, rgba);

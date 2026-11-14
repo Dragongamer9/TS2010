@@ -146,7 +146,10 @@ them: they speed up to 30 km/h and stop for signals at stop, trains ahead and li
 
 Drive slowly into another train (under 7 km/h) and it couples to yours; faster is a
 collision, which stops you. Stopped, **U** leaves your rearmost car behind (press again for
-more). A train without notches steps its throttle 10% per W/S press as well. Each vehicle's mass and the locomotives' pulling force come from their own files
+more). A train without notches steps its throttle 10% per W/S press as well.
+
+Your train's own engine sound follows the notch, and **H** sounds its horn (TS2010's keys).
+Add `--record-sound` to save what was played as a `.wav` next to the screenshots. Each vehicle's mass and the locomotives' pulling force come from their own files
 (`mass`, `enginespec`); resistance and brakes are still general defaults. Junctions start as the route sets
 them. The title also shows the next signal and its aspect (stop, caution or clear), worked
 out by the port's own simple rules. Each signal's lit lamps are drawn in its own colours. There are no sounds yet.
