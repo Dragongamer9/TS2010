@@ -60,6 +60,8 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <future>
+#include <chrono>
 #include <cstdio>
 #include <unistd.h>
 #include <stdexcept>
@@ -438,6 +440,7 @@ int main(int argc, char** argv) {
         in.groundTextures = groundTextures ? &*groundTextures : nullptr;
         std::printf("building the scene (radius %.0f m)...\n", radius);
         auto view = trainz::view::buildRouteView(in, radius, atX, atY);
+        std::future<trainz::view::RouteView> nextView;  // drive mode: the next scene, built in the background
         std::printf("%zu triangles, %zu sections, %zu objects as models, %zu editor-only objects left out\n",
                     view.scene.triangles.size(), view.sections, view.objectsAsMeshes, view.surveyorOnlySkipped);
 
@@ -496,10 +499,12 @@ int main(int argc, char** argv) {
         pads.openIfNone();
         std::vector<std::uint8_t> rgba;  // the last frame (saved by --png)
         long frameNumber = 0;
+        unsigned slowestFrame = 0;  // ms, a whole loop pass (scene rebuilds included)
         while (running) {
             trainz::view::FlyControls ctl;
             SDL_Event ev;
             ++frameNumber;
+            const Uint32 loopStart = SDL_GetTicks();
             for (auto [it, stop] = keyScript.equal_range(frameNumber); it != stop; ++it) {  // --keys
                 SDL_Event press{};
                 press.type = SDL_KEYDOWN;
@@ -661,17 +666,29 @@ int main(int argc, char** argv) {
                     driving.step(*net, stepSeconds);
                 }
                 noticeClock -= frames > 0 ? 0.5 : dt;
-                // Keep the world around the train: rebuild the scene once it is more than half
-                // the radius from the centre (a pause of about a second on the software renderer).
+                // Keep the world around the train without a pause: past 30% of the radius from the
+                // scene's centre the next scene is built in the background (AssetMeshes is locked
+                // for it) and swapped in when ready; only past 75% does it wait for it.
                 const auto& followed = watch > 0 && watch <= static_cast<long>(otherTrains.size())
                                            ? otherTrains[static_cast<std::size_t>(watch - 1)].drive.lead
                                            : driving.lead;  // the train the camera watches
-                if (const auto p = net->point(followed);
-                    p && std::hypot(p->x - view.centreX, p->y - view.centreY) > radius * 0.5) {
-                    const Uint32 r0 = SDL_GetTicks();
-                    view = trainz::view::buildRouteView(in, radius, p->x, p->y);
-                    std::printf("scene rebuilt around the train at %.0f, %.0f (%u ms)\n", p->x, p->y,
-                                static_cast<unsigned>(SDL_GetTicks() - r0));
+                if (nextView.valid() && nextView.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+                    view = nextView.get();
+                    std::printf("scene swapped in around %.0f, %.0f (built in the background)\n", view.centreX, view.centreY);
+                }
+                if (const auto p = net->point(followed)) {
+                    const double off = std::hypot(p->x - view.centreX, p->y - view.centreY);
+                    if (off > radius * 0.3 && !nextView.valid()) {
+                        nextView = std::async(std::launch::async, [inCopy = in, radius, x = p->x, y = p->y] {
+                            return trainz::view::buildRouteView(inCopy, radius, x, y);
+                        });
+                    }
+                    if (off > radius * 0.75) {  // the edge is near: wait for it (or build it now)
+                        const Uint32 r0 = SDL_GetTicks();
+                        view = nextView.valid() ? nextView.get() : trainz::view::buildRouteView(in, radius, p->x, p->y);
+                        std::printf("scene rebuilt around the train at %.0f, %.0f (waited %u ms)\n", view.centreX, view.centreY,
+                                    static_cast<unsigned>(SDL_GetTicks() - r0));
+                    }
                 }
                 signalClock += frames > 0 ? 0.5 : dt;
                 if (trainSound.hasEngine()) {  // the engine follows the notch (or the throttle), the horn sounds 1.5 s at least
@@ -863,6 +880,7 @@ int main(int argc, char** argv) {
                 SDL_RenderPresent(ren);
                 SDL_SetWindowTitle(win, title);
                 dirty = false;
+                slowestFrame = std::max(slowestFrame, static_cast<unsigned>(SDL_GetTicks() - loopStart));
                 if (frames > 0 && --frames == 0) {
                     std::printf("%s\n", title);
                     running = false;
@@ -895,6 +913,9 @@ int main(int argc, char** argv) {
                 std::printf(" %d %s;", v, k.c_str());
             }
             std::printf(" furthest from its start %.0f m\n", furthest);
+        }
+        if (testRun) {
+            std::printf("slowest frame: %u ms\n", slowestFrame);
         }
         if (testRun) {  // for reproducing a test frame with --camera
             std::printf("last camera: --camera %.2f %.2f %.2f %.2f %.2f %.2f\n", lastCamera.eye.x, lastCamera.eye.y, lastCamera.eye.z,

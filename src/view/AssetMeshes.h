@@ -18,6 +18,7 @@
 
 #include <filesystem>
 #include <map>
+#include <mutex>
 #include <memory>
 #include <optional>
 #include <span>
@@ -158,6 +159,9 @@ private:
                     const TextureOverride* reskin = nullptr);
 
     const trainz::content::AssetIndex& index_;
+    // get, config and file may be called from two threads (the viewer builds the next scene in
+    // the background): they take this lock. Returned meshes stay put (owned by cache_).
+    mutable std::recursive_mutex lock_;
     std::map<std::string, std::unique_ptr<PreparedMesh>> cache_;  // by formatted KUID; null = none
     std::map<std::string, std::unique_ptr<trainz::content::JaArchive>> archives_;
     std::map<std::string, std::size_t> misses_;

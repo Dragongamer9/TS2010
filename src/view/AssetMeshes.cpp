@@ -333,6 +333,7 @@ const JaArchive* AssetMeshes::archive(const std::filesystem::path& path) {
 }
 
 std::optional<std::vector<std::uint8_t>> AssetMeshes::file(const Kuid& kuid, const std::string& name, std::size_t limit) {
+    const std::lock_guard<std::recursive_mutex> hold(lock_);
     auto records = index_.find(kuid);
     if (records.empty()) {
         records = index_.allVersions(kuid.user, kuid.content);
@@ -360,6 +361,7 @@ std::optional<std::vector<std::uint8_t>> AssetMeshes::file(const Kuid& kuid, con
 }
 
 std::optional<ConfigNode> AssetMeshes::config(const Kuid& kuid) {
+    const std::lock_guard<std::recursive_mutex> hold(lock_);
     auto records = index_.find(kuid);
     if (records.empty()) {
         records = index_.allVersions(kuid.user, kuid.content);
@@ -748,6 +750,7 @@ std::optional<Kuid> AssetMeshes::reskinBase(const Kuid& kuid) {
 }
 
 const PreparedMesh* AssetMeshes::get(const Kuid& kuid) {
+    const std::lock_guard<std::recursive_mutex> hold(lock_);
     const std::string key = formatKuid(kuid);
     auto it = cache_.find(key);
     if (it == cache_.end()) {
