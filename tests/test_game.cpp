@@ -1145,3 +1145,29 @@ TEST(SessionOrders, AMarkUnderTheStandingTrainIsReached) {
     trainz::game::runOrders(t, net, {{"M", {1, 480, +1}}}, {}, 0.5);
     EXPECT_EQ(t.orderIndex, 1u);  // standing over it: reached
 }
+
+// ChatGPT review: "under the train" follows the connected track, so a mark on a parallel line
+// right beside the train does not count. A junction at 100 m: the main line (piece 2) east, a
+// branch (piece 3) beside it; the train stands on the main line just past the junction.
+TEST(SessionOrders, AMarkOnAParallelLineIsNotUnderTheTrain) {
+    trainz::content::TrackLayout l;
+    trainz::content::TrackVertex v0, v1, v2, v3;
+    v0.index = 0, v1.index = 1, v2.index = 2, v3.index = 3;
+    v1.x = 100, v2.x = 400, v3.x = 400, v3.y = 4;  // the branch runs 4 m beside the main line
+    v0.links = {{1, 0}}, v1.links = {{1, 0}, {2, 1}, {3, 1}}, v2.links = {{2, 0}}, v3.links = {{3, 0}};
+    l.vertices = {{0, v0}, {1, v1}, {2, v2}, {3, v3}};
+    for (const auto& [i, f, to] : {std::tuple{1, 0, 1}, std::tuple{2, 1, 2}, std::tuple{3, 1, 3}}) {
+        trainz::content::TrackStretch s;
+        s.index = i, s.from = f, s.to = to, s.rest = {0x20, 0, 0, 0};
+        l.stretches.push_back(s);
+    }
+    trainz::sim::TrackNetwork net(l);
+    net.switches[1] = 2;
+    auto t = carTrain(3, 0, +1, 1);
+    t.drive.lead = {2, 40, +1};  // on the main line, 4.5 m to 40 m past the junction
+    EXPECT_TRUE(trainz::game::trainCovers(net, t, {2, 20, +1}));   // a mark on its own line
+    EXPECT_FALSE(trainz::game::trainCovers(net, t, {3, 20, +1}));  // the same spot on the branch beside it
+    const auto here = net.point({2, 20, +1}), beside = net.point({3, 20, +1});
+    ASSERT_TRUE(here && beside);
+    EXPECT_LT(std::hypot(here->x - beside->x, here->y - beside->y), 1.0);  // they are under a metre apart
+}
