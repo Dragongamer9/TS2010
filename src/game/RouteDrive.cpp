@@ -834,6 +834,28 @@ bool passesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim::Trac
     return met;
 }
 
+bool shuntPassesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
+                        const std::vector<trainz::sim::TrackNetwork::Leg>& legs, const trainz::sim::TrackPosition& otherEnd) {
+    trainz::sim::TrackNetwork scratch = net;
+    trainz::sim::TrackPosition at = from;
+    for (const auto& leg : legs) {
+        for (const auto& [vertex, piece] : leg.switches) {
+            scratch.switches[vertex] = piece;
+        }
+        const auto r = scratch.route(at, leg.end);
+        if (r && passesThrough(scratch, at, *r, otherEnd)) {
+            return true;
+        }
+        // After a reversal the train sets off back the way it came. (Starting the next leg's
+        // walk from the stop, turned round, is a little cautious: it also covers the train's length.)
+        at = leg.end;
+        if (leg.reverseAfter) {
+            at.direction = -at.direction;
+        }
+    }
+    return false;
+}
+
 namespace {
 // Plans a shunting way (with reversals) from either end of the train to `target`; on success sets
 // the legs, the first leg's junctions, the direction and the destination (its end).
@@ -1001,10 +1023,13 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                     // A shunting way: plan one to each end and keep the shorter.
                     std::optional<RouteTrain> bestPlan;
                     double bestShunt = 1e300;
-                    for (const auto& e : ends) {
+                    for (std::size_t k = 0; k < ends.size(); ++k) {
+                        const auto& e = ends[k];
                         RouteTrain trial = t;
                         trainz::sim::TrackNetwork scratch = net;  // startShunt sets junctions: on a copy first
-                        if (startShunt(trial, scratch, e)) {
+                        // Every leg, not just a direct way, must keep clear of the train itself (ChatGPT review).
+                        if (startShunt(trial, scratch, e) &&
+                            !(ends.size() == 2 && shuntPassesThrough(net, movingEnd(net, trial), trial.legs, ends[1 - k]))) {
                             double total = 0;
                             trainz::sim::TrackPosition at = trial.reversing ? back : front;
                             for (const auto& leg : trial.legs) {

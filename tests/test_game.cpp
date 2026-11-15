@@ -1171,3 +1171,29 @@ TEST(SessionOrders, AMarkOnAParallelLineIsNotUnderTheTrain) {
     ASSERT_TRUE(here && beside);
     EXPECT_LT(std::hypot(here->x - beside->x, here->y - beside->y), 1.0);  // they are under a metre apart
 }
+
+// ChatGPT review: shunting legs must also keep clear of the target train. Headshunt: the engine
+// on leg A can reach leg B only by running onto the trunk and backing out. Wagons stand on B from
+// 30 m to 60 m past the junction: the shunt to their far end (60 m) would back through them.
+TEST(SessionOrders, AShuntToTheFarEndThroughTheTargetIsCaught) {
+    trainz::content::TrackLayout l;
+    trainz::content::TrackVertex v1, v2, v3, v4;
+    v1.index = 1, v2.index = 2, v3.index = 3, v4.index = 4;
+    v1.x = 100, v2.x = 300, v3.y = 10, v4.y = -10;
+    v1.links = {{1, 0}, {2, 1}, {3, 1}}, v2.links = {{1, 0}}, v3.links = {{2, 0}}, v4.links = {{3, 0}};
+    l.vertices = {{1, v1}, {2, v2}, {3, v3}, {4, v4}};
+    for (const auto& [i, f, to] : {std::tuple{1, 1, 2}, std::tuple{2, 3, 1}, std::tuple{3, 1, 4}}) {
+        trainz::content::TrackStretch s;
+        s.index = i, s.from = f, s.to = to, s.rest = {0x20, 0, 0, 0};
+        l.stretches.push_back(s);
+    }
+    const trainz::sim::TrackNetwork net(l);
+    const trainz::sim::TrackPosition engine{2, 20, +1};                    // on leg A, toward the junction
+    const trainz::sim::TrackPosition nearEnd{3, 30, +1}, farEnd{3, 60, +1};  // the wagons on leg B
+    const auto toFar = net.routeWithReversals(engine, farEnd, 40);
+    const auto toNear = net.routeWithReversals(engine, nearEnd, 40);
+    ASSERT_TRUE(toFar && toNear);
+    ASSERT_EQ(toFar->legs.size(), 2u);  // onto the trunk, then back onto B
+    EXPECT_TRUE(trainz::game::shuntPassesThrough(net, engine, toFar->legs, nearEnd));    // through the wagons: caught
+    EXPECT_FALSE(trainz::game::shuntPassesThrough(net, engine, toNear->legs, farEnd));  // to the near end: clear
+}

@@ -246,4 +246,9 @@ bool passesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim::Trac
 // Whether a place lies under the train, between its buffer ends.
 bool trainCovers(const trainz::sim::TrackNetwork& net, const RouteTrain& t, const trainz::sim::TrackPosition& p);
 
+// The same for a shunting way: whether any of its legs, driven in turn (their junction settings
+// applied on a copy), meets `otherEnd` before that leg's end.
+bool shuntPassesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
+                        const std::vector<trainz::sim::TrackNetwork::Leg>& legs, const trainz::sim::TrackPosition& otherEnd);
+
 }  // namespace trainz::game
