@@ -1,0 +1,105 @@
+#!/bin/sh
+# trainz-route-viewer: start route-viewer on the TS2010 install without typing paths.
+#
+#   trainz-route-viewer --set-install DIR   remember where TS2010 is (the only thing that writes)
+#   trainz-route-viewer                     list the routes and sessions, ask for a name, show it
+#   trainz-route-viewer NAME [ARGS...]      show a session (or, if none matches, a route) by name;
+#                                           ARGS go to route-viewer (e.g. --radius 900)
+#
+# The install folder is read from $TRAINZ_INSTALL, else from
+# ${XDG_DATA_HOME:-~/.local/share}/trainz-native/install-dir. Nothing else is written, and the
+# game folder is only read. route-viewer is looked for next to this script, else on PATH
+# ($TRAINZ_ROUTE_VIEWER overrides both).
+set -eu
+
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/trainz-native"
+setting="$data_dir/install-dir"
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+viewer="${TRAINZ_ROUTE_VIEWER:-}"
+if [ -z "$viewer" ]; then
+    if [ -x "$here/route-viewer" ]; then
+        viewer="$here/route-viewer"
+    else
+        viewer=$(command -v route-viewer || true)
+    fi
+fi
+
+if [ "${1:-}" = "--set-install" ]; then
+    if [ $# -ne 2 ] || [ ! -d "$2" ]; then
+        echo "usage: trainz-route-viewer --set-install DIR   (DIR: the TS2010 folder, holding Builtin/)" >&2
+        exit 2
+    fi
+    dir=$(CDPATH= cd -- "$2" && pwd -P)
+    if [ ! -d "$dir/Builtin" ]; then
+        echo "$dir has no Builtin folder; is it the TS2010 folder?" >&2
+        exit 1
+    fi
+    # Never write through a symlink, and never into the game folder.
+    if [ -L "$data_dir" ] || [ -L "$setting" ]; then
+        echo "refusing: $data_dir or $setting is a symlink" >&2
+        exit 1
+    fi
+    # Check before creating anything: the nearest folder that already exists decides.
+    probe=$data_dir
+    while [ ! -d "$probe" ]; do
+        probe=$(dirname -- "$probe")
+    done
+    real_probe=$(CDPATH= cd -- "$probe" && pwd -P)
+    case "$real_probe/" in
+        "$dir"/*)
+            echo "refusing: the data folder $data_dir is inside the game folder $dir" >&2
+            exit 1
+            ;;
+    esac
+    mkdir -p "$data_dir"
+    real_data=$(CDPATH= cd -- "$data_dir" && pwd -P)
+    case "$real_data/" in
+        "$dir"/*)
+            echo "refusing: the data folder $real_data is inside the game folder $dir" >&2
+            exit 1
+            ;;
+    esac
+    # A fresh file (mktemp creates it, never an existing name), then renamed into place.
+    tmp=$(mktemp "$real_data/install-dir.XXXXXX")
+    if ! printf '%s\n' "$dir" > "$tmp" || ! mv -f -- "$tmp" "$real_data/install-dir"; then
+        rm -f -- "$tmp"
+        echo "could not write $setting" >&2
+        exit 1
+    fi
+    echo "remembered: $dir (in $setting)"
+    exit 0
+fi
+
+install="${TRAINZ_INSTALL:-}"
+if [ -z "$install" ] && [ -r "$setting" ] && [ ! -L "$setting" ]; then
+    install=$(head -n 1 "$setting")
+fi
+if [ -z "$install" ] || [ ! -d "$install" ]; then
+    echo "Where is TS2010? Tell me once with:  trainz-route-viewer --set-install /path/to/TS2010" >&2
+    exit 1
+fi
+if [ -z "$viewer" ] || [ ! -x "$viewer" ]; then
+    echo "route-viewer was not found (build it with libsdl2-dev installed; see docs/RUNNING-VIEWERS.md)" >&2
+    exit 1
+fi
+
+name="${1:-}"
+if [ -z "$name" ]; then
+    "$viewer" --install "$install" --list
+    printf '\nType a session or route name (or part of it), then Enter: '
+    IFS= read -r name || exit 0
+    [ -n "$name" ] || exit 0
+else
+    shift
+fi
+
+# A session first (it brings its route and trains); a route only if no session matches at
+# all (route-viewer exits 3; 4 means several match, and they are listed).
+rc=0
+"$viewer" --install "$install" --session "$name" "$@" || rc=$?
+if [ "$rc" -ne 3 ]; then
+    exit "$rc"
+fi
+echo "(no session matches '$name'; trying the routes)" >&2
+exec "$viewer" --install "$install" --route "$name" "$@"

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=@TRAINZ_DESKTOP_NAME@
+Comment=Fly around a TS2010 route, drawn from the game's own files
+Exec="%%BINDIR%%/trainz-route-viewer"
+Terminal=true
+Categories=Game;Simulation;

@@ -1,0 +1,6 @@
+- [Local build setup](local-build-setup.md) — hand g++ build, data paths, CI's exact warning flags
+- [Teammates out of usage](teammates-out-of-usage.md) — skip a teammate that reported out of usage
+- [Screenshots every update](screenshots-every-update.md) — owner wants fresh pictures with each progress report
+- [Silent test runs](silent-test-runs.md) — route-viewer runs always with SDL_AUDIODRIVER=dummy; never play sound on the owner's speakers
+- [TS2010 port rules](ts2010-port-rules.md) — read-only game data, private repo, what Claude writes (from the first days; the "nothing compiles here" line is outdated: hand g++ builds work, see local-build-setup)
+- [Roadmap progress updates](roadmap-progress-updates.md) — update ROADMAP.md % and log with every change, show the math
