@@ -806,6 +806,7 @@ int main(int argc, char** argv) {
                             }
                         }
                         if (!otherTrains[t].orders.empty()) {  // its session orders first
+                            otherTrains[t].obstacles = others;  // routes it picks keep clear of the other trains
                             const auto trainFront = [&](const std::string& vehicle) -> std::optional<trainz::sim::TrackPosition> {
                                 const auto has = [&](const trainz::content::Train& tr) {
                                     return std::any_of(tr.vehicles.begin(), tr.vehicles.end(),
@@ -837,6 +838,20 @@ int main(int argc, char** argv) {
                         }
                         ai.control(otherTrains[t], *net, signals ? &*signals : nullptr, others);
                         otherTrains[t].drive.step(*net, frames > 0 ? 0.5 : dt);
+                    }
+                }
+                // Cars an AI train uncoupled by an order: parked trains where they stand.
+                {
+                    std::vector<trainz::game::RouteTrain> parkedNow;
+                    for (auto& t : otherTrains) {
+                        for (auto& p : t.leftBehind) {
+                            std::printf("AI train %zu left %zu cars standing\n", t.index + 1, p.cars.size());
+                            parkedNow.push_back(std::move(p));
+                        }
+                        t.leftBehind.clear();
+                    }
+                    for (auto& p : parkedNow) {
+                        otherTrains.push_back(std::move(p));
                     }
                 }
                 // Couple orders: an AI train touching the train it is to couple to joins it.

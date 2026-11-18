@@ -446,7 +446,7 @@ trainz::game::RouteTrain carTrain(int n, double offset, int dir, int firstId) {
         v.length = 10;
         trainz::sim::VehicleSpec spec = trainz::sim::freightWagon(20);
         spec.name = std::to_string(firstId + k);  // to follow each car
-        t.cars.push_back({spec, v});
+        t.cars.push_back({spec, v, spec.name, false});
     }
     t.vehicleCount = static_cast<std::size_t>(n);
     t.drive.lead = {1, offset, dir};
@@ -871,7 +871,7 @@ TEST(AiDriver, LongCarsStopWithTheirFrontShortOfARedSignal) {
         trainz::game::RouteVehicle v;
         v.body = &mesh;
         v.length = 25;
-        t.cars.push_back({trainz::sim::freightWagon(40), v});
+        t.cars.push_back({trainz::sim::freightWagon(40), v, "", false});
     }
     t.cars.front().spec = trainz::sim::electricLocomotive();
     t.drive.lead = {1, 100, +1};
@@ -1196,4 +1196,65 @@ TEST(SessionOrders, AShuntToTheFarEndThroughTheTargetIsCaught) {
     ASSERT_EQ(toFar->legs.size(), 2u);  // onto the trunk, then back onto B
     EXPECT_TRUE(trainz::game::shuntPassesThrough(net, engine, toFar->legs, nearEnd));    // through the wagons: caught
     EXPECT_FALSE(trainz::game::shuntPassesThrough(net, engine, toNear->legs, farEnd));  // to the near end: clear
+}
+
+// UnCouplez (no settings, read as "the engine and tender part from the cars"): a train of
+// wagon, engine, tender, wagon, wagon keeps engine + tender; the wagons stand where they are.
+TEST(SessionOrders, UncoupleLeavesEverythingButTheEngineGroup) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    auto t = carTrain(5, 600, +1, 1);  // 10 m cars: middles at 600, 589.5, 579, 568.5, 558
+    t.cars[1].spec = trainz::sim::electricLocomotive();
+    t.cars[1].name = "Fowler 4F";
+    t.cars[2].name = "Fowler 3500 gallon Tender";
+    trainz::game::refreshTrain(t);
+    const auto g = trainz::game::engineGroup(t);
+    ASSERT_TRUE(g.has_value());
+    EXPECT_EQ(g->first, 1u);
+    EXPECT_EQ(g->second, 2u);
+    const auto parts = trainz::game::uncoupleAllButEngine(net, t);
+    ASSERT_EQ(parts.size(), 2u);
+    EXPECT_EQ(parts[0].cars.size(), 1u);   // the wagon in front
+    EXPECT_EQ(parts[1].cars.size(), 2u);   // the two behind
+    EXPECT_TRUE(parts[0].parked && parts[1].parked);
+    EXPECT_NEAR(parts[0].drive.lead.offset, 600, 1e-9);
+    EXPECT_NEAR(parts[1].drive.lead.offset, 568.5, 1e-9);
+    EXPECT_EQ(t.cars.size(), 2u);
+    EXPECT_NEAR(t.drive.lead.offset, 589.5, 1e-9);  // the engine's own middle
+    EXPECT_EQ(t.cars[1].name, "Fowler 3500 gallon Tender");
+    // An engine without traction data of its own (the steam engine on the disc): marked as the engine.
+    auto u = carTrain(3, 600, +1, 1);
+    u.cars[0].engine = true;
+    u.cars[0].name = "Fowler 4F";
+    trainz::game::refreshTrain(u);
+    EXPECT_EQ(trainz::game::engineGroup(u)->first, 0u);
+    EXPECT_EQ(trainz::game::uncoupleAllButEngine(net, u).size(), 1u);
+    // Only the engine left: nothing more to uncouple.
+    EXPECT_TRUE(trainz::game::uncoupleAllButEngine(net, t).empty());
+}
+
+// A way through another train is never chosen: with a train standing on the only line, the
+// engine holds (and tries again) rather than set off into it or skip the order; once that train
+// has gone, it goes.
+TEST(SessionOrders, NoWayThroughAnotherTrainHoldsAndRetries) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    auto t = aiTrain(10);
+    trainz::game::DriverCommand c;
+    c.kind = "navigate-to-trackmark";
+    c.properties["trackmarkname"] = "Far";
+    t.orders = {c};
+    const std::map<std::string, trainz::sim::TrackPosition> marks{{"Far", {2, 500, +1}}};
+    t.obstacles = {{1, 700}};  // a train standing in the way
+    trainz::game::runOrders(t, net, marks, {}, 0.5);
+    EXPECT_FALSE(t.destination.has_value());
+    EXPECT_TRUE(t.waitingForOrder);
+    EXPECT_EQ(t.orderIndex, 0u);  // held, not skipped
+    EXPECT_NE(t.orderNote.find("no way"), std::string::npos);
+    t.obstacles.clear();  // it has gone
+    for (int i = 0; i < 30; ++i) {  // the retry comes after 10 s
+        trainz::game::runOrders(t, net, marks, {}, 0.5);
+    }
+    ASSERT_TRUE(t.destination.has_value());
+    EXPECT_EQ(t.destination->piece, 2);
 }

@@ -93,7 +93,8 @@ struct DriverCommand {
     std::map<std::string, std::string> properties;
     // What the port makes of it (set by the caller from the command asset's name):
     // "navigate-to-trackmark", "navigate-via-trackmark", "wait-for", "wait-for-trigger", "couple",
-// "no-effect" (horn, destination sign, pantograph: acknowledged and passed over, NOT performed),
+// "uncouple-engine" (UnCouplez with no settings: the port's GUESS, the engine and tender part from
+// the cars), "no-effect" (horn, destination sign, pantograph: acknowledged and passed over, NOT performed),
 // or "" (not followed: the train holds).
     std::string kind;
     std::string name;  // the command asset's username, for notes
@@ -111,6 +112,8 @@ struct RouteTrain {
     struct Car {
         trainz::sim::VehicleSpec spec;
         std::optional<RouteVehicle> vehicle;
+        std::string name;  // the vehicle's name in the session (e.g. "Fowler 4F BR Black 7")
+        bool engine = false;  // pulls the train: driven by its own data, or (none being) the train's first car
     };
     std::vector<Car> cars;
     // The train's air brake, with the pressures of its first car that has them (the locomotive).
@@ -132,6 +135,10 @@ struct RouteTrain {
     // A shunting way (legs with a reversal between them) to the current order's place.
     std::vector<trainz::sim::TrackNetwork::Leg> legs;
     std::size_t legIndex = 0;
+    std::vector<RouteTrain> leftBehind;  // cars it uncoupled by an order: the caller takes them as parked trains
+    // Points other trains take (set by the caller before runOrders): a way through any of them
+    // is not chosen.
+    std::vector<trainz::sim::Occupied> obstacles;
     std::string orderNote;            // what it is doing, for display  // reached its braking margin; hold even after an overrun until it clears
 };
 // Builds train `index` of the session: placed where it stands (trainStart), each vehicle's own
@@ -250,5 +257,15 @@ bool trainCovers(const trainz::sim::TrackNetwork& net, const RouteTrain& t, cons
 // applied on a copy), meets `otherEnd` before that leg's end.
 bool shuntPassesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
                         const std::vector<trainz::sim::TrackNetwork::Leg>& legs, const trainz::sim::TrackPosition& otherEnd);
+
+// The engine group of a train: its first engine car (Car::engine, or driven) and, right after it, a car named like a
+// tender ("tender" in its name, any case). The port's heuristic. Returns [first, last] car indexes;
+// nullopt if no car is driven.
+std::optional<std::pair<std::size_t, std::size_t>> engineGroup(const RouteTrain& t);
+
+// Splits off every car but the engine group: the cars before and after it become parked trains
+// standing where they are (returned); `t` keeps the engine group, its lead moved to the group's
+// first car. Nothing (empty) if there is no engine group or nothing else to leave.
+std::vector<RouteTrain> uncoupleAllButEngine(const trainz::sim::TrackNetwork& net, RouteTrain& t);
 
 }  // namespace trainz::game
