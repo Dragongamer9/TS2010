@@ -73,6 +73,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <set>
 #include <numbers>
 #include <optional>
 #include <string>
@@ -807,34 +808,30 @@ int main(int argc, char** argv) {
                         }
                         if (!otherTrains[t].orders.empty()) {  // its session orders first
                             otherTrains[t].obstacles = others;  // routes it picks keep clear of the other trains
+                            // Trains are found by the cars they carry now, not the session's consists:
+                            // cars an order left behind keep their train's index (ChatGPT review).
                             const auto trainFront = [&](const std::string& vehicle) -> std::optional<trainz::sim::TrackPosition> {
-                                const auto has = [&](const trainz::content::Train& tr) {
-                                    return std::any_of(tr.vehicles.begin(), tr.vehicles.end(),
-                                                       [&](const trainz::content::Vehicle& v) { return v.name == vehicle; });
-                                };
-                                if (has((*extras.trains)[me.index])) {
+                                if (trainz::game::carriesVehicle(me, vehicle)) {
                                     return trainz::game::trainFrontEnd(*net, me);
                                 }
                                 for (const auto& o : otherTrains) {
-                                    if (has((*extras.trains)[o.index])) {
+                                    if (!o.cars.empty() && trainz::game::carriesVehicle(o, vehicle)) {
                                         return trainz::game::trainFrontEnd(*net, o);
                                     }
                                 }
                                 return std::nullopt;
                             };
                             const auto trainEnds = [&](const std::string& vehicle) {
-                                std::vector<trainz::sim::TrackPosition> ends;
-                                for (std::size_t o = 0; o < otherTrains.size(); ++o) {
-                                    const auto& vs = (*extras.trains)[otherTrains[o].index].vehicles;
-                                    if (o != t && !otherTrains[o].cars.empty() &&
-                                        std::any_of(vs.begin(), vs.end(), [&](const trainz::content::Vehicle& v) { return v.name == vehicle; })) {
-                                        ends = {trainz::game::trainFrontEnd(*net, otherTrains[o]), trainz::game::trainRearEnd(*net, otherTrains[o])};
-                                        break;
-                                    }
-                                }
-                                return ends;
+                                return trainz::game::vehicleTrainEnds(*net, otherTrains, &otherTrains[t], vehicle);
                             };
+                            const std::size_t orderBefore = otherTrains[t].orderIndex;
+                            const std::string noteBefore = otherTrains[t].orderNote;
                             trainz::game::runOrders(otherTrains[t], *net, marks, trainFront, frames > 0 ? 0.5 : dt, trainEnds);
+                            const bool startsHolding = otherTrains[t].orderNote != noteBefore && otherTrains[t].orderNote.rfind("holding", 0) == 0;
+                            if (frames > 0 && (otherTrains[t].orderIndex != orderBefore || startsHolding)) {  // test runs: each order step
+                                std::printf("AI train %zu order %zu of %zu: %s\n", otherTrains[t].index + 1, otherTrains[t].orderIndex,
+                                            otherTrains[t].orders.size(), otherTrains[t].orderNote.c_str());
+                            }
                         }
                         ai.control(otherTrains[t], *net, signals ? &*signals : nullptr, others);
                         otherTrains[t].drive.step(*net, frames > 0 ? 0.5 : dt);
@@ -865,8 +862,7 @@ int main(int argc, char** argv) {
                         continue;
                     }
                     auto& other = otherTrains[touch->other];
-                    const auto& vs = (*extras.trains)[other.index].vehicles;
-                    if (std::none_of(vs.begin(), vs.end(), [&](const trainz::content::Vehicle& v) { return v.name == ai.coupleWith; })) {
+                    if (!trainz::game::carriesVehicle(other, ai.coupleWith)) {
                         continue;
                     }
                     std::printf("AI train %zu coupled to train %zu ('%s')\n", ai.index + 1, other.index + 1, ai.coupleWith.c_str());
@@ -1077,13 +1073,50 @@ int main(int argc, char** argv) {
                 if (!t.orders.empty()) {
                     std::printf("  train %zu orders: %zu of %zu done, now: %s\n", t.index + 1, t.orderIndex, t.orders.size(),
                                 t.orderNote.c_str());
+                    // Holding for want of a way: is there one at all, leaving the other trains aside?
+                    const auto mark = t.orderIndex < t.orders.size() ? marks.find(t.orders[t.orderIndex].properties.count("trackmarkname")
+                                                                                      ? t.orders[t.orderIndex].properties.at("trackmarkname")
+                                                                                      : std::string())
+                                                                     : marks.end();
+                    if (t.orderNote.rfind("holding", 0) == 0 && mark != marks.end()) {
+                        trainz::sim::TrackPosition back = trainz::game::trainRearEnd(*net, t);
+                        back.direction = -back.direction;
+                        const auto ahead = net->route(trainz::game::trainFrontEnd(*net, t), mark->second);
+                        const auto behind = net->route(back, mark->second);
+                        const auto shuntF = net->routeWithReversals(trainz::game::trainFrontEnd(*net, t), mark->second, t.length + 15);
+                        const auto shuntB = net->routeWithReversals(back, mark->second, t.length + 15);
+                        const auto metres = [](const auto& r) { return r ? std::to_string(static_cast<long>(r->distance)) + " m" : std::string("none"); };
+                        const auto legs = [](const auto& r) { return r ? std::to_string(r->legs.size()) + " legs" : std::string("none"); };
+                        std::printf("  train %zu to '%s' (other trains aside): ahead %s, behind %s, shunting from front %s, from rear %s\n",
+                                    t.index + 1, mark->first.c_str(), metres(ahead).c_str(), metres(behind).c_str(), legs(shuntF).c_str(),
+                                    legs(shuntB).c_str());
+                        std::set<std::int32_t> taken;
+                        for (const auto& p : t.obstacles) {
+                            taken.insert(p.piece);
+                        }
+                        const auto roundF = net->routeWithReversals(trainz::game::trainFrontEnd(*net, t), mark->second, t.length + 15, 20000, taken);
+                        const auto roundB = net->routeWithReversals(back, mark->second, t.length + 15, 20000, taken);
+                        std::string near;
+                        for (const auto& o : otherTrains) {
+                            if (&o != &t && !o.cars.empty()) {
+                                const auto f = trainz::game::trainFrontEnd(*net, o), r = trainz::game::trainRearEnd(*net, o);
+                                if (const auto a = net->point(f), b = net->point(trainz::game::trainFrontEnd(*net, t)); a && b && std::hypot(a->x - b->x, a->y - b->y) < 400) {
+                                    near += " train " + std::to_string(o.index + 1) + " piece " + std::to_string(f.piece) + "@" + std::to_string(static_cast<int>(f.offset)) +
+                                            ".." + std::to_string(r.piece) + "@" + std::to_string(static_cast<int>(r.offset)) + ";";
+                                }
+                            }
+                        }
+                        const auto fe = trainz::game::trainFrontEnd(*net, t), re = trainz::game::trainRearEnd(*net, t);
+                        std::printf("  train %zu keeping off the %zu pieces other trains stand on: from front %s, from rear %s; it stands %d@%d..%d@%d, mark %d@%d; near:%s\n",
+                                    t.index + 1, taken.size(), legs(roundF).c_str(), legs(roundB).c_str(), fe.piece, static_cast<int>(fe.offset), re.piece,
+                                    static_cast<int>(re.offset), mark->second.piece, static_cast<int>(mark->second.offset), near.c_str());
+                    }
                 }
                 if (!t.coupleWith.empty()) {  // where it is against the train it is to couple to
                     const auto me2 = net->point(trainz::game::movingEnd(*net, t));
                     const auto dest = t.destination ? net->point(*t.destination) : std::nullopt;
                     for (const auto& o : otherTrains) {
-                        const auto& vs = (*extras.trains)[o.index].vehicles;
-                        if (std::none_of(vs.begin(), vs.end(), [&](const trainz::content::Vehicle& v) { return v.name == t.coupleWith; })) {
+                        if (&o == &t || o.cars.empty() || !trainz::game::carriesVehicle(o, t.coupleWith)) {
                             continue;
                         }
                         const auto f = net->point(trainz::game::trainFrontEnd(*net, o));

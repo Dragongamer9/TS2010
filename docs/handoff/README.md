@@ -39,8 +39,7 @@ Progress, with the math, is in `ROADMAP.md`. The plan is in `docs/PLAN.md`, and 
 | `/var/tmp/oldtr/*.cpp`, `shrink.py`, `soundbars.py` | Survey helpers and screenshot scripts. | Already copied into `tools/dev/surveys/` and `tools/dev/`. |
 
 The old memory note `local-build-setup.md` describes the hand g++ build on Debian.
-On Fedora with cmake installed, the normal CMake build should replace it.
-Nobody has built this on Fedora yet, so check it the first time. CI still builds on Debian.
+**Update 2026-11-21:** done. The new system is a Fedora-based atomic Hearth OS with no compiler on the host, so builds run in a `toolbox` container named `trainz-build`; all 403 tests pass there. `/var` survived the move, so the game data copies in `/var/tmp` are still there; inside the container they are under `/run/host/var/tmp`. CI still builds on Debian.
 
 ## Where the work stopped
 

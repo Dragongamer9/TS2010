@@ -1258,3 +1258,198 @@ TEST(SessionOrders, NoWayThroughAnotherTrainHoldsAndRetries) {
     ASSERT_TRUE(t.destination.has_value());
     EXPECT_EQ(t.destination->piece, 2);
 }
+
+namespace {
+trainz::game::DriverCommand coupleTo(const std::string& vehicle) {
+    trainz::game::DriverCommand c;
+    c.kind = "couple";
+    c.properties["vehiclename"] = vehicle;
+    return c;
+}
+std::vector<trainz::sim::Occupied> occupancy(const trainz::sim::TrackNetwork& net, std::initializer_list<const trainz::game::RouteTrain*> trains) {
+    std::vector<trainz::sim::Occupied> out;
+    for (const auto* t : trains) {
+        const auto o = trainz::game::trainOccupies(net, *t);
+        out.insert(out.end(), o.begin(), o.end());
+    }
+    return out;
+}
+}  // namespace
+
+// ChatGPT review: cars an Uncouple order leaves behind keep their train's index, so finding a
+// vehicle by the session's consist found the engine. West to east: B, then wagon W, then
+// engine A it was uncoupled from (listed first, so a by-consist lookup would pick A).
+TEST(SessionOrders, CoupleFindsADetachedWagonNotTheEngineItLeft) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    auto a = carTrain(2, 600, +1, 1);  // engine A at the front, wagon W behind it
+    a.cars[0].spec = trainz::sim::electricLocomotive();
+    a.cars[0].name = "A";
+    a.cars[1].name = "W";
+    trainz::game::refreshTrain(a);
+    auto left = trainz::game::uncoupleAllButEngine(net, a);
+    ASSERT_EQ(left.size(), 1u);
+    std::vector<trainz::game::RouteTrain> trains{a, left[0]};
+    const auto& w = trains[1];
+    EXPECT_FALSE(trainz::game::carriesVehicle(trains[0], "W"));
+    EXPECT_TRUE(trainz::game::carriesVehicle(w, "W"));
+    auto b = carTrain(1, 400, +1, 50);
+    b.cars[0].spec = trainz::sim::electricLocomotive();
+    trainz::game::refreshTrain(b);
+    const auto ends = trainz::game::vehicleTrainEnds(net, trains, &b, "W");
+    ASSERT_EQ(ends.size(), 2u);
+    EXPECT_NEAR(ends[1].offset, trainz::game::trainRearEnd(net, w).offset, 1e-9);
+    EXPECT_NEAR(ends[0].offset, trainz::game::trainFrontEnd(net, w).offset, 1e-9);
+    // B plans to W's near (rear) buffer; the trains standing there do not block its own target.
+    b.orders = {coupleTo("W")};
+    b.obstacles = occupancy(net, {&trains[0], &trains[1]});
+    trainz::game::runOrders(b, net, {}, {}, 0.5,
+                            [&](const std::string& v) { return trainz::game::vehicleTrainEnds(net, trains, &b, v); });
+    ASSERT_TRUE(b.destination.has_value());
+    EXPECT_EQ(b.coupleWith, "W");
+    EXPECT_NEAR(b.destination->offset, trainz::game::trainRearEnd(net, w).offset, 1e-9);
+}
+
+// ChatGPT review: a direct way to the train to couple to was taken even with other wagons
+// standing between. On a single line it holds, and goes once they have gone.
+TEST(SessionOrders, CoupleHoldsWhileOtherWagonsStandInTheDirectWay) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    auto b = carTrain(1, 95, +1, 1);  // front buffer at 100
+    b.cars[0].spec = trainz::sim::electricLocomotive();
+    trainz::game::refreshTrain(b);
+    const auto between = carTrain(2, 165, +1, 10);  // across about 145-170
+    std::vector<trainz::game::RouteTrain> trains{carTrain(2, 235, +1, 20)};  // W: near buffer at about 214.5
+    trains[0].cars[0].name = "W";
+    const auto ends = [&](const std::string& v) { return trainz::game::vehicleTrainEnds(net, trains, &b, v); };
+    b.orders = {coupleTo("W")};
+    b.obstacles = occupancy(net, {&between, &trains[0]});
+    trainz::game::runOrders(b, net, {}, {}, 0.5, ends);
+    EXPECT_FALSE(b.destination.has_value());
+    EXPECT_TRUE(b.waitingForOrder);
+    EXPECT_EQ(b.orderIndex, 0u);
+    EXPECT_NE(b.orderNote.find("holding"), std::string::npos);
+    b.obstacles = occupancy(net, {&trains[0]});  // the wagons between have gone
+    for (int i = 0; i < 30; ++i) {  // past the 10 s retry
+        trainz::game::runOrders(b, net, {}, {}, 0.5, ends);
+    }
+    ASSERT_TRUE(b.destination.has_value());
+    EXPECT_NEAR(b.destination->offset, trainz::game::trainRearEnd(net, trains[0]).offset, 1e-9);
+}
+
+// ChatGPT review: when a train has run past the end of a shunting leg and the only new way is
+// blocked, it skipped to the next leg while keeping the old leg's destination and direction.
+// Now it holds on the same leg, and plans again from where it stands once the way is clear.
+TEST(SessionOrders, AFailedShuntReplanHoldsOnTheSameLeg) {
+    trainz::content::TrackLayout l;
+    trainz::content::TrackVertex v1, v2, v3, v4;
+    v1.index = 1, v2.index = 2, v3.index = 3, v4.index = 4;
+    v1.x = 100, v2.x = 300, v3.y = 10, v4.y = -10;
+    v1.links = {{1, 0}, {2, 1}, {3, 1}}, v2.links = {{1, 0}}, v3.links = {{2, 0}}, v4.links = {{3, 0}};
+    l.vertices = {{1, v1}, {2, v2}, {3, v3}, {4, v4}};
+    for (const auto& [i, f, to] : {std::tuple{1, 1, 2}, std::tuple{2, 3, 1}, std::tuple{3, 1, 4}}) {
+        trainz::content::TrackStretch s;
+        s.index = i, s.from = f, s.to = to, s.rest = {0x20, 0, 0, 0};
+        l.stretches.push_back(s);
+    }
+    trainz::sim::TrackNetwork net(l);
+    auto t = carTrain(1, 0, +1, 1);
+    t.cars[0].spec = trainz::sim::electricLocomotive();
+    t.drive.lead = {2, 20, +1};  // on branch A, toward the junction
+    trainz::game::refreshTrain(t);
+    trainz::game::DriverCommand c;
+    c.kind = "navigate-to-trackmark";
+    c.properties["trackmarkname"] = "Target";
+    t.orders = {c};
+    const std::map<std::string, trainz::sim::TrackPosition> marks{{"Target", {3, 60, +1}}};  // on branch B
+    trainz::game::runOrders(t, net, marks, {}, 0.5);
+    ASSERT_EQ(t.legs.size(), 2u);  // onto the stem, then back onto B
+    ASSERT_EQ(t.legIndex, 0u);
+    const auto legEnd = t.legs[0].end;
+    ASSERT_EQ(legEnd.piece, 1);
+    // It ran on: stopped 40 m past the leg's end, the whole train beyond it, and wagons now
+    // stand on B, the only way to the mark.
+    t.drive.lead = {1, legEnd.offset + 40.0 * legEnd.direction, legEnd.direction};
+    t.drive.speed = 0;
+    t.obstacles = {{3, 30}};
+    const bool wasReversing = t.reversing;
+    trainz::game::runOrders(t, net, marks, {}, 0.5);
+    EXPECT_EQ(t.orderIndex, 0u);
+    EXPECT_EQ(t.legIndex, 0u);  // not skipped to the next leg
+    ASSERT_TRUE(t.destination.has_value());
+    EXPECT_EQ(t.destination->piece, legEnd.piece);
+    EXPECT_NEAR(t.destination->offset, legEnd.offset, 1e-9);
+    EXPECT_EQ(t.reversing, wasReversing);
+    EXPECT_TRUE(t.waitingForOrder);  // it stands
+    EXPECT_NE(t.orderNote.find("holding"), std::string::npos);
+    t.obstacles.clear();  // the wagons have gone
+    for (int i = 0; i < 30; ++i) {  // past the 10 s retry
+        trainz::game::runOrders(t, net, marks, {}, 0.5);
+    }
+    EXPECT_FALSE(t.waitingForOrder);
+    ASSERT_FALSE(t.legs.empty());
+    EXPECT_EQ(t.legs.back().end.piece, 3);  // a new plan from here to the mark
+    EXPECT_NEAR(t.legs.back().end.offset, 60, 1e-9);
+}
+
+// An engine that has just left its cars, with the place it must go behind them, runs round them
+// on the loop. West to east: piece 1, junction, the main line (2) and a longer loop (3, 4),
+// junction, piece 5. Engine on the main line facing east, its cars just behind it.
+TEST(SessionOrders, AnEngineRunsRoundTheCarsItLeftOnTheLoop) {
+    trainz::content::TrackLayout l;
+    trainz::content::TrackVertex v1, v2, v3, v4, v5;
+    v1.index = 1, v2.index = 2, v3.index = 3, v4.index = 4, v5.index = 5;
+    v2.x = 100, v3.x = 300, v4.x = 400, v5.x = 200, v5.y = 40;
+    v1.links = {{1, 0}};
+    v2.links = {{1, 0}, {2, 1}, {3, 1}};
+    v3.links = {{2, 1}, {4, 1}, {5, 0}};
+    v4.links = {{5, 0}};
+    v5.links = {{3, 0}, {4, 1}};
+    l.vertices = {{1, v1}, {2, v2}, {3, v3}, {4, v4}, {5, v5}};
+    for (const auto& [i, f, to] : {std::tuple{1, 1, 2}, std::tuple{2, 2, 3}, std::tuple{3, 2, 5}, std::tuple{4, 5, 3}, std::tuple{5, 3, 4}}) {
+        trainz::content::TrackStretch s;
+        s.index = i, s.from = f, s.to = to, s.rest = {0x20, 0, 0, 0};
+        l.stretches.push_back(s);
+    }
+    trainz::sim::TrackNetwork net(l);
+    auto t = carTrain(1, 0, +1, 1);
+    t.cars[0].spec = trainz::sim::electricLocomotive();
+    t.drive.lead = {2, 150, +1};
+    trainz::game::refreshTrain(t);
+    auto cars = carTrain(3, 0, +1, 10);
+    cars.drive.lead = {2, 134, +1};  // its front buffer about 6 m behind the engine's rear
+    trainz::game::refreshTrain(cars);
+    t.obstacles = trainz::game::trainOccupies(net, cars);
+    trainz::game::DriverCommand c;
+    c.kind = "navigate-to-trackmark";
+    c.properties["trackmarkname"] = "West";
+    t.orders = {c};
+    const std::map<std::string, trainz::sim::TrackPosition> marks{{"West", {1, 30, +1}}};
+    trainz::game::runOrders(t, net, marks, {}, 0.5);
+    EXPECT_FALSE(t.waitingForOrder) << t.orderNote;
+    ASSERT_EQ(t.legs.size(), 2u);  // on east past the junction, then back round the loop
+    EXPECT_FALSE(t.reversing);
+    EXPECT_EQ(t.legs[0].end.piece, 5);
+    const auto& back = t.legs[1].switches;
+    EXPECT_NE(std::find(back.begin(), back.end(), std::pair<std::int32_t, std::int32_t>{3, 4}), back.end());  // onto the loop
+    EXPECT_EQ(t.legs[1].end.piece, 1);
+}
+
+// A train that creeps just past the place it is to stop at (a reversing point) stops over it,
+// rather than finding nothing ahead and setting off down the line.
+TEST(AiDriver, StopsWhenItsDestinationIsAlreadyUnderIt) {
+    const AiLine line;
+    const trainz::sim::TrackNetwork net(line.layout);
+    auto t = carTrain(2, 500, +1, 1);
+    t.cars[0].spec = trainz::sim::electricLocomotive();
+    trainz::game::refreshTrain(t);
+    t.destination = trainz::sim::TrackPosition{1, 503, +1};  // just behind its front buffer: under its first car
+    t.drive.speed = 1.5;
+    const trainz::game::AiDriver ai;
+    const auto why = ai.stopAhead(t, net, nullptr, {});
+    ASSERT_TRUE(why.has_value());
+    EXPECT_STREQ(why->why, "destination (under the train)");
+    ai.control(t, net, nullptr, {});
+    EXPECT_EQ(t.drive.controls.throttle, 0);
+    EXPECT_GT(t.drive.controls.brake, 0.5);
+}

@@ -268,4 +268,13 @@ std::optional<std::pair<std::size_t, std::size_t>> engineGroup(const RouteTrain&
 // first car. Nothing (empty) if there is no engine group or nothing else to leave.
 std::vector<RouteTrain> uncoupleAllButEngine(const trainz::sim::TrackNetwork& net, RouteTrain& t);
 
+// Whether one of the train's cars, as it is made up now (after any coupling or uncoupling), has this
+// session name. Not the session's original consist: cars left behind keep their train's index.
+bool carriesVehicle(const RouteTrain& t, const std::string& vehicle);
+
+// The ends (front, then rear) of the first train in `trains` other than `me` (by address) that now
+// carries the vehicle and has cars; empty if none does.
+std::vector<trainz::sim::TrackPosition> vehicleTrainEnds(const trainz::sim::TrackNetwork& net, const std::vector<RouteTrain>& trains,
+                                                         const RouteTrain* me, const std::string& vehicle);
+
 }  // namespace trainz::game

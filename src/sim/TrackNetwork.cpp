@@ -222,7 +222,8 @@ std::optional<TrackNetwork::Route> TrackNetwork::route(const TrackPosition& from
 }
 
 std::optional<TrackNetwork::ShuntRoute> TrackNetwork::routeWithReversals(const TrackPosition& from, const TrackPosition& to,
-                                                                         double clearance, double maxDistance) const {
+                                                                         double clearance, double maxDistance,
+                                                                         const std::set<std::int32_t>& avoid) const {
     const auto start = pieces_.find(from.piece);
     const auto goal = pieces_.find(to.piece);
     if (start == pieces_.end() || goal == pieces_.end() || !(clearance > 0)) {
@@ -252,6 +253,9 @@ std::optional<TrackNetwork::ShuntRoute> TrackNetwork::routeWithReversals(const T
     double bestTotal = 1e300;
     std::optional<State> bestState;
     auto relax = [&](const State& ns, double e, const Came& how) {
+        if (ns.first != to.piece && avoid.count(ns.first) != 0) {
+            return;  // another train stands there
+        }
         const auto it = entry.find(ns);
         if (it == entry.end() || e < it->second - 1e-9) {
             entry[ns] = e;

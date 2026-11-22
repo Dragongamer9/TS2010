@@ -12,6 +12,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <vector>
 
 namespace trainz::sim {
@@ -100,8 +101,10 @@ public:
         double distance = 0;
         std::vector<Leg> legs;
     };
+    // `avoid`: pieces the way must not enter (where other trains stand), the target's own piece
+    // excepted; the start piece is where it starts, so it is not "entered".
     std::optional<ShuntRoute> routeWithReversals(const TrackPosition& from, const TrackPosition& to, double clearance,
-                                                 double maxDistance = 20000) const;
+                                                 double maxDistance = 20000, const std::set<std::int32_t>& avoid = {}) const;
 
     static constexpr int kSamples = 32;  // curve samples per piece for arc length
 
