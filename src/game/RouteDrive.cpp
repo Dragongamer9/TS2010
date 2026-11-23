@@ -1264,14 +1264,19 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
             } catch (const std::exception&) {
             }
             const auto g = engineGroup(t);
-            // The train splits after vehicle n and the engine keeps its side. Never part the engine
+            // The train splits after vehicle n, counted from its trailing end (its front when it last
+            // moved rear first, or never moved), and the engine keeps its side. Never part the engine
             // from its tender: such an order is not followed (the train holds).
-            if (n < 0 || n > 100000 || (g && g->first <= static_cast<std::size_t>(n) && static_cast<std::size_t>(n) < g->second)) {
+            const auto size = static_cast<long>(t.cars.size());
+            const long cut = t.lastMoved > 0 ? size - (n + 1) : n + 1;  // the second part's first car
+            if (n < 0 || n > 100000 || (g && static_cast<long>(g->first) < cut && cut <= static_cast<long>(g->second))) {
                 t.waitingForOrder = true;
                 t.orderNote = "holding: cannot uncouple after vehicle " + std::to_string(n);
                 return;
             }
-            auto left = uncoupleFrom(net, t, static_cast<std::size_t>(n) + 1, g && g->first > static_cast<std::size_t>(n));
+            auto left = cut > 0 && cut < size
+                            ? uncoupleFrom(net, t, static_cast<std::size_t>(cut), g && static_cast<long>(g->first) >= cut)
+                            : std::nullopt;
             const bool any = left.has_value();
             if (left) {
                 t.leftBehind.push_back(std::move(*left));
