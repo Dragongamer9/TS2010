@@ -93,8 +93,10 @@ struct DriverCommand {
     std::map<std::string, std::string> properties;
     // What the port makes of it (set by the caller from the command asset's name):
     // "navigate-to-trackmark", "navigate-via-trackmark", "wait-for", "wait-for-trigger", "couple",
-// "uncouple-engine" (UnCouplez with no settings: the port's GUESS, the engine and tender part from
-// the cars), "no-effect" (horn, destination sign, pantograph: acknowledged and passed over, NOT performed),
+// "uncouple-engine" (UnCouplez, no settings: the port's GUESS, read from the sessions' order
+// sequences: the cars behind the engine group are left, those in front stay on), "uncouple-from"
+// (UnCouplezFrom: "uncouple from vehicle number n, 0 being the first vehicle", its own
+// description; n is stored under the key "timetowait"), "no-effect" (horn, destination sign, pantograph: acknowledged and passed over, NOT performed),
 // or "" (not followed: the train holds).
     std::string kind;
     std::string name;  // the command asset's username, for notes
@@ -263,15 +265,11 @@ bool shuntPassesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim:
 // nullopt if no car is driven.
 std::optional<std::pair<std::size_t, std::size_t>> engineGroup(const RouteTrain& t);
 
-// Splits off every car but the engine group: the cars before and after it become parked trains
-// standing where they are (returned); `t` keeps the engine group, its lead moved to the group's
-// first car. Nothing (empty) if there is no engine group or nothing else to leave.
-std::vector<RouteTrain> uncoupleAllButEngine(const trainz::sim::TrackNetwork& net, RouteTrain& t);
+// Uncouples the train at vehicle `n` (0 the first, in the train's order from its front): cars n
+// and on become a parked train standing where it is (returned); `t` keeps cars 0 .. n-1 and its
+// lead. Nothing if n is 0 or past the last car.
+std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, RouteTrain& t, std::size_t n);
 
-// The end new cars should join at, away from the engine group: -1 the rear (the engine leads,
-// or is alone), +1 the front (the engine is at the back), 0 either (an engine in the middle, or
-// none). The port's rule: it keeps the cars on one side, as the sessions' run-round orders need.
-int coupleEnd(const RouteTrain& t);
 
 // Whether one of the train's cars, as it is made up now (after any coupling or uncoupling), has this
 // session name. Not the session's original consist: cars left behind keep their train's index.

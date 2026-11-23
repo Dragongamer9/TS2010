@@ -812,6 +812,9 @@ std::string commandKind(const std::string& username) {
     if (n == "uncouplez") {
         return "uncouple-engine";
     }
+    if (n == "uncouplezfrom") {
+        return "uncouple-from";
+    }
     // Orders that change nothing about where trains go or what they carry: done at once.
     if (n == "hornz" || n == "horn" || n == "change destination sign" || n == "pantz") {
         return "no-effect";
@@ -952,9 +955,7 @@ bool shuntPassesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim:
 namespace {
 // Plans a shunting way (with reversals) from either end of the train to `target`; on success sets
 // the legs, the first leg's junctions, the direction and the destination (its end).
-// `prefer`: the end it should arrive with, +1 its front, -1 its rear, 0 either; the other is
-// taken only when there is no way to arrive with that one.
-bool startShunt(RouteTrain& t, trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& target, int prefer = 0) {
+bool startShunt(RouteTrain& t, trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& target) {
     const double clearance = t.length + 15;
     trainz::sim::TrackPosition back = trainRearEnd(net, t);
     back.direction = -back.direction;
@@ -965,35 +966,19 @@ bool startShunt(RouteTrain& t, trainz::sim::TrackNetwork& net, const trainz::sim
     for (const auto& p : t.obstacles) {
         taken.insert(p.piece);
     }
-    auto planWith = [&](const trainz::sim::TrackPosition& from, int reversals) -> std::optional<trainz::sim::TrackNetwork::ShuntRoute> {
-        auto r = net.routeWithReversals(from, target, clearance, 20000, {}, reversals);
+    auto plan = [&](const trainz::sim::TrackPosition& from) -> std::optional<trainz::sim::TrackNetwork::ShuntRoute> {
+        auto r = net.routeWithReversals(from, target, clearance);
         if (r && legsBlocked(net, from, r->legs, t.obstacles)) {
-            r = taken.empty() ? std::nullopt : net.routeWithReversals(from, target, clearance, 20000, taken, reversals);
+            r = taken.empty() ? std::nullopt : net.routeWithReversals(from, target, clearance, 20000, taken);
             if (r && legsBlocked(net, from, r->legs, t.obstacles)) {
                 r.reset();  // it would still run into another train
             }
         }
         return r;
     };
-    // With an end to arrive with: the way that does so (perhaps one more reversal), else any.
-    auto plan = [&](const trainz::sim::TrackPosition& from, bool fromBack) {
-        if (prefer != 0) {
-            // From the front it arrives backing after an odd number of reversals; from the back, an even one.
-            const int odd = (prefer < 0) != fromBack ? 1 : 0;
-            if (auto r = planWith(from, odd)) {
-                return r;
-            }
-        }
-        return planWith(from, -1);
-    };
-    // Arriving with the rear: setting off backing and an even number of reversals, or the other way.
-    const auto cost = [&](const trainz::sim::TrackNetwork::ShuntRoute& p, bool fromBack) {
-        const bool arrivesBacking = fromBack != (p.legs.size() % 2 == 0);
-        return p.distance + (prefer != 0 && arrivesBacking != (prefer < 0) ? 1e5 : 0.0);
-    };
-    auto r = plan(trainFrontEnd(net, t), false);
+    auto r = plan(trainFrontEnd(net, t));
     bool backing = false;
-    if (auto rb = plan(back, true); rb && (!r || cost(*rb, true) < cost(*r, false))) {
+    if (auto rb = plan(back); rb && (!r || rb->distance < r->distance)) {
         r = rb, backing = true;
     }
     if (!r || r->legs.empty()) {
@@ -1154,11 +1139,6 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                 trainz::sim::TrackPosition back = trainRearEnd(net, t);
                 back.direction = -back.direction;
                 const auto ends = trainEnds ? trainEnds(vehicle) : std::vector<trainz::sim::TrackPosition>{};
-                // New cars join at the end away from the engine, so the cars stay on one side of it
-                // (an engine running round its train later needs that). The port's rule, from the
-                // sessions' own order sequences; only a preference: the other end if it is the only way.
-                const int prefer = coupleEnd(t);
-                const auto penalty = [&](bool arrivesBacking) { return prefer != 0 && arrivesBacking != (prefer < 0) ? 1e5 : 0.0; };
                 // The shortest direct way from either of our ends to either of theirs.
                 double best = 1e300;
                 std::optional<trainz::sim::TrackNetwork::Route> way;
@@ -1169,29 +1149,13 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                         const auto r = net.route(b ? back : front, ends[k]);
                         // Not through the train itself: its other end must not lie on the way (ChatGPT review).
                         // Nor into another train on the way: the intended train lies past the way's end (ChatGPT review).
-                        if (r && r->distance + penalty(b) < best && !(ends.size() == 2 && passesThrough(net, b ? back : front, *r, ends[1 - k])) &&
+                        if (r && r->distance < best && !(ends.size() == 2 && passesThrough(net, b ? back : front, *r, ends[1 - k])) &&
                             !wayBlocked(net, b ? back : front, *r, t.obstacles)) {
-                            best = r->distance + penalty(b), way = r, target = ends[k], backing = b;
+                            best = r->distance, way = r, target = ends[k], backing = b;
                         }
                     }
                 }
                 t.legs.clear();
-                // A direct way arriving with the wrong end only if no shunting way arrives with the right one.
-                std::optional<trainz::sim::TrackPosition> preferredTarget;
-                if (way && penalty(backing) > 0) {
-                    for (const auto& e : ends) {
-                        RouteTrain trial = t;
-                        trainz::sim::TrackNetwork scratch = net;
-                        if (startShunt(trial, scratch, e, prefer) && penalty(trial.reversing != (trial.legs.size() % 2 == 0)) == 0 &&
-                            !(ends.size() == 2 && shuntPassesThrough(net, movingEnd(net, trial), trial.legs, &e == &ends[0] ? ends[1] : ends[0]))) {
-                            preferredTarget = e;
-                            break;
-                        }
-                    }
-                    if (preferredTarget) {
-                        way.reset();
-                    }
-                }
                 if (way) {
                     for (const auto& [vertex, piece] : way->switches) {
                         net.switches[vertex] = piece;
@@ -1207,7 +1171,7 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                         RouteTrain trial = t;
                         trainz::sim::TrackNetwork scratch = net;  // startShunt sets junctions: on a copy first
                         // Every leg, not just a direct way, must keep clear of the train itself (ChatGPT review).
-                        if (startShunt(trial, scratch, e, prefer) &&
+                        if (startShunt(trial, scratch, e) &&
                             !(ends.size() == 2 && shuntPassesThrough(net, movingEnd(net, trial), trial.legs, ends[1 - k]))) {
                             double total = 0;
                             trainz::sim::TrackPosition at = trial.reversing ? back : front;
@@ -1217,13 +1181,12 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                                 at = leg.end;
                                 at.direction = leg.reverseAfter ? -at.direction : at.direction;
                             }
-                            total += penalty(trial.reversing != (trial.legs.size() % 2 == 0));
                             if (total < bestShunt) {
                                 bestShunt = total, bestPlan = trial, target = e;
                             }
                         }
                     }
-                    if (!bestPlan || !startShunt(t, net, *target, prefer)) {
+                    if (!bestPlan || !startShunt(t, net, *target)) {
                         t.waitingForOrder = true;
                         t.orderNote = "holding: cannot reach '" + vehicle + "' to couple";
                         t.orderClock = 10;  // try again in 10 s, not every step
@@ -1248,13 +1211,40 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                 t.orderNote = "stopping to uncouple";
                 return;
             }
-            auto parts = uncoupleAllButEngine(net, t);
-            const std::size_t n = parts.size();
-            for (auto& p : parts) {
-                t.leftBehind.push_back(std::move(p));
+            const auto g = engineGroup(t);
+            auto left = g ? uncoupleFrom(net, t, g->second + 1) : std::nullopt;
+            const bool any = left.has_value();
+            if (left) {
+                t.leftBehind.push_back(std::move(*left));
             }
-            next(n == 0 ? "uncouple: nothing to leave behind" : "uncoupled the engine from its cars (a guess at 'UnCouplez')");
+            next(any ? "left the cars behind the engine (a guess at 'UnCouplez')" : "uncouple: nothing behind the engine to leave");
             return;  // the next order next step, once the cars left behind are among the obstacles
+        }
+        if (c.kind == "uncouple-from") {
+            if (std::fabs(t.drive.speed) > 0.1) {
+                t.waitingForOrder = true;
+                t.orderNote = "stopping to uncouple";
+                return;
+            }
+            long n = -1;
+            try {
+                n = std::stol(prop("timetowait"));
+            } catch (const std::exception&) {
+            }
+            const auto g = engineGroup(t);
+            // Never leave the engine itself behind: such an order is not followed (the train holds).
+            if (n <= 0 || (g && static_cast<std::size_t>(n) <= g->second)) {
+                t.waitingForOrder = true;
+                t.orderNote = "holding: cannot uncouple from vehicle " + std::to_string(n) + " (it would leave the engine)";
+                return;
+            }
+            auto left = uncoupleFrom(net, t, static_cast<std::size_t>(n));
+            const bool any = left.has_value();
+            if (left) {
+                t.leftBehind.push_back(std::move(*left));
+            }
+            next(any ? "uncoupled from vehicle " + std::to_string(n) : "uncouple: no vehicle " + std::to_string(n));
+            return;
         }
         if (c.kind == "no-effect") {
             next("passed over '" + c.name + "' (acknowledged, not performed)");
@@ -1322,58 +1312,30 @@ std::optional<std::pair<std::size_t, std::size_t>> engineGroup(const RouteTrain&
     return std::nullopt;
 }
 
-int coupleEnd(const RouteTrain& t) {
-    const auto g = engineGroup(t);
-    if (!g) {
-        return 0;
+std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, RouteTrain& t, std::size_t n) {
+    if (n == 0 || n >= t.cars.size()) {
+        return std::nullopt;
     }
-    if (g->first == 0) {
-        return -1;  // the engine leads: cars join behind (an engine alone: at its tender end)
-    }
-    return g->second + 1 == t.cars.size() ? +1 : 0;
-}
-
-std::vector<RouteTrain> uncoupleAllButEngine(const trainz::sim::TrackNetwork& net, RouteTrain& t) {
-    std::vector<RouteTrain> out;
-    const auto g = engineGroup(t);
-    if (!g || (g->first == 0 && g->second + 1 == t.cars.size())) {
-        return out;
-    }
-    // Where each car's middle lies behind the lead (the first car's middle), along the train.
+    // Where car n's middle lies behind the lead (the first car's middle), along the train.
     auto lengthOf = [&](std::size_t k) { return t.cars[k].vehicle ? t.cars[k].vehicle->length : 0.0; };
-    std::vector<double> middle(t.cars.size(), 0.0);
-    for (std::size_t k = 1; k < t.cars.size(); ++k) {
-        middle[k] = middle[k - 1] + 0.5 * lengthOf(k - 1) + (lengthOf(k - 1) > 0 && lengthOf(k) > 0 ? 0.5 : 0.0) + 0.5 * lengthOf(k);
+    double middle = 0;
+    for (std::size_t k = 1; k <= n; ++k) {
+        middle += 0.5 * lengthOf(k - 1) + (lengthOf(k - 1) > 0 && lengthOf(k) > 0 ? 0.5 : 0.0) + 0.5 * lengthOf(k);
     }
-    auto part = [&](std::size_t from, std::size_t to) {  // cars [from, to] as a train placed where they stand
-        RouteTrain p;
-        p.cars.assign(t.cars.begin() + static_cast<std::ptrdiff_t>(from), t.cars.begin() + static_cast<std::ptrdiff_t>(to) + 1);
-        p.vehicleCount = p.cars.size();
-        p.index = t.index;
-        p.drive.lead = t.drive.lead;
-        net.advance(p.drive.lead, -middle[from]);
-        refreshTrain(p);
-        return p;
-    };
-    if (g->first > 0) {
-        auto front = part(0, g->first - 1);
-        front.parked = true;
-        front.drive.controls.brake = 1;
-        out.push_back(std::move(front));
-    }
-    if (g->second + 1 < t.cars.size()) {
-        auto rear = part(g->second + 1, t.cars.size() - 1);
-        rear.parked = true;
-        rear.drive.controls.brake = 1;
-        out.push_back(std::move(rear));
-    }
-    auto engine = part(g->first, g->second);
-    t.cars = std::move(engine.cars);
-    t.vehicleCount = t.cars.size();
-    t.drive.lead = engine.drive.lead;
+    RouteTrain rest;
+    rest.cars.assign(t.cars.begin() + static_cast<std::ptrdiff_t>(n), t.cars.end());
+    rest.vehicleCount = rest.cars.size();
+    rest.index = t.index;
+    rest.drive.lead = t.drive.lead;
+    net.advance(rest.drive.lead, -middle);
+    rest.parked = true;
+    rest.drive.controls.brake = 1;
+    refreshTrain(rest);
+    t.cars.resize(n);
+    t.vehicleCount = n;
     t.drive.speed = 0;
     refreshTrain(t);
-    return out;
+    return rest;
 }
 
 bool carriesVehicle(const RouteTrain& t, const std::string& vehicle) {

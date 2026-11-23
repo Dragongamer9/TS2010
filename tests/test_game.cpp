@@ -1002,6 +1002,8 @@ TEST(SessionOrders, CommandKindsByName) {
     EXPECT_EQ(trainz::game::commandKind("Hornz"), "no-effect");
     EXPECT_EQ(trainz::game::commandKind("Change Destination Sign"), "no-effect");
     EXPECT_EQ(trainz::game::commandKind("Couple"), "couple");
+    EXPECT_EQ(trainz::game::commandKind("UnCouplez"), "uncouple-engine");
+    EXPECT_EQ(trainz::game::commandKind("UnCouplezFrom"), "uncouple-from");
 }
 
 // A Couple order whose wagons stand behind the locomotive: it backs onto them and couples.
@@ -1198,39 +1200,66 @@ TEST(SessionOrders, AShuntToTheFarEndThroughTheTargetIsCaught) {
     EXPECT_FALSE(trainz::game::shuntPassesThrough(net, engine, toNear->legs, farEnd));  // to the near end: clear
 }
 
-// UnCouplez (no settings, read as "the engine and tender part from the cars"): a train of
-// wagon, engine, tender, wagon, wagon keeps engine + tender; the wagons stand where they are.
-TEST(SessionOrders, UncoupleLeavesEverythingButTheEngineGroup) {
+// UnCouplez (no settings) leaves the cars behind the engine group and keeps those in front (the
+// port's reading of the sessions' order sequences); UnCouplezFrom n uncouples from vehicle n.
+// A train of wagon, engine, tender, wagon, wagon (10 m cars, middles 600, 589.5, 579, 568.5, 558).
+TEST(SessionOrders, UncoupleLeavesTheCarsBehindTheEngine) {
     const AiLine line;
-    const trainz::sim::TrackNetwork net(line.layout);
-    auto t = carTrain(5, 600, +1, 1);  // 10 m cars: middles at 600, 589.5, 579, 568.5, 558
-    t.cars[1].spec = trainz::sim::electricLocomotive();
-    t.cars[1].name = "Fowler 4F";
-    t.cars[2].name = "Fowler 3500 gallon Tender";
-    trainz::game::refreshTrain(t);
+    trainz::sim::TrackNetwork net(line.layout);
+    auto make = [] {
+        auto t = carTrain(5, 600, +1, 1);
+        t.cars[1].spec = trainz::sim::electricLocomotive();
+        t.cars[1].name = "Fowler 4F";
+        t.cars[2].name = "Fowler 3500 gallon Tender";
+        trainz::game::refreshTrain(t);
+        return t;
+    };
+    auto cmd = [](const std::string& kind, std::map<std::string, std::string> props = {}) {
+        trainz::game::DriverCommand c;
+        c.kind = kind;
+        c.properties = std::move(props);
+        return c;
+    };
+    auto t = make();
     const auto g = trainz::game::engineGroup(t);
     ASSERT_TRUE(g.has_value());
     EXPECT_EQ(g->first, 1u);
     EXPECT_EQ(g->second, 2u);
-    const auto parts = trainz::game::uncoupleAllButEngine(net, t);
-    ASSERT_EQ(parts.size(), 2u);
-    EXPECT_EQ(parts[0].cars.size(), 1u);   // the wagon in front
-    EXPECT_EQ(parts[1].cars.size(), 2u);   // the two behind
-    EXPECT_TRUE(parts[0].parked && parts[1].parked);
-    EXPECT_NEAR(parts[0].drive.lead.offset, 600, 1e-9);
-    EXPECT_NEAR(parts[1].drive.lead.offset, 568.5, 1e-9);
-    EXPECT_EQ(t.cars.size(), 2u);
-    EXPECT_NEAR(t.drive.lead.offset, 589.5, 1e-9);  // the engine's own middle
-    EXPECT_EQ(t.cars[1].name, "Fowler 3500 gallon Tender");
-    // An engine without traction data of its own (the steam engine on the disc): marked as the engine.
-    auto u = carTrain(3, 600, +1, 1);
-    u.cars[0].engine = true;
-    u.cars[0].name = "Fowler 4F";
-    trainz::game::refreshTrain(u);
-    EXPECT_EQ(trainz::game::engineGroup(u)->first, 0u);
-    EXPECT_EQ(trainz::game::uncoupleAllButEngine(net, u).size(), 1u);
-    // Only the engine left: nothing more to uncouple.
-    EXPECT_TRUE(trainz::game::uncoupleAllButEngine(net, t).empty());
+    t.orders = {cmd("uncouple-engine")};
+    trainz::game::runOrders(t, net, {}, {}, 0.5);
+    EXPECT_EQ(t.orderIndex, 1u);
+    ASSERT_EQ(t.leftBehind.size(), 1u);
+    EXPECT_EQ(t.leftBehind[0].cars.size(), 2u);  // the two behind the tender
+    EXPECT_TRUE(t.leftBehind[0].parked);
+    EXPECT_NEAR(t.leftBehind[0].drive.lead.offset, 568.5, 1e-9);
+    EXPECT_EQ(t.cars.size(), 3u);  // the wagon in front stays on
+    EXPECT_NEAR(t.drive.lead.offset, 600, 1e-9);
+    // UnCouplezFrom 4: only the last car is left.
+    auto u = make();
+    u.orders = {cmd("uncouple-from", {{"timetowait", "4"}})};
+    trainz::game::runOrders(u, net, {}, {}, 0.5);
+    EXPECT_EQ(u.orderIndex, 1u);
+    ASSERT_EQ(u.leftBehind.size(), 1u);
+    EXPECT_EQ(u.leftBehind[0].cars.size(), 1u);
+    EXPECT_NEAR(u.leftBehind[0].drive.lead.offset, 558, 1e-9);
+    EXPECT_EQ(u.cars.size(), 4u);
+    // From vehicle 1 or 2 would leave the engine or part it from its tender: held, not done.
+    auto w = make();
+    w.orders = {cmd("uncouple-from", {{"timetowait", "2"}})};
+    trainz::game::runOrders(w, net, {}, {}, 0.5);
+    EXPECT_EQ(w.orderIndex, 0u);
+    EXPECT_TRUE(w.waitingForOrder);
+    EXPECT_TRUE(w.leftBehind.empty());
+    EXPECT_EQ(w.cars.size(), 5u);
+    // Nothing behind the engine: nothing to leave, the order is done.
+    auto e = carTrain(2, 600, +1, 1);
+    e.cars[0].engine = true;
+    e.cars[1].name = "Fowler 3500 gallon Tender";
+    trainz::game::refreshTrain(e);
+    e.orders = {cmd("uncouple-engine")};
+    trainz::game::runOrders(e, net, {}, {}, 0.5);
+    EXPECT_EQ(e.orderIndex, 1u);
+    EXPECT_TRUE(e.leftBehind.empty());
 }
 
 // A way through another train is never chosen: with a train standing on the only line, the
@@ -1287,9 +1316,9 @@ TEST(SessionOrders, CoupleFindsADetachedWagonNotTheEngineItLeft) {
     a.cars[0].name = "A";
     a.cars[1].name = "W";
     trainz::game::refreshTrain(a);
-    auto left = trainz::game::uncoupleAllButEngine(net, a);
-    ASSERT_EQ(left.size(), 1u);
-    std::vector<trainz::game::RouteTrain> trains{a, left[0]};
+    auto left = trainz::game::uncoupleFrom(net, a, 1);
+    ASSERT_TRUE(left.has_value());
+    std::vector<trainz::game::RouteTrain> trains{a, *left};
     const auto& w = trains[1];
     EXPECT_FALSE(trainz::game::carriesVehicle(trains[0], "W"));
     EXPECT_TRUE(trainz::game::carriesVehicle(w, "W"));
@@ -1523,24 +1552,6 @@ TEST(Shunting, KeepsToAnOddOrEvenNumberOfReversals) {
     if (twice) {
         EXPECT_EQ(twice->legs.size() % 2, 0u);  // an odd number of reversals: an even number of legs
     }
-}
-
-// New cars join at the end away from the engine group, so the cars stay on one side of it.
-TEST(SessionOrders, CarsJoinAtTheEndAwayFromTheEngine) {
-    auto t = carTrain(4, 500, +1, 1);
-    EXPECT_EQ(trainz::game::coupleEnd(t), 0);  // no engine
-    t.cars[0].engine = true;
-    EXPECT_EQ(trainz::game::coupleEnd(t), -1);  // engine leads: behind
-    t.cars[0].engine = false;
-    t.cars[3].engine = true;
-    EXPECT_EQ(trainz::game::coupleEnd(t), +1);  // engine at the back: in front
-    t.cars[3].engine = false;
-    t.cars[1].engine = true;
-    EXPECT_EQ(trainz::game::coupleEnd(t), 0);  // engine in the middle: either
-    auto alone = carTrain(2, 500, +1, 1);
-    alone.cars[0].engine = true;
-    alone.cars[1].name = "Fowler 3500 gallon Tender";
-    EXPECT_EQ(trainz::game::coupleEnd(alone), -1);  // an engine and tender alone: at the tender end
 }
 
 // Borrowed power goes to the engine car, wherever it is in the train: after running round, a
