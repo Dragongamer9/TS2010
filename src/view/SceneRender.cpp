@@ -1,0 +1,326 @@
+#include "SceneRender.h"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <numbers>
+#include <stdexcept>
+
+namespace trainz::view {
+
+namespace {
+
+struct V3 {
+    double x, y, z;
+};
+
+V3 sub(const V3& a, const V3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+V3 cross(const V3& a, const V3& b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
+double dot(const V3& a, const V3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+V3 normalize(const V3& a) {
+    const double l = std::sqrt(dot(a, a));
+    return l > 0 ? V3{a.x / l, a.y / l, a.z / l} : V3{0, 0, 0};
+}
+V3 v3(const ScenePoint& p) { return {p.x, p.y, p.z}; }
+
+// Camera-space projection: screen x/y in pixels and the distance along the view axis.
+struct Projected {
+    double sx = 0, sy = 0, depth = 0;
+    bool visible = false;
+};
+
+class Projector {
+public:
+    Projector(const Camera& cam, std::uint32_t w, std::uint32_t h) : w_(w), h_(h) {
+        eye_ = v3(cam.eye);
+        fwd_ = normalize(sub(v3(cam.target), eye_));
+        right_ = normalize(cross(fwd_, V3{0, 0, 1}));
+        if (dot(right_, right_) == 0) {
+            right_ = {1, 0, 0};  // looking straight down
+        }
+        up_ = cross(right_, fwd_);
+        f_ = (h / 2.0) / std::tan(std::clamp(cam.fovYDegrees, 5.0, 150.0) * std::numbers::pi / 360.0);
+    }
+    Projected operator()(const ScenePoint& p) const {
+        const V3 d = sub(v3(p), eye_);
+        Projected out;
+        out.depth = dot(d, fwd_);
+        if (!(out.depth > kNear) || !std::isfinite(out.depth)) {
+            return out;
+        }
+        out.sx = w_ / 2.0 + f_ * dot(d, right_) / out.depth;
+        out.sy = h_ / 2.0 - f_ * dot(d, up_) / out.depth;
+        out.visible = std::isfinite(out.sx) && std::isfinite(out.sy);
+        return out;
+    }
+    static constexpr double kNear = 1.0;
+
+    // Distance of a point along the view axis (negative behind the camera).
+    double depthOf(const ScenePoint& p) const { return dot(sub(v3(p), eye_), fwd_); }
+
+private:
+    std::uint32_t w_, h_;
+    V3 eye_{}, fwd_{}, right_{}, up_{};
+    double f_ = 1;
+};
+
+constexpr std::uint32_t kMaxSceneTextureSide = 8192;  // as the texture reader's limit
+
+// Sides are bounded first, so width * height * 4 cannot overflow.
+bool usable(const SceneTexture& t) {
+    return t.width > 0 && t.height > 0 && t.width <= kMaxSceneTextureSide && t.height <= kMaxSceneTextureSide &&
+           t.rgba.size() >= static_cast<std::size_t>(t.width) * t.height * 4;
+}
+
+std::uint8_t clamp8(double v) { return static_cast<std::uint8_t>(std::clamp(v, 0.0, 255.0)); }
+
+}  // namespace
+
+// Bilinear colour at (u, v) in 0..1, wrapping at the edges (textures repeat).
+void sampleTextureBilinear(const SceneTexture& t, double u, double v, double out[3]) {
+    auto unit = [&](double a) {
+        if (!std::isfinite(a)) {
+            return 0.0;
+        }
+        return t.clampEdges ? std::clamp(a, 0.0, 1.0) : a - std::floor(a);
+    };
+    u = unit(u), v = unit(v);
+    const double x = u * t.width - 0.5, y = v * t.height - 0.5;
+    const double fx = std::floor(x), fy = std::floor(y);
+    const double ax = x - fx, ay = y - fy;
+    const bool clampEdges = t.clampEdges;
+    auto wrap = [clampEdges](double i, std::uint32_t n) {
+        const auto m = static_cast<std::int64_t>(n);
+        const auto k = static_cast<std::int64_t>(i);  // i is within -1..n, so the cast is safe
+        if (clampEdges) {
+            return static_cast<std::size_t>(std::clamp<std::int64_t>(k, 0, m - 1));
+        }
+        const auto w = k % m;
+        return static_cast<std::size_t>(w < 0 ? w + m : w);
+    };
+    const std::size_t x0 = wrap(fx, t.width), x1 = wrap(fx + 1, t.width), y0 = wrap(fy, t.height), y1 = wrap(fy + 1, t.height);
+    const std::uint8_t* p00 = t.rgba.data() + (y0 * t.width + x0) * 4;
+    const std::uint8_t* p10 = t.rgba.data() + (y0 * t.width + x1) * 4;
+    const std::uint8_t* p01 = t.rgba.data() + (y1 * t.width + x0) * 4;
+    const std::uint8_t* p11 = t.rgba.data() + (y1 * t.width + x1) * 4;
+    for (int c = 0; c < 3; ++c) {
+        out[c] = (1 - ay) * ((1 - ax) * p00[c] + ax * p10[c]) + ay * ((1 - ax) * p01[c] + ax * p11[c]);
+    }
+}
+
+std::vector<std::uint8_t> renderScene(const Scene& scene, const Camera& camera, std::uint32_t width,
+                                      std::uint32_t height) {
+    if (width == 0 || height == 0 || width > 8192 || height > 8192) {
+        throw std::invalid_argument("image size must be 1..8192 per side");
+    }
+    const std::size_t n = static_cast<std::size_t>(width) * height;
+    std::vector<std::uint8_t> rgba(n * 4);
+    for (std::uint32_t y = 0; y < height; ++y) {  // sky
+        const double t = static_cast<double>(y) / height;
+        for (std::uint32_t x = 0; x < width; ++x) {
+            std::uint8_t* p = rgba.data() + (static_cast<std::size_t>(y) * width + x) * 4;
+            p[0] = clamp8(120 + 80 * t), p[1] = clamp8(165 + 60 * t), p[2] = clamp8(220 + 25 * t), p[3] = 255;
+        }
+    }
+    std::vector<double> depth(n, std::numeric_limits<double>::infinity());
+    const Projector proj(camera, width, height);
+    const V3 sun = normalize(V3{-0.4, -0.6, 0.7});
+
+    auto put = [&](int x, int y, double z, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+        if (x < 0 || y < 0 || x >= static_cast<int>(width) || y >= static_cast<int>(height)) {
+            return;
+        }
+        const std::size_t k = static_cast<std::size_t>(y) * width + static_cast<std::size_t>(x);
+        if (z < depth[k]) {
+            depth[k] = z;
+            std::uint8_t* p = rgba.data() + k * 4;
+            p[0] = r, p[1] = g, p[2] = b, p[3] = 255;
+        }
+    };
+
+    // A triangle wholly in front of the near plane is drawn as it is; one crossing it is cut
+    // there (its colours and UVs interpolated) and the part in front drawn as one or two
+    // triangles; one wholly behind is skipped. (Without the cut, the parts of close models that
+    // reach behind the camera vanished and left stray slabs of their other triangles.)
+    auto drawTriangle = [&](const SceneTriangle& t) {
+        Projected q[3];
+        bool ok = true;
+        for (int i = 0; i < 3; ++i) {
+            q[i] = proj(t.p[i]);
+            ok = ok && q[i].visible;
+        }
+        if (!ok) {
+            return;
+        }
+        const SceneTexture* tex = nullptr;
+        if (t.texture >= 0 && static_cast<std::size_t>(t.texture) < scene.textures.size()) {
+            tex = scene.textures[static_cast<std::size_t>(t.texture)];
+            if (tex != nullptr && !usable(*tex)) {
+                tex = nullptr;  // malformed: draw untextured
+            }
+        }
+        const V3 nrm = normalize(cross(sub(v3(t.p[1]), v3(t.p[0])), sub(v3(t.p[2]), v3(t.p[0]))));
+        const double light = 0.45 + 0.55 * std::max(0.0, std::fabs(dot(nrm, sun)));
+        const double minX = std::floor(std::min({q[0].sx, q[1].sx, q[2].sx}));
+        const double maxX = std::ceil(std::max({q[0].sx, q[1].sx, q[2].sx}));
+        const double minY = std::floor(std::min({q[0].sy, q[1].sy, q[2].sy}));
+        const double maxY = std::ceil(std::max({q[0].sy, q[1].sy, q[2].sy}));
+        // Off screen: skip. A big one (close to the camera, e.g. cut at the near plane) is drawn:
+        // the loops below only visit the pixels on screen.
+        if (maxX < 0 || maxY < 0 || minX >= width || minY >= height) {
+            return;
+        }
+        const double area = (q[1].sx - q[0].sx) * (q[2].sy - q[0].sy) - (q[2].sx - q[0].sx) * (q[1].sy - q[0].sy);
+        if (std::fabs(area) < 1e-9) {
+            return;
+        }
+        const bool alphaTest = tex != nullptr && tex->alphaTest;  // the top level's choice, for every level
+        if (tex != nullptr && !tex->smaller.empty()) {
+            // Texels per screen pixel, from the triangle's texture area and screen area.
+            const double du1 = t.u[1] - t.u[0], dv1 = t.v[1] - t.v[0], du2 = t.u[2] - t.u[0], dv2 = t.v[2] - t.v[0];
+            const double uvArea = std::fabs(du1 * dv2 - du2 * dv1);
+            double ratio = uvArea * tex->width * tex->height / std::fabs(area);
+            for (const auto& m : tex->smaller) {
+                if (!(ratio > 2.0) || !usable(m)) {  // within a factor of 2: keep this level
+                    break;
+                }
+                ratio *= static_cast<double>(m.width) * m.height / (static_cast<double>(tex->width) * tex->height);
+                tex = &m;
+            }
+        }
+        // Clamped as doubles first: a triangle close to the camera can reach far beyond an int.
+        const double wMax = static_cast<double>(width) - 1, hMax = static_cast<double>(height) - 1;
+        const int x0 = static_cast<int>(std::clamp(minX, 0.0, wMax)), x1 = static_cast<int>(std::clamp(maxX, 0.0, wMax));
+        const int y0 = static_cast<int>(std::clamp(minY, 0.0, hMax)), y1 = static_cast<int>(std::clamp(maxY, 0.0, hMax));
+        for (int y = y0; y <= y1; ++y) {
+            for (int x = x0; x <= x1; ++x) {
+                const double px = x + 0.5, py = y + 0.5;
+                const double w0 = ((q[1].sx - px) * (q[2].sy - py) - (q[2].sx - px) * (q[1].sy - py)) / area;
+                const double w1 = ((q[2].sx - px) * (q[0].sy - py) - (q[0].sx - px) * (q[2].sy - py)) / area;
+                const double w2 = 1.0 - w0 - w1;
+                if (w0 < 0 || w1 < 0 || w2 < 0) {
+                    continue;
+                }
+                const double z = w0 * q[0].depth + w1 * q[1].depth + w2 * q[2].depth;
+                double r = w0 * t.c[0].r + w1 * t.c[1].r + w2 * t.c[2].r;
+                double gg = w0 * t.c[0].g + w1 * t.c[1].g + w2 * t.c[2].g;
+                double b = w0 * t.c[0].b + w1 * t.c[1].b + w2 * t.c[2].b;
+                // Perspective-correct: interpolate u/z, v/z and 1/z across the screen.
+                const double iz = w0 / q[0].depth + w1 / q[1].depth + w2 / q[2].depth;
+                const double uu = (w0 * t.u[0] / q[0].depth + w1 * t.u[1] / q[1].depth + w2 * t.u[2] / q[2].depth) / iz;
+                const double vv = (w0 * t.v[0] / q[0].depth + w1 * t.v[1] / q[1].depth + w2 * t.v[2] / q[2].depth) / iz;
+                // A damaged mesh can hold NaN or infinite UVs: such pixels keep the base colour
+                // (casting a non-finite value to an integer is undefined).
+                if (tex != nullptr && std::isfinite(uu) && std::isfinite(vv)) {
+                    // Repeat, or clamp for images that cover one area (baked terrain).
+                    const double fu = tex->clampEdges ? std::clamp(uu, 0.0, 1.0) : uu - std::floor(uu);
+                    const double fv = tex->clampEdges ? std::clamp(vv, 0.0, 1.0) : vv - std::floor(vv);
+                    const auto tx = std::min<std::uint32_t>(tex->width - 1, static_cast<std::uint32_t>(std::clamp(fu, 0.0, 1.0) * tex->width));
+                    const auto ty = std::min<std::uint32_t>(tex->height - 1, static_cast<std::uint32_t>(std::clamp(fv, 0.0, 1.0) * tex->height));
+                    const std::uint8_t* texel = tex->rgba.data() + (static_cast<std::size_t>(ty) * tex->width + tx) * 4;
+                    if (alphaTest && texel[3] < 128) {
+                        continue;  // cut-outs use the nearest texel, so their edges stay sharp
+                    }
+                    double rgb[3] = {static_cast<double>(texel[0]), static_cast<double>(texel[1]), static_cast<double>(texel[2])};
+                    if (!alphaTest) {  // cut-outs keep the nearest texel's colour too (no bleed from clear texels)
+                        sampleTextureBilinear(*tex, fu, fv, rgb);
+                    }
+                    r = r * rgb[0] / 255.0, gg = gg * rgb[1] / 255.0, b = b * rgb[2] / 255.0;
+                }
+                put(x, y, z, clamp8(light * r), clamp8(light * gg), clamp8(light * b));
+            }
+        }
+    };
+    const double nearCut = Projector::kNear * 1.001;
+    for (const auto& t : scene.triangles) {
+        double d[3];
+        int inFront = 0;
+        for (int i = 0; i < 3; ++i) {
+            d[i] = proj.depthOf(t.p[i]);
+            if (!std::isfinite(d[i])) {
+                inFront = -1;
+                break;
+            }
+            inFront += d[i] > nearCut ? 1 : 0;
+        }
+        if (inFront == 3) {
+            drawTriangle(t);
+            continue;
+        }
+        if (inFront <= 0) {
+            continue;  // wholly behind the near plane (or not finite)
+        }
+        // Cut against the near plane: walk the edges, keeping points in front and adding the
+        // crossing points (Sutherland-Hodgman with one plane).
+        struct Vtx {
+            ScenePoint p;
+            double c[3], u, v;
+        };
+        auto at = [&](int i) {
+            return Vtx{t.p[i], {double(t.c[i].r), double(t.c[i].g), double(t.c[i].b)}, double(t.u[i]), double(t.v[i])};
+        };
+        Vtx poly[4];
+        int count = 0;
+        for (int i = 0; i < 3; ++i) {
+            const int j = (i + 1) % 3;
+            const bool inI = d[i] > nearCut, inJ = d[j] > nearCut;
+            if (inI) {
+                poly[count++] = at(i);
+            }
+            if (inI != inJ) {
+                const double f = (nearCut - d[i]) / (d[j] - d[i]);
+                const Vtx a = at(i), b = at(j);
+                Vtx m;
+                m.p = {a.p.x + (b.p.x - a.p.x) * f, a.p.y + (b.p.y - a.p.y) * f, a.p.z + (b.p.z - a.p.z) * f};
+                for (int k = 0; k < 3; ++k) {
+                    m.c[k] = a.c[k] + (b.c[k] - a.c[k]) * f;
+                }
+                m.u = a.u + (b.u - a.u) * f, m.v = a.v + (b.v - a.v) * f;
+                poly[count++] = m;
+            }
+        }
+        for (int k = 1; k + 1 < count; ++k) {
+            SceneTriangle part = t;
+            const Vtx* corner[3] = {&poly[0], &poly[k], &poly[k + 1]};
+            for (int i = 0; i < 3; ++i) {
+                part.p[i] = corner[i]->p;
+                part.c[i] = {clamp8(corner[i]->c[0]), clamp8(corner[i]->c[1]), clamp8(corner[i]->c[2])};
+                part.u[i] = static_cast<float>(corner[i]->u), part.v[i] = static_cast<float>(corner[i]->v);
+            }
+            drawTriangle(part);
+        }
+    }
+    for (const auto& l : scene.lines) {
+        const Projected a = proj(l.a), b = proj(l.b);
+        if (!a.visible || !b.visible) {
+            continue;
+        }
+        const double len = std::hypot(b.sx - a.sx, b.sy - a.sy);
+        if (len > 4.0 * (width + height)) {
+            continue;
+        }
+        const int steps = static_cast<int>(std::ceil(len)) + 1;
+        for (int k = 0; k <= steps; ++k) {
+            const double f = static_cast<double>(k) / steps;
+            const double z = (a.depth + (b.depth - a.depth) * f) * 0.995;  // bias toward the camera
+            put(static_cast<int>(std::floor(a.sx + (b.sx - a.sx) * f)), static_cast<int>(std::floor(a.sy + (b.sy - a.sy) * f)), z,
+                l.c.r, l.c.g, l.c.b);
+        }
+    }
+    for (const auto& d : scene.dots) {
+        const Projected p = proj(d.p);
+        if (!p.visible) {
+            continue;
+        }
+        const int r = std::clamp(d.radius, 0, 8);
+        for (int dy = -r; dy <= r; ++dy) {
+            for (int dx = -r; dx <= r; ++dx) {
+                put(static_cast<int>(std::floor(p.sx)) + dx, static_cast<int>(std::floor(p.sy)) + dy, p.depth * 0.99, d.c.r,
+                    d.c.g, d.c.b);
+            }
+        }
+    }
+    return rgba;
+}
+
+}  // namespace trainz::view
