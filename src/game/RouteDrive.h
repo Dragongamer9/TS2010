@@ -268,6 +268,11 @@ std::optional<std::pair<std::size_t, std::size_t>> engineGroup(const RouteTrain&
 // first car. Nothing (empty) if there is no engine group or nothing else to leave.
 std::vector<RouteTrain> uncoupleAllButEngine(const trainz::sim::TrackNetwork& net, RouteTrain& t);
 
+// The end new cars should join at, away from the engine group: -1 the rear (the engine leads,
+// or is alone), +1 the front (the engine is at the back), 0 either (an engine in the middle, or
+// none). The port's rule: it keeps the cars on one side, as the sessions' run-round orders need.
+int coupleEnd(const RouteTrain& t);
+
 // Whether one of the train's cars, as it is made up now (after any coupling or uncoupling), has this
 // session name. Not the session's original consist: cars left behind keep their train's index.
 bool carriesVehicle(const RouteTrain& t, const std::string& vehicle);

@@ -1453,3 +1453,104 @@ TEST(AiDriver, StopsWhenItsDestinationIsAlreadyUnderIt) {
     EXPECT_EQ(t.drive.controls.throttle, 0);
     EXPECT_GT(t.drive.controls.brake, 0.5);
 }
+
+namespace {
+// Engine on leg A (piece 2) of a junction, toward it; leg B is piece 3; the trunk (piece 1) runs
+// from the junction to x = 300, as one piece or as `trunkPieces` pieces joined end to end.
+trainz::content::TrackLayout wyeLessJunction(int trunkPieces) {
+    trainz::content::TrackLayout l;
+    trainz::content::TrackVertex v1, v3, v4;
+    v1.index = 1, v3.index = 3, v4.index = 4;
+    v1.x = 100, v3.y = 10, v4.y = -10;
+    v1.links = {{1, 0}, {2, 1}, {3, 1}}, v3.links = {{2, 0}}, v4.links = {{3, 0}};
+    l.vertices = {{1, v1}, {3, v3}, {4, v4}};
+    for (const auto& [i, f, to] : {std::tuple{2, 3, 1}, std::tuple{3, 1, 4}}) {
+        trainz::content::TrackStretch s;
+        s.index = i, s.from = f, s.to = to, s.rest = {0x20, 0, 0, 0};
+        l.stretches.push_back(s);
+    }
+    std::int32_t from = 1;
+    for (int k = 0; k < trunkPieces; ++k) {  // trunk pieces 1, 10, 11, ... ending at vertex 2 (x = 300)
+        const std::int32_t to = k + 1 == trunkPieces ? 2 : 10 + k;
+        const std::int32_t piece = k == 0 ? 1 : 9 + k;
+        trainz::content::TrackVertex v;
+        v.index = to;
+        v.x = k + 1 == trunkPieces ? 300 : 100 + 10.0 * (k + 1);
+        if (k + 1 < trunkPieces) {
+            v.links = {{piece, 0}, {10 + k, 1}};  // on into the next piece
+        } else {
+            v.links = {{piece, 0}};
+        }
+        l.vertices[to] = v;
+        trainz::content::TrackStretch s;
+        s.index = piece, s.from = from, s.to = to, s.rest = {0x20, 0, 0, 0};
+        l.stretches.push_back(s);
+        from = to;
+    }
+    return l;
+}
+}  // namespace
+
+// Yards are built of short pieces: a train may reverse on clear track running on over several
+// of them (no junction between), not only on one piece as long as the train.
+TEST(Shunting, ReversesOnClearTrackOverSeveralShortPieces) {
+    const trainz::sim::TrackNetwork one(wyeLessJunction(1)), short5(wyeLessJunction(5));
+    const trainz::sim::TrackPosition engine{2, 20, +1};
+    const trainz::sim::TrackPosition onB{3, 60, +1};
+    const auto a = one.routeWithReversals(engine, onB, 40);
+    const auto b = short5.routeWithReversals(engine, onB, 40);  // the first trunk pieces are 10 m
+    ASSERT_TRUE(a && b);
+    ASSERT_EQ(b->legs.size(), 2u);
+    EXPECT_NE(b->legs[0].end.piece, 1);  // it stops on a later piece, 40 m past the junction
+    EXPECT_NEAR(b->distance, a->distance, 1e-6);
+}
+
+// Asked for an odd or an even number of reversals (to arrive with a chosen end), the search
+// keeps to it: past a junction with no wye, leg A to leg B takes an odd number.
+TEST(Shunting, KeepsToAnOddOrEvenNumberOfReversals) {
+    const trainz::sim::TrackNetwork net(wyeLessJunction(1));
+    const trainz::sim::TrackPosition engine{2, 20, +1};
+    const trainz::sim::TrackPosition onB{3, 60, +1};
+    const auto odd = net.routeWithReversals(engine, onB, 40, 20000, {}, 1);
+    ASSERT_TRUE(odd.has_value());
+    EXPECT_EQ(odd->legs.size(), 2u);
+    EXPECT_FALSE(net.routeWithReversals(engine, onB, 40, 20000, {}, 0).has_value());
+    const trainz::sim::TrackPosition onTrunk{1, 150, +1};  // straight on: none, or two reversals
+    const auto even = net.routeWithReversals(engine, onTrunk, 40, 20000, {}, 0);
+    ASSERT_TRUE(even.has_value());
+    EXPECT_EQ(even->legs.size(), 1u);
+    const auto twice = net.routeWithReversals(engine, onTrunk, 40, 20000, {}, 1);
+    if (twice) {
+        EXPECT_EQ(twice->legs.size() % 2, 0u);  // an odd number of reversals: an even number of legs
+    }
+}
+
+// New cars join at the end away from the engine group, so the cars stay on one side of it.
+TEST(SessionOrders, CarsJoinAtTheEndAwayFromTheEngine) {
+    auto t = carTrain(4, 500, +1, 1);
+    EXPECT_EQ(trainz::game::coupleEnd(t), 0);  // no engine
+    t.cars[0].engine = true;
+    EXPECT_EQ(trainz::game::coupleEnd(t), -1);  // engine leads: behind
+    t.cars[0].engine = false;
+    t.cars[3].engine = true;
+    EXPECT_EQ(trainz::game::coupleEnd(t), +1);  // engine at the back: in front
+    t.cars[3].engine = false;
+    t.cars[1].engine = true;
+    EXPECT_EQ(trainz::game::coupleEnd(t), 0);  // engine in the middle: either
+    auto alone = carTrain(2, 500, +1, 1);
+    alone.cars[0].engine = true;
+    alone.cars[1].name = "Fowler 3500 gallon Tender";
+    EXPECT_EQ(trainz::game::coupleEnd(alone), -1);  // an engine and tender alone: at the tender end
+}
+
+// Borrowed power goes to the engine car, wherever it is in the train: after running round, a
+// brake van in front had it, and its 20 t of grip could not lift the train up a grade.
+TEST(Coupling, BorrowedPowerGoesToTheEngineCarNotTheFirstCar) {
+    auto t = carTrain(3, 500, +1, 1);  // 20 t wagons
+    t.cars[1].spec = trainz::sim::freightWagon(90);
+    t.cars[1].engine = true;
+    t.fallbackPower = true;
+    trainz::game::refreshTrain(t);
+    EXPECT_NEAR(t.drive.spec.drivenMassKg, t.cars[1].spec.massKg, 1.0);
+    EXPECT_GT(t.drive.spec.maxTractiveForceN, 0);
+}

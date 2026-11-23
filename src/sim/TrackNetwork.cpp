@@ -223,7 +223,7 @@ std::optional<TrackNetwork::Route> TrackNetwork::route(const TrackPosition& from
 
 std::optional<TrackNetwork::ShuntRoute> TrackNetwork::routeWithReversals(const TrackPosition& from, const TrackPosition& to,
                                                                          double clearance, double maxDistance,
-                                                                         const std::set<std::int32_t>& avoid) const {
+                                                                         const std::set<std::int32_t>& avoid, int reversals) const {
     const auto start = pieces_.find(from.piece);
     const auto goal = pieces_.find(to.piece);
     if (start == pieces_.end() || goal == pieces_.end() || !(clearance > 0)) {
@@ -232,9 +232,38 @@ std::optional<TrackNetwork::ShuntRoute> TrackNetwork::routeWithReversals(const T
     const double startLen = start->second.cumulative.back(), goalLen = goal->second.cumulative.back();
     const double startOffset = std::clamp(from.offset, 0.0, startLen), goalOffset = std::clamp(to.offset, 0.0, goalLen);
     const int startDir = from.direction >= 0 ? 1 : -1;
-    if (from.piece == to.piece && (goalOffset - startOffset) * startDir >= 0) {
+    if (from.piece == to.piece && (goalOffset - startOffset) * startDir >= 0 && reversals != 1) {
         return ShuntRoute{std::fabs(goalOffset - startOffset), {Leg{{}, to, false}}};
     }
+    // With `reversals` asked for, a state also carries the reversals so far (odd or even): its
+    // direction is stored as +-1 (even) or +-2 (odd). Without, every state is "even".
+    const auto dirOf = [](int code) { return code > 0 ? 1 : -1; };
+    const auto oddOf = [](int code) { return code == 2 || code == -2 ? 1 : 0; };
+    const auto code = [&](int dir, int odd) { return reversals < 0 ? dir : dir * (1 + odd); };
+    // Where a train that entered `st` stops to reverse: `clearance` metres on from the vertex it
+    // came in by, over that piece and on through plain joins (no junction between), not onto a
+    // piece to avoid. Yards are built of short pieces; one piece alone is seldom long enough.
+    const auto reverseSpot = [&](const std::pair<std::int32_t, int>& st) -> std::optional<TrackPosition> {
+        std::int32_t piece = st.first;
+        int dir = dirOf(st.second);
+        double need = clearance;
+        for (int hops = 0; hops < 64; ++hops) {
+            const Piece& pc = pieces_.at(piece);
+            const double len = pc.cumulative.back();
+            if (len >= need) {
+                return TrackPosition{piece, dir > 0 ? need : len - need, dir};
+            }
+            need -= len;
+            const std::int32_t far = dir > 0 ? pc.to : pc.from;
+            const auto onward = exits(far, piece);
+            if (onward.size() != 1 || (onward[0] != to.piece && avoid.count(onward[0]) != 0)) {
+                return std::nullopt;
+            }
+            piece = onward[0];
+            dir = pieces_.at(piece).from == far ? 1 : -1;
+        }
+        return std::nullopt;
+    };
     // States (piece, direction); `entry` is the distance where it was entered (at its near
     // vertex), so its far vertex is entry + length away. The start state is entered before 0.
     using State = std::pair<std::int32_t, int>;
@@ -272,27 +301,27 @@ std::optional<TrackNetwork::ShuntRoute> TrackNetwork::routeWithReversals(const T
         const Piece& pc = pieces_.at(st.first);
         const double len = pc.cumulative.back();
         // The target on this piece, ahead of where it was entered.
-        if (st.first == to.piece && st != first) {
-            const double at = e + (st.second > 0 ? goalOffset : len - goalOffset);
+        if (st.first == to.piece && st != first && (reversals < 0 || oddOf(st.second) == reversals)) {
+            const double at = e + (dirOf(st.second) > 0 ? goalOffset : len - goalOffset);
             if (at < bestTotal) {
                 bestTotal = at, bestState = st;
             }
         }
         const double atFar = e + len;
-        const std::int32_t far = st.second > 0 ? pc.to : pc.from;
+        const std::int32_t far = dirOf(st.second) > 0 ? pc.to : pc.from;
         for (const std::int32_t next : exits(far, st.first)) {
             const Piece& np = pieces_.at(next);
-            relax({next, np.from == far ? 1 : -1}, atFar, {st, far, exits(far, st.first).size() > 1, false});
+            relax({next, code(np.from == far ? 1 : -1, oddOf(st.second))}, atFar, {st, far, exits(far, st.first).size() > 1, false});
         }
         // Reverse here: run `clearance` metres in (clear of the junction it came through), stop,
         // and back out through that same vertex onto any way there. Costs 2 x clearance, never
         // less than nothing, so the search stays sound (no shortcut loops).
-        const std::int32_t near = st.second > 0 ? pc.from : pc.to;
-        if (st != first && len >= clearance) {
+        const std::int32_t near = dirOf(st.second) > 0 ? pc.from : pc.to;
+        if (st != first && reverseSpot(st)) {
             const auto ways = exits(near, st.first);
             for (const std::int32_t m : ways) {
                 const Piece& mp = pieces_.at(m);
-                relax({m, mp.from == near ? 1 : -1}, e + 2 * clearance, {st, near, ways.size() > 1, true});
+                relax({m, code(mp.from == near ? 1 : -1, 1 - oddOf(st.second))}, e + 2 * clearance, {st, near, ways.size() > 1, true});
             }
         }
     }
@@ -314,10 +343,7 @@ std::optional<TrackNetwork::ShuntRoute> TrackNetwork::routeWithReversals(const T
         if (c.reversal) {
             // Stop `clearance` past the vertex it came in by, on the piece it reversed on; the
             // next leg starts by backing through that vertex onto `st`.
-            const State was = c.prev;
-            const Piece& pc = pieces_.at(was.first);
-            const double len = pc.cumulative.back();
-            leg.end = TrackPosition{was.first, was.second > 0 ? clearance : len - clearance, was.second};
+            leg.end = *reverseSpot(c.prev);
             leg.reverseAfter = true;
             out.legs.push_back(std::move(leg));
             leg = Leg{};
