@@ -584,6 +584,32 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        // --no-draw: where the session puts each car against where the port put it (a row of cars on
+        // the wrong track, or turned end for end, shows here).
+        if (noDraw && extras.trains) {
+            for (const auto& t : otherTrains) {
+                const auto& vs = (*extras.trains)[t.index].vehicles;
+                trainz::sim::TrackPosition middle = t.drive.lead;
+                double before = 0;
+                std::printf("  placed train %zu:", t.index + 1);
+                for (std::size_t k = 0; k < t.cars.size() && k < vs.size(); ++k) {
+                    const double length = t.cars[k].vehicle ? t.cars[k].vehicle->length : 0.0;
+                    if (k > 0) {
+                        net->advance(middle, -(0.5 * before + (before > 0 && length > 0 ? 0.5 : 0.0) + 0.5 * length));
+                    }
+                    before = length;
+                    const double x = vs[k].boardX * trainz::content::kBaseboardSize + static_cast<double>(vs[k].x);
+                    const double y = vs[k].boardY * trainz::content::kBaseboardSize + static_cast<double>(vs[k].y);
+                    const auto here = net->point(middle);
+                    const auto nearest = net->locate(x, y, 50);
+                    const auto onTrack = nearest ? net->point(*nearest) : std::nullopt;
+                    std::printf(" [%s: session %.1f %.1f, nearest piece %d at %.1f m; port piece %d@%.1f, %.1f m off]", t.cars[k].name.c_str(), x, y,
+                                nearest ? nearest->piece : -1, onTrack ? std::hypot(onTrack->x - x, onTrack->y - y) : -1.0, middle.piece,
+                                middle.offset, here ? std::hypot(here->x - x, here->y - y) : -1.0);
+                }
+                std::printf("\n");
+            }
+        }
         while (running) {
             trainz::view::FlyControls ctl;
             SDL_Event ev;
