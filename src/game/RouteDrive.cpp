@@ -1389,6 +1389,21 @@ std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, Rou
     return rest;
 }
 
+std::size_t parkUndriven(std::vector<RouteTrain>& trains) {
+    const bool session = std::any_of(trains.begin(), trains.end(), [](const RouteTrain& t) { return !t.orders.empty(); });
+    std::size_t n = 0;
+    for (auto& t : trains) {
+        if (session ? t.orders.empty() : !engineGroup(t)) {
+            t.parked = true;
+            t.drive.controls.throttle = 0;
+            t.drive.controls.notch = 0;
+            t.drive.controls.brake = 1;
+            ++n;
+        }
+    }
+    return n;
+}
+
 bool carriesVehicle(const RouteTrain& t, const std::string& vehicle) {
     return std::any_of(t.cars.begin(), t.cars.end(), [&](const RouteTrain::Car& c) { return c.name == vehicle; });
 }

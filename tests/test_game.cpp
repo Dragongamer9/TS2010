@@ -1627,3 +1627,27 @@ TEST(Coupling, ContactAtTheWrongEndIsRefused) {
     EXPECT_EQ(t.orderIndex, 0u);
     EXPECT_GT(t.orderClock, 0);
 }
+
+// Trains nobody drives stand: a row of wagons had run off to the end of its siding on the borrowed
+// power meant for engines without data of their own.
+TEST(AiDriver, TrainsNobodyDrivesStand) {
+    auto wagons = carTrain(3, 300, +1, 20);
+    wagons.fallbackPower = true;
+    trainz::game::refreshTrain(wagons);
+    auto engine = carTrain(2, 600, +1, 30);
+    engine.cars[0].engine = true;
+    auto ordered = carTrain(2, 900, +1, 40);
+    ordered.cars[0].engine = true;
+    // No driver orders anywhere: only the wagons stand.
+    std::vector<trainz::game::RouteTrain> trains{wagons, engine, ordered};
+    EXPECT_EQ(trainz::game::parkUndriven(trains), 1u);
+    EXPECT_TRUE(trains[0].parked);
+    EXPECT_EQ(trains[0].drive.controls.brake, 1);
+    EXPECT_FALSE(trains[1].parked || trains[2].parked);
+    // A session with orders: whoever has none stands, engine or not.
+    ordered.orders = {coupleTo("20")};
+    trains = {wagons, engine, ordered};
+    EXPECT_EQ(trainz::game::parkUndriven(trains), 2u);
+    EXPECT_TRUE(trains[0].parked && trains[1].parked);
+    EXPECT_FALSE(trains[2].parked);
+}

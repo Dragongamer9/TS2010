@@ -409,7 +409,7 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            std::printf("%zu other trains on the track%s\n", otherTrains.size(), aiTrains ? ", driven by the port's AI" : ", standing");
+            std::printf("%zu other trains on the track%s\n", otherTrains.size(), aiTrains ? ", the driven ones by the port's AI" : ", standing");
             if (const auto near = trainz::game::findContact(*net, me, otherTrains, 3000)) {
                 std::printf("nearest train: %.0f m from your %s (train %zu's %s)\n", near->gap, near->atOurFront ? "front" : "rear",
                             otherTrains[near->other].index + 1, near->theirFront ? "front" : "rear");
@@ -493,6 +493,9 @@ int main(int argc, char** argv) {
                 }
                 std::printf("session orders: %zu trackmarks and triggers, %zu AI trains with orders, %zu of their %zu orders followed\n",
                             marks.size(), given, followed, all);
+                // Wagons with no engine ran off to the end of their siding on borrowed power.
+                const std::size_t standingTrainsNow = trainz::game::parkUndriven(otherTrains);
+                std::printf("%zu trains nobody drives: they stand\n", standingTrainsNow);
             }
             std::printf("%zu signals on the track (%zu turned to it), %zu points taken by standing trains\n",
                         signals->signals().size(), turned, standing.size());

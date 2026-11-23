@@ -286,6 +286,11 @@ std::vector<RouteTrain> uncoupleAllButEngine(const trainz::sim::TrackNetwork& ne
 std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, RouteTrain& t, std::size_t n);
 
 
+// Parks (brakes on, never driven) the trains nobody drives. In a session with driver orders: every
+// train without any (in the game a train with no driver, or no orders, stands). In one without:
+// only trains with no engine, so the port's simple driver still runs the others. Returns how many.
+std::size_t parkUndriven(std::vector<RouteTrain>& trains);
+
 // Whether one of the train's cars, as it is made up now (after any coupling or uncoupling), has this
 // session name. Not the session's original consist: cars left behind keep their train's index.
 bool carriesVehicle(const RouteTrain& t, const std::string& vehicle);
