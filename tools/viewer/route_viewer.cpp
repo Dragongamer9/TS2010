@@ -31,6 +31,8 @@
 // (world metres); --signals lists the signals with their places and aspects. --keys
 // "FRAME:KEY,..." presses keys at those frames of a test run (then the run does not force full
 // throttle), e.g. --keys "1:w,1:w,40:s,40:a" for screenshots of driving and braking.
+// --no-draw (with --drive --ai --frames N): runs the trains and their orders with no scene built or
+// drawn, and lists each train's cars after every coupling and uncoupling (little memory needed).
 // Keys: W/S or Up/Down forward/back, A/D sideways, Left/Right turn, PgUp/PgDn look up/down,
 // Q/E down/up, Shift = 5x faster, R = back to the start view, Esc = quit.
 // Mouse: hold the right button and drag to look; the wheel moves forward/back.
@@ -100,6 +102,7 @@ int main(int argc, char** argv) {
     double radius = 600;
     long frames = -1;  // -1: until Esc
     bool drive = false, png = false, listSignals = false, aiTrains = false, recordSound = false, mute = false, sound = false;
+    bool noDraw = false;  // --no-draw: a test run of the trains and their orders, with no scene built or drawn
     long watch = 0;  // --watch N / key T: the chase camera follows other train N (0 = your own)
     std::optional<std::array<double, 6>> startCamera;  // --camera EX EY EZ TX TY TZ
     std::multimap<long, SDL_Keycode> keyScript;        // --keys "FRAME:KEY,...": key presses in a test run
@@ -126,6 +129,8 @@ int main(int argc, char** argv) {
             }
         } else if (opt == "--png") {
             png = true;
+        } else if (opt == "--no-draw") {
+            noDraw = true;
         } else if (opt == "--drive") {
             drive = true;
         } else if (opt == "--train" && i + 1 < argc) {
@@ -210,6 +215,10 @@ int main(int argc, char** argv) {
     }
     if (byName && installDir.empty()) {
         std::cerr << "--list, --route and --session NAME need --install DIR (the TS2010 folder)\n";
+        return 2;
+    }
+    if (noDraw && (!drive || !aiTrains || frames <= 0 || png)) {
+        std::cerr << "--no-draw needs --drive, --ai and --frames N, without --png\n";
         return 2;
     }
     if (byName && !list && routeQuery.empty() && sessionQuery.empty()) {
@@ -495,8 +504,11 @@ int main(int argc, char** argv) {
         in.trains = extras.trains && !drive ? &*extras.trains : nullptr;  // in drive mode the train is drawn each frame
         in.meshes = meshes ? &*meshes : nullptr;
         in.groundTextures = groundTextures ? &*groundTextures : nullptr;
-        std::printf("building the scene (radius %.0f m)...\n", radius);
-        auto view = trainz::view::buildRouteView(in, radius, atX, atY);
+        trainz::view::RouteView view;
+        if (!noDraw) {
+            std::printf("building the scene (radius %.0f m)...\n", radius);
+            view = trainz::view::buildRouteView(in, radius, atX, atY);
+        }
         std::future<trainz::view::RouteView> nextView;  // drive mode: the next scene, built in the background
         std::printf("%zu triangles, %zu sections, %zu objects as models, %zu editor-only objects left out\n",
                     view.scene.triangles.size(), view.sections, view.objectsAsMeshes, view.surveyorOnlySkipped);
@@ -558,6 +570,20 @@ int main(int argc, char** argv) {
         std::vector<std::uint8_t> rgba;  // the last frame (saved by --png)
         long frameNumber = 0;
         unsigned slowestFrame = 0;  // ms, a whole loop pass (scene rebuilds included)
+        const auto printCars = [](const char* what, const trainz::game::RouteTrain& t) {  // front to rear
+            std::printf("  %s train %zu, %zu cars:", what, t.index + 1, t.cars.size());
+            for (const auto& c : t.cars) {
+                std::printf(" [%s%s]", c.name.c_str(), c.engine ? " *engine*" : "");
+            }
+            std::printf("\n");
+        };
+        if (testRun && aiTrains) {
+            for (const auto& t : otherTrains) {
+                if (!t.orders.empty()) {
+                    printCars("at the start,", t);
+                }
+            }
+        }
         while (running) {
             trainz::view::FlyControls ctl;
             SDL_Event ev;
@@ -737,7 +763,7 @@ int main(int argc, char** argv) {
                     view = nextView.get();
                     std::printf("scene swapped in around %.0f, %.0f (built in the background)\n", view.centreX, view.centreY);
                 }
-                if (const auto p = net->point(followed)) {
+                if (const auto p = net->point(followed); p && !noDraw) {
                     const double off = std::hypot(p->x - view.centreX, p->y - view.centreY);
                     if (off > radius * 0.3 && !nextView.valid()) {
                         nextView = std::async(std::launch::async, [inCopy = in, radius, x = p->x, y = p->y] {
@@ -828,7 +854,7 @@ int main(int argc, char** argv) {
                             const std::string noteBefore = otherTrains[t].orderNote;
                             trainz::game::runOrders(otherTrains[t], *net, marks, trainFront, frames > 0 ? 0.5 : dt, trainEnds);
                             const bool startsHolding = otherTrains[t].orderNote != noteBefore && otherTrains[t].orderNote.rfind("holding", 0) == 0;
-                            if (frames > 0 && (otherTrains[t].orderIndex != orderBefore || startsHolding)) {  // test runs: each order step
+                            if (testRun && (otherTrains[t].orderIndex != orderBefore || startsHolding)) {  // test runs: each order step
                                 std::printf("AI train %zu order %zu of %zu: %s\n", otherTrains[t].index + 1, otherTrains[t].orderIndex,
                                             otherTrains[t].orders.size(), otherTrains[t].orderNote.c_str());
                             }
@@ -843,6 +869,10 @@ int main(int argc, char** argv) {
                     for (auto& t : otherTrains) {
                         for (auto& p : t.leftBehind) {
                             std::printf("AI train %zu left %zu cars standing\n", t.index + 1, p.cars.size());
+                            if (testRun) {
+                                printCars("kept:", t);
+                                printCars("left by", p);
+                            }
                             parkedNow.push_back(std::move(p));
                         }
                         t.leftBehind.clear();
@@ -868,6 +898,9 @@ int main(int argc, char** argv) {
                     std::printf("AI train %zu coupled to train %zu ('%s')\n", ai.index + 1, other.index + 1, ai.coupleWith.c_str());
                     trainz::game::coupleTrains(*net, ai, other, *touch);
                     trainz::game::finishCouple(ai);
+                    if (testRun) {
+                        printCars("now", ai);
+                    }
                     otherTrains.erase(otherTrains.begin() + static_cast<std::ptrdiff_t>(touch->other));
                     if (watch > static_cast<long>(otherTrains.size())) {
                         watch = 0;
@@ -911,7 +944,12 @@ int main(int argc, char** argv) {
                     dirty = true;
                 }
             }
-            if (dirty) {
+            if (noDraw) {  // the trains and their orders only
+                if (--frames == 0) {
+                    std::printf("no-draw run done: %ld steps\n", frameNumber);
+                    running = false;
+                }
+            } else if (dirty) {
                 const Uint32 t0 = SDL_GetTicks();
                 if (watch > static_cast<long>(otherTrains.size())) {
                     watch = 0;
