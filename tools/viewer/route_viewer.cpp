@@ -895,6 +895,11 @@ int main(int argc, char** argv) {
                     if (!trainz::game::carriesVehicle(other, ai.coupleWith)) {
                         continue;
                     }
+                    if (!trainz::game::coupleEndAllowed(other, ai.coupleWith, touch->theirFront)) {
+                        std::printf("AI train %zu met '%s' at the wrong end: not coupled\n", ai.index + 1, ai.coupleWith.c_str());
+                        trainz::game::refuseCouple(ai);
+                        continue;
+                    }
                     std::printf("AI train %zu coupled to train %zu ('%s')\n", ai.index + 1, other.index + 1, ai.coupleWith.c_str());
                     trainz::game::coupleTrains(*net, ai, other, *touch);
                     trainz::game::finishCouple(ai);

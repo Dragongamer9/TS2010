@@ -93,11 +93,10 @@ struct DriverCommand {
     std::map<std::string, std::string> properties;
     // What the port makes of it (set by the caller from the command asset's name):
     // "navigate-to-trackmark", "navigate-via-trackmark", "wait-for", "wait-for-trigger", "couple",
-// "uncouple-engine" (UnCouplez, no settings: the port's GUESS, read from the sessions' order
-// sequences: the cars behind the engine group are left, those in front stay on), "uncouple-from"
-// (UnCouplezFrom: "uncouple from vehicle number n, 0 being the first vehicle", its own
-// description; n is stored under the key "timetowait"; which side of vehicle n it splits is a
-// guess). Both are unconfirmed: a real run's car lists speak against them (ROADMAP 2026-11-23). "no-effect" (horn, destination sign, pantograph: acknowledged and passed over, NOT performed),
+// "uncouple-engine" (UnCouplez, no settings: the engine and tender part from every other car),
+// "uncouple-from" (UnCouplezFrom n: "uncouple from vehicle number n, 0 being the first vehicle", its
+// own description; read as: vehicle n is the last one kept; n is stored under "timetowait").
+// Both readings are unconfirmed guesses (ROADMAP 2026-11-23). "no-effect" (horn, destination sign, pantograph: acknowledged and passed over, NOT performed),
 // or "" (not followed: the train holds).
     std::string kind;
     std::string name;  // the command asset's username, for notes
@@ -196,6 +195,16 @@ struct Contact {
 std::optional<Contact> findContact(const trainz::sim::TrackNetwork& net, const RouteTrain& me, const std::vector<RouteTrain>& others,
                                    double within = 1.0, bool atOurFront = true);
 
+// The ends (front, then rear) of a train to couple to, and which of them may be used.
+struct TargetEnds {
+    std::vector<trainz::sim::TrackPosition> ends;
+    std::vector<bool> allowed;  // one for each end
+    TargetEnds() = default;
+    TargetEnds(std::vector<trainz::sim::TrackPosition> e) : ends(std::move(e)), allowed(ends.size(), true) {}
+    std::size_t size() const { return ends.size(); }
+    const trainz::sim::TrackPosition& operator[](std::size_t k) const { return ends[k]; }
+};
+
 // Couples `other` onto `me` at the contact: its cars join ours in one line (turned round when
 // they face the other way), `me`'s lead moves to the new front if they join at our front, and
 // the speed is shared by mass. `other` is left empty (no cars); the caller removes it.
@@ -243,7 +252,7 @@ bool releaseIfOnlySelfHeld(RouteTrain& t, const trainz::sim::SignalSystem& signa
 // with that vehicle, if any.
 void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
                const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds,
-               const std::function<std::vector<trainz::sim::TrackPosition>(const std::string&)>& trainEnds = {});
+               const std::function<TargetEnds(const std::string&)>& trainEnds = {});
 // Ends a Couple order once the caller has coupled: on to the next order.
 void finishCouple(RouteTrain& t);
 
@@ -266,6 +275,11 @@ bool shuntPassesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim:
 // nullopt if no car is driven.
 std::optional<std::pair<std::size_t, std::size_t>> engineGroup(const RouteTrain& t);
 
+// Splits off every car but the engine group: the cars before and after it become parked trains
+// standing where they are (returned); `t` keeps the engine group, its lead moved to the group's
+// first car. Nothing (empty) if there is no engine group or nothing else to leave.
+std::vector<RouteTrain> uncoupleAllButEngine(const trainz::sim::TrackNetwork& net, RouteTrain& t);
+
 // Uncouples the train at vehicle `n` (0 the first, in the train's order from its front): cars n
 // and on become a parked train standing where it is (returned); `t` keeps cars 0 .. n-1 and its
 // lead. Nothing if n is 0 or past the last car.
@@ -276,9 +290,18 @@ std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, Rou
 // session name. Not the session's original consist: cars left behind keep their train's index.
 bool carriesVehicle(const RouteTrain& t, const std::string& vehicle);
 
-// The ends (front, then rear) of the first train in `trains` other than `me` (by address) that now
-// carries the vehicle and has cars; empty if none does.
-std::vector<trainz::sim::TrackPosition> vehicleTrainEnds(const trainz::sim::TrackNetwork& net, const std::vector<RouteTrain>& trains,
-                                                         const RouteTrain* me, const std::string& vehicle);
+// The ends of the first train in `trains` other than `me` (by address) that now carries the
+// vehicle and has cars (none if no train does), and which of them a Couple order naming that
+// vehicle may use: see coupleEndAllowed.
+TargetEnds vehicleTrainEnds(const trainz::sim::TrackNetwork& net, const std::vector<RouteTrain>& trains, const RouteTrain* me,
+                            const std::string& vehicle);
+
+// Whether a Couple order naming `vehicle` may join `other` at that end: the end the vehicle stands
+// at; either end for a vehicle in the middle (or the only one). An interpretation, unconfirmed.
+bool coupleEndAllowed(const RouteTrain& other, const std::string& vehicle, bool theirFront);
+
+// A couple attempt that met the target at an end it may not use: stop, give it up and plan again
+// in a while (never couple there).
+void refuseCouple(RouteTrain& t);
 
 }  // namespace trainz::game
