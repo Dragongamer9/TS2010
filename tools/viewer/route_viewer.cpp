@@ -644,6 +644,14 @@ int main(int argc, char** argv) {
             for (const auto& t : otherTrains) {
                 if (!t.orders.empty()) {
                     printCars("at the start,", t);
+                    for (const auto& c : t.cars) {
+                        for (const auto& q : c.cargo) {
+                            if (noDraw) {
+                                std::printf("    %s: queue %s, %.0f of %.0f %s, %zu other products, %zu categories\n", c.name.c_str(), q.name.c_str(),
+                                            q.count, q.size, q.product.id.c_str(), q.products.size(), q.categories.size());
+                            }
+                        }
+                    }
                     for (std::size_t k = 0; noDraw && k < t.orders.size(); ++k) {
                         std::printf("    order %zu %s%s:", k, t.orders[k].name.c_str(), t.orders[k].kind.empty() ? " (NOT FOLLOWED)" : "");
                         for (const auto& [key, value] : t.orders[k].properties) {

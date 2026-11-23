@@ -98,7 +98,7 @@ struct DriverCommand {
 // middle of that track, the port's choice),
 // "uncouple-engine" (UnCouplez, no settings: the engine and tender part from every other car),
 // "uncouple-from" (UnCouplezFrom n: "uncouple from vehicle number n, 0 being the first vehicle", its
-// own description; read as: the train splits after vehicle n, counted from its front, and the
+// own description; read as: the train splits after vehicle n, counted from its trailing end, and the
 // engine keeps its side; n is stored under "timetowait"), "run-around" (Run Around: the engine parts
 // from its cars and couples to their other end; its "state" setting is not known).
 // Both readings are unconfirmed guesses (ROADMAP 2026-11-23). "no-effect" (horn, destination sign, pantograph: acknowledged and passed over, NOT performed),

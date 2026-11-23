@@ -1274,6 +1274,29 @@ TEST(SessionOrders, UncoupleLeavesExactlyTheseCars) {
         EXPECT_TRUE(w.leftBehind.empty()) << n;
         EXPECT_EQ(w.cars.size(), 5u) << n;
     }
+    // Last moved front first: vehicle 0 is the rear one. The engine, ahead of the split, keeps its side.
+    auto y = make();
+    y.lastMoved = 1;
+    y.orders = {cmd("uncouple-from", {{"timetowait", "0"}})};
+    trainz::game::runOrders(y, net, {}, {}, 0.5);
+    EXPECT_EQ(names(y), (Names{"1", "Fowler 4F", "Fowler 3500 gallon Tender", "4"}));
+    ASSERT_EQ(y.leftBehind.size(), 1u);
+    EXPECT_EQ(names(y.leftBehind[0]), (Names{"5"}));
+    EXPECT_NEAR(y.leftBehind[0].drive.lead.offset, 558, 1e-9);
+    // ... and 3 keeps the last four, engine among them (the real session's order 72 is such a case).
+    auto x = make();
+    x.lastMoved = 1;
+    x.orders = {cmd("uncouple-from", {{"timetowait", "3"}})};
+    trainz::game::runOrders(x, net, {}, {}, 0.5);
+    EXPECT_EQ(names(x), (Names{"Fowler 4F", "Fowler 3500 gallon Tender", "4", "5"}));
+    ASSERT_EQ(x.leftBehind.size(), 1u);
+    EXPECT_EQ(names(x.leftBehind[0]), (Names{"1"}));
+    auto parted = make();  // counted from the rear, 2 would part the engine from its tender: held
+    parted.lastMoved = 1;
+    parted.orders = {cmd("uncouple-from", {{"timetowait", "2"}})};
+    trainz::game::runOrders(parted, net, {}, {}, 0.5);
+    EXPECT_EQ(parted.orderIndex, 0u);
+    EXPECT_TRUE(parted.leftBehind.empty());
     // After the last vehicle there is nothing to leave.
     auto z = make();
     z.orders = {cmd("uncouple-from", {{"timetowait", "4"}})};
