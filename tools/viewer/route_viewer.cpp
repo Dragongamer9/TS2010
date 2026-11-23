@@ -439,6 +439,7 @@ int main(int argc, char** argv) {
         // Signals (both modes, with track): turned to their track, placed on the network, and
         // their lamps drawn for the port's aspects. Without --drive every session train stands.
         std::map<std::string, trainz::content::SignalLook> looks;  // by formatted KUID
+        trainz::game::Industries industries;                       // those the orders name
         std::map<std::string, trainz::sim::TrackPosition> marks;   // trackmarks and triggers by name (for orders)
         if (extras.track) {
             if (!net) {
@@ -526,6 +527,13 @@ int main(int argc, char** argv) {
                                 why = mesh == nullptr ? "its model cannot be read" : "its track's points are not on the network";
                                 if (at) {
                                     marks.emplace(key, at->at);
+                                    if (industries.count(in->second) == 0) {
+                                        industries[in->second] = trainz::game::Industry::parse(
+                                            *cfg, [&](const trainz::content::Kuid& k) { return trainz::game::assetProduct(*meshes, k); });
+                                        for (const auto& q : industries[in->second].queues) {
+                                            std::printf("    queue %s: %.0f of %.0f %s\n", q.name.c_str(), q.count, q.size, q.product.id.c_str());
+                                        }
+                                    }
                                     ++placesFound;
                                     std::printf("industry '%s' %s: %s, %zu of %zu points on the track, worst %.2f m\n", in->second.c_str(),
                                                 at->track.c_str(), trainz::content::formatKuid(o.kuid).c_str(), at->found, at->points, at->worst);
@@ -624,7 +632,11 @@ int main(int argc, char** argv) {
         const auto printCars = [](const char* what, const trainz::game::RouteTrain& t) {  // front to rear
             std::printf("  %s train %zu, %zu cars:", what, t.index + 1, t.cars.size());
             for (const auto& c : t.cars) {
-                std::printf(" [%s%s]", c.name.c_str(), c.engine ? " *engine*" : "");
+                double units = 0;
+                for (const auto& q : c.cargo) {
+                    units += q.count;
+                }
+                std::printf(" [%s%s %.1f t, %.0f units]", c.name.c_str(), c.engine ? " *engine*" : "", c.spec.massKg / 1000, units);
             }
             std::printf("\n");
         };
@@ -905,6 +917,9 @@ int main(int argc, char** argv) {
                     takenBy[t + 1] = trainz::game::trainOccupies(*net, otherTrains[t]);
                 }
                 if (aiTrains) {
+                    for (auto& [name, industry] : industries) {
+                        industry.step(frames > 0 ? 0.5 : dt);
+                    }
                     const trainz::game::AiDriver ai;
                     for (std::size_t t = 0; t < otherTrains.size(); ++t) {
                         if (otherTrains[t].parked) {
@@ -936,11 +951,15 @@ int main(int argc, char** argv) {
                             };
                             const std::size_t orderBefore = otherTrains[t].orderIndex;
                             const std::string noteBefore = otherTrains[t].orderNote;
-                            trainz::game::runOrders(otherTrains[t], *net, marks, trainFront, frames > 0 ? 0.5 : dt, trainEnds);
+                            trainz::game::runOrders(otherTrains[t], *net, marks, trainFront, frames > 0 ? 0.5 : dt, trainEnds, &industries);
                             const bool startsHolding = otherTrains[t].orderNote != noteBefore && otherTrains[t].orderNote.rfind("holding", 0) == 0;
                             if (testRun && (otherTrains[t].orderIndex != orderBefore || startsHolding)) {  // test runs: each order step
                                 std::printf("AI train %zu order %zu of %zu: %s\n", otherTrains[t].index + 1, otherTrains[t].orderIndex,
                                             otherTrains[t].orders.size(), otherTrains[t].orderNote.c_str());
+                                if (orderBefore < otherTrains[t].orders.size() &&
+                                    (otherTrains[t].orders[orderBefore].kind == "load" || otherTrains[t].orders[orderBefore].kind == "unload")) {
+                                    printCars("after the goods,", otherTrains[t]);
+                                }
                             }
                         }
                         ai.control(otherTrains[t], *net, signals ? &*signals : nullptr, others);

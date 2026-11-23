@@ -153,6 +153,9 @@ std::optional<RouteTrain> makeRouteTrain(const trainz::sim::TrackNetwork& net, c
         specs.push_back(ownVehicleSpec(mass, engine ? &*engine : nullptr));
         t.powered += specs.back().driven ? 1 : 0;
         t.cars.push_back({specs.back(), std::nullopt, v.name, engineTag});
+        if (const auto cfg = meshes.config(v.kuid)) {
+            t.cars.back().cargo = parseQueues(*cfg, [&](const trainz::content::Kuid& k) { return assetProduct(meshes, k); });
+        }
         // Drawn only with a model the port can read; its mass, brakes and pull count anyway.
         const auto* body = meshes.get(v.kuid);
         if (body == nullptr) {
@@ -812,6 +815,12 @@ std::string commandKind(const std::string& username) {
     if (n == "couple") {
         return "couple";
     }
+    if (n == "load") {
+        return "load";
+    }
+    if (n == "unload") {
+        return "unload";
+    }
     if (n == "uncouplez") {
         return "uncouple-engine";
     }
@@ -1045,7 +1054,7 @@ bool advanceShunt(RouteTrain& t, trainz::sim::TrackNetwork& net, double seconds)
 
 void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
                const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds,
-               const std::function<TargetEnds(const std::string&)>& trainEnds) {
+               const std::function<TargetEnds(const std::string&)>& trainEnds, Industries* industries) {
     t.waitingForOrder = false;
     for (int guard = 0; guard < 64 && t.orderIndex < t.orders.size(); ++guard) {
         const DriverCommand& c = t.orders[t.orderIndex];
@@ -1126,6 +1135,7 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
             const bool arrived = via ? (!r || r->distance < 5)
                                      : stopped && ((r && r->distance < 25) || trainCovers(net, t, mark->second));
             if (arrived) {
+                t.atIndustry = industry ? prop("industryname") : std::string();
                 next(std::string(via ? "passed '" : "reached '") + place + "'");
                 continue;
             }
@@ -1265,6 +1275,38 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
             }
             next(any ? "uncoupled after vehicle " + std::to_string(n) + " (a guess at 'UnCouplezFrom')"
                      : "uncouple: nothing after vehicle " + std::to_string(n));
+            return;
+        }
+        if (c.kind == "load" || c.kind == "unload") {
+            const bool load = c.kind == "load";
+            t.waitingForOrder = true;
+            const auto at = industries != nullptr ? industries->find(t.atIndustry) : Industries::iterator{};
+            if (t.atIndustry.empty() || industries == nullptr || at == industries->end()) {
+                t.orderNote = std::string("holding: no industry here to ") + c.kind + (load ? " from" : " at");
+                return;
+            }
+            if (std::fabs(t.drive.speed) > 0.1) {
+                t.orderNote = std::string("stopping to ") + c.kind;
+                return;
+            }
+            const GoodsStep goods = load ? loadTrain(t, at->second) : unloadTrain(t, at->second);
+            if (!goods.possible) {
+                t.orderNote = "holding: '" + t.atIndustry + (load ? "' has nothing for these cars" : "' takes nothing from these cars");
+                return;
+            }
+            double units = 0;
+            for (const auto& car : t.cars) {
+                for (const auto& q : car.cargo) {
+                    units += q.count;
+                }
+            }
+            const std::string held = std::to_string(static_cast<long>(units)) + " units on board";
+            if (goods.done) {
+                t.waitingForOrder = false;
+                next(std::string(load ? "loaded" : "unloaded") + " at '" + t.atIndustry + "', " + held);
+                continue;
+            }
+            t.orderNote = std::string(load ? "loading" : "unloading") + " at '" + t.atIndustry + "', " + held;
             return;
         }
         if (c.kind == "run-around") {
@@ -1443,6 +1485,70 @@ std::string runAroundCar(const RouteTrain& t) {
     const auto same = std::count_if(t.cars.begin(), t.cars.end(), [&](const RouteTrain::Car& c) { return c.name == name; });
     return same == 1 ? name : std::string();
 }
+
+Product assetProduct(trainz::view::AssetMeshes& meshes, const trainz::content::Kuid& kuid) {
+    Product p;
+    p.id = trainz::content::formatKuid(kuid);
+    if (const auto cfg = meshes.config(kuid)) {
+        if (const auto* k = cfg->child("kuid")) {
+            if (const auto own = k->asKuid()) {
+                p.id = trainz::content::formatKuid(*own);
+            }
+        }
+        if (const auto* c = cfg->child("product-category")) {
+            if (const auto k = c->asKuid()) {
+                p.category = trainz::content::formatKuid(*k);
+            }
+        }
+        if (const auto* m = cfg->child("mass"); m != nullptr && (!m->ints.empty() || !m->floats.empty())) {
+            const double kg = m->ints.empty() ? static_cast<double>(m->floats[0]) : m->ints[0];
+            p.unitKg = std::isfinite(kg) && kg > 0 ? kg : 0;
+        }
+    }
+    return p;
+}
+
+namespace {
+GoodsStep shift(RouteTrain& t, Industry& industry, bool load) {
+    GoodsStep out;
+    for (auto& car : t.cars) {
+        for (auto& mine : car.cargo) {
+            for (auto& theirs : industry.queues) {
+                // Only a queue the industry makes goods in (or has some of and does not use) is loaded
+                // from; only one that takes these goods is unloaded into.
+                if (load && industry.empties(theirs)) {
+                    continue;
+                }
+                if (!load && industry.fills(theirs)) {
+                    continue;
+                }
+                CargoQueue& from = load ? theirs : mine;
+                CargoQueue& to = load ? mine : theirs;
+                out.possible = out.possible || to.takes(from.product);
+                const double units = moveGoods(from, to);
+                if (units > 0) {
+                    out.moved += units;
+                    car.spec.massKg = std::max(1000.0, car.spec.massKg + (load ? 1 : -1) * units * from.product.unitKg);
+                }
+                // Waiting helps while the industry still makes what this car takes, or uses up what it brings.
+                if (load ? mine.takes(theirs.product) && mine.room() > 0 && industry.fills(theirs)
+                         : mine.count > 0 && theirs.takes(mine.product) && industry.empties(theirs)) {
+                    out.done = false;
+                }
+            }
+        }
+    }
+    if (out.moved > 0) {
+        const double speed = t.drive.speed;
+        refreshTrain(t);
+        t.drive.speed = speed;
+    }
+    return out;
+}
+}  // namespace
+
+GoodsStep loadTrain(RouteTrain& t, Industry& industry) { return shift(t, industry, true); }
+GoodsStep unloadTrain(RouteTrain& t, Industry& industry) { return shift(t, industry, false); }
 
 bool recordHasName(const trainz::content::PlacedObject& o, const std::string& name) {
     if (name.empty() || o.rest.size() < name.size() + 4) {

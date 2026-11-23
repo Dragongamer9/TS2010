@@ -998,7 +998,9 @@ TEST(SessionOrders, CommandKindsByName) {
     EXPECT_EQ(trainz::game::commandKind("Navigate Via Trackmark"), "navigate-via-trackmark");
     EXPECT_EQ(trainz::game::commandKind("WaitFor"), "wait-for");
     EXPECT_EQ(trainz::game::commandKind("WaitForTrigger"), "wait-for-trigger");
-    EXPECT_EQ(trainz::game::commandKind("Load"), "");
+    EXPECT_EQ(trainz::game::commandKind("Load"), "load");
+    EXPECT_EQ(trainz::game::commandKind("Unload"), "unload");
+    EXPECT_EQ(trainz::game::commandKind("Set Camera"), "");
     EXPECT_EQ(trainz::game::commandKind("Hornz"), "no-effect");
     EXPECT_EQ(trainz::game::commandKind("Change Destination Sign"), "no-effect");
     EXPECT_EQ(trainz::game::commandKind("Couple"), "couple");
@@ -1808,4 +1810,122 @@ TEST(SessionOrders, RunAroundAimsAtTheFarCar) {
     EXPECT_EQ(m.orderIndex, 0u);
     EXPECT_TRUE(m.waitingForOrder);
     EXPECT_EQ(m.cars.size(), 4u);
+}
+
+namespace {
+trainz::content::ConfigNode cfgNode(const std::string& key, std::vector<trainz::content::ConfigNode> kids = {}, const std::string& text = {}) {
+    trainz::content::ConfigNode n;
+    n.key = key;
+    n.text = text;
+    n.children = std::move(kids);
+    return n;
+}
+trainz::content::ConfigNode cfgInt(const std::string& key, int v) {
+    auto n = cfgNode(key);
+    n.ints = {v};
+    return n;
+}
+trainz::game::CargoQueue goods(const std::string& name, double size, double count, const std::string& product, double kg) {
+    trainz::game::CargoQueue q;
+    q.name = name;
+    q.size = size;
+    q.count = count;
+    q.product = {product, "", kg};
+    return q;
+}
+}  // namespace
+
+// Queues and processes from an industry's config, with the numbers of the disc's coal tipple.
+TEST(Cargo, ReadsAnIndustryAndRunsItsProcess) {
+    const auto lookup = [](const trainz::content::Kuid&) { return trainz::game::Product{"coal", "bulk", 0.86}; };
+    auto product = cfgNode("product-kuid");
+    product.text = "<kuid:44179:60013>";
+    product.type = trainz::content::ConfigType::String;
+    const auto config = cfgNode(
+        "", {cfgNode("queues", {cfgNode("coal_out", {cfgInt("size", 20000), cfgInt("initial-count", 6000), product})}),
+             cfgNode("processes", {cfgNode("p", {cfgInt("start-enabled", 1), cfgInt("duration", 10), cfgNode("inputs"),
+                                                 cfgNode("outputs", {cfgNode("0", {cfgInt("amount", 7540), cfgNode("queue", {}, "coal_out")})})})})});
+    auto mine = trainz::game::Industry::parse(config, lookup);
+    ASSERT_EQ(mine.queues.size(), 1u);
+    EXPECT_EQ(mine.queues[0].count, 6000);
+    EXPECT_EQ(mine.queues[0].product.id, "coal");
+    mine.step(9.5);
+    EXPECT_EQ(mine.queues[0].count, 6000);
+    mine.step(0.5);
+    EXPECT_EQ(mine.queues[0].count, 13540);
+    mine.step(100);  // a full queue takes no more: 13540 + 7540 is over its size
+    EXPECT_EQ(mine.queues[0].count, 13540);
+    mine.step(-5);
+    EXPECT_EQ(mine.queues[0].count, 13540);
+}
+
+// Goods move only where they are taken, within the room there is, and weigh.
+TEST(Cargo, MovesOnlyWhatIsTakenAndFits) {
+    auto coal = goods("out", 100, 60, "coal", 0.86);
+    auto wagon = goods("load", 40, 0, "coal", 0.86);
+    EXPECT_EQ(trainz::game::moveGoods(coal, wagon), 40);
+    EXPECT_EQ(coal.count, 20);
+    EXPECT_EQ(trainz::game::moveGoods(coal, wagon), 0);  // full
+    auto cattle = goods("load", 40, 0, "cattle", 500);
+    EXPECT_EQ(trainz::game::moveGoods(coal, cattle), 0);  // not its goods
+    auto mixed = goods("load", 40, 10, "oil", 1);
+    mixed.products = {"coal"};
+    EXPECT_EQ(trainz::game::moveGoods(coal, mixed), 0);  // it holds other goods
+    mixed.count = 0;
+    EXPECT_EQ(trainz::game::moveGoods(coal, mixed), 20);
+    trainz::game::CargoQueue none;
+    EXPECT_FALSE(none.takes({}));
+}
+
+// Load fills every car, waiting for the mine to make the coal; the cars get heavier. Unload empties
+// them again. Held where no industry is known.
+TEST(SessionOrders, LoadsAndUnloadsAtAnIndustry) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    auto t = carTrain(3, 300, +1, 1);
+    t.cars[0].engine = true;
+    t.cars[1].cargo = {goods("load", 1000, 0, "coal", 0.86)};
+    t.cars[2].cargo = {goods("load", 1000, 0, "coal", 0.86)};
+    const double empty = t.drive.spec.massKg;
+    trainz::game::DriverCommand load, unload;
+    load.kind = "load", unload.kind = "unload";
+    t.orders = {load, unload};
+    trainz::game::Industries industries;
+    auto& mine = industries["Mine"];
+    mine.queues = {goods("out", 5000, 600, "coal", 0.86)};
+    trainz::game::Process dig;
+    dig.enabled = true, dig.duration = 10, dig.out = {{"out", 500}};
+    mine.processes = {dig};
+    auto& power = industries["Power Station"];
+    power.queues = {goods("in", 1500, 0, "coal", 0.86)};
+    trainz::game::Process burn;
+    burn.enabled = true, burn.duration = 10, burn.in = {{"in", 100}};
+    power.processes = {burn};
+    auto run = [&](double seconds) {
+        for (double s = 0; s < seconds; s += 0.5) {
+            mine.step(0.5);
+            power.step(0.5);
+            trainz::game::runOrders(t, net, {}, {}, 0.5, {}, &industries);
+        }
+    };
+    run(5);  // not at an industry: held
+    EXPECT_EQ(t.orderIndex, 0u);
+    EXPECT_TRUE(t.waitingForOrder);
+    EXPECT_EQ(t.drive.spec.massKg, empty);
+    t.atIndustry = "Mine";
+    run(5);  // 600 there at once; the rest must be dug
+    EXPECT_EQ(t.orderIndex, 0u);
+    EXPECT_GE(t.cars[1].cargo[0].count, 600);
+    run(40);
+    EXPECT_EQ(t.cars[1].cargo[0].count, 1000);
+    EXPECT_EQ(t.cars[2].cargo[0].count, 1000);
+    EXPECT_NEAR(t.drive.spec.massKg, empty + 2000 * 0.86, 1e-6);
+    EXPECT_EQ(t.orderIndex, 1u);
+    t.atIndustry = "Power Station";  // room for 1500; the other 500 as it burns them, 100 each 10 s
+    run(5);
+    EXPECT_EQ(t.orderIndex, 1u);
+    run(90);
+    EXPECT_EQ(t.orderIndex, 2u) << t.orderNote;
+    EXPECT_EQ(t.cars[1].cargo[0].count + t.cars[2].cargo[0].count, 0);
+    EXPECT_NEAR(t.drive.spec.massKg, empty, 1e-6);
 }

@@ -6,6 +6,7 @@
 #include "content/SessionFile.h"
 #include "content/PlacedObject.h"
 #include "content/SignalAsset.h"
+#include "game/Cargo.h"
 #include "game/Drive.h"
 #include "sim/Signals.h"
 #include "sim/TrainPhysics.h"
@@ -120,6 +121,7 @@ struct RouteTrain {
         std::optional<RouteVehicle> vehicle;
         std::string name;  // the vehicle's name in the session (e.g. "Fowler 4F BR Black 7")
         bool engine = false;  // pulls the train: driven by its own data, or (none being) the train's first car
+        std::vector<CargoQueue> cargo = {};  // its queues; loading adds to spec.massKg
     };
     std::vector<Car> cars;
     // The train's air brake, with the pressures of its first car that has them (the locomotive).
@@ -134,6 +136,7 @@ struct RouteTrain {
     // Its session orders and where it is in them (see runOrders).
     std::vector<DriverCommand> orders;
     std::size_t orderIndex = 0;
+    std::string atIndustry;           // the industry its last Navigate To reached ("" after another place)
     double orderClock = 0;            // seconds waited in the current order
     bool waitingForOrder = false;     // stand still: the current order is a wait
     std::string coupleWith;           // a Couple order: the vehicle to couple to (the caller couples on contact)
@@ -250,13 +253,18 @@ bool releaseIfOnlySelfHeld(RouteTrain& t, const trainz::sim::SignalSystem& signa
 //  - couple: head for the nearer (by the way along the track) of the two buffer ends of the train
 //    with `vehiclename` (`trainEnds(name)`), forward, backing or shunting; creep the last 40 m;
 //    the caller couples on contact and calls finishCouple;
+//  - load / unload: at the industry last navigated to, goods move between its queues and the cars'
+//    until no car can take (give) more, waiting while the industry still makes (uses) them. The
+//    train stands (the game may move it through the loader); goods shown on the cars, and how the
+//    game decides it is done, are not done. Held when the industry is not known or has nothing
+//    for (takes nothing from) any of the cars;
 //  - anything else: the train stops and holds there (noted): skipping, say, a Load or Couple
 //    order would go on with a plan that no longer matches the session.
 // `marks` holds trackmarks and triggers by name; `trainFront(vehicleName)` the front of the train
 // with that vehicle, if any.
 void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
                const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds,
-               const std::function<TargetEnds(const std::string&)>& trainEnds = {});
+               const std::function<TargetEnds(const std::string&)>& trainEnds = {}, Industries* industries = nullptr);
 // Ends a Couple order once the caller has coupled: on to the next order.
 void finishCouple(RouteTrain& t);
 
@@ -273,6 +281,18 @@ bool trainCovers(const trainz::sim::TrackNetwork& net, const RouteTrain& t, cons
 // applied on a copy), meets `otherEnd` before that leg's end.
 bool shuntPassesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
                         const std::vector<trainz::sim::TrackNetwork::Leg>& legs, const trainz::sim::TrackPosition& otherEnd);
+
+// A product by the KUID a config names: its newest copy's KUID, category and unit mass.
+Product assetProduct(trainz::view::AssetMeshes& meshes, const trainz::content::Kuid& kuid);
+
+// Moves goods between a train's cars and an industry, one step; the cars' masses follow.
+struct GoodsStep {
+    double moved = 0;       // units
+    bool possible = false;  // some car and some queue there hold the same goods
+    bool done = true;       // no car can take (give) any more, and waiting would not help
+};
+GoodsStep loadTrain(RouteTrain& t, Industry& industry);
+GoodsStep unloadTrain(RouteTrain& t, Industry& industry);
 
 // Whether an object's record holds `name` as the game stores texts: a u32 length, then the text
 // (the length with or without a closing zero byte). For objects whose name's place is not decoded.
