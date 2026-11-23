@@ -1003,6 +1003,7 @@ TEST(SessionOrders, CommandKindsByName) {
     EXPECT_EQ(trainz::game::commandKind("Change Destination Sign"), "no-effect");
     EXPECT_EQ(trainz::game::commandKind("Couple"), "couple");
     EXPECT_EQ(trainz::game::commandKind("Navigate To"), "navigate-to-industry");
+    EXPECT_EQ(trainz::game::commandKind("Run Around"), "run-around");
     EXPECT_EQ(trainz::game::commandKind("UnCouplez"), "uncouple-engine");
     EXPECT_EQ(trainz::game::commandKind("UnCouplezFrom"), "uncouple-from");
 }
@@ -1250,8 +1251,19 @@ TEST(SessionOrders, UncoupleLeavesExactlyTheseCars) {
     ASSERT_EQ(u.leftBehind.size(), 1u);
     EXPECT_EQ(names(u.leftBehind[0]), (Names{"5"}));
     EXPECT_NEAR(u.leftBehind[0].drive.lead.offset, 558, 1e-9);
-    // After vehicle 0 or 1 the engine would be left, or parted from its tender; "x" is no number: held.
-    for (const char* n : {"0", "1", "x", "-2"}) {
+    // UnCouplezFrom 0: the engine is behind the split and keeps its side; only the first car is left.
+    auto v = make();
+    v.orders = {cmd("uncouple-from", {{"timetowait", "0"}})};
+    trainz::game::runOrders(v, net, {}, {}, 0.5);
+    EXPECT_EQ(v.orderIndex, 1u);
+    EXPECT_EQ(names(v), (Names{"Fowler 4F", "Fowler 3500 gallon Tender", "4", "5"}));
+    EXPECT_NEAR(v.drive.lead.offset, 589.5, 1e-9);
+    ASSERT_EQ(v.leftBehind.size(), 1u);
+    EXPECT_EQ(names(v.leftBehind[0]), (Names{"1"}));
+    EXPECT_NEAR(v.leftBehind[0].drive.lead.offset, 600, 1e-9);
+    EXPECT_TRUE(v.leftBehind[0].parked);
+    // After vehicle 1 the engine would be parted from its tender; "x" is no number: held.
+    for (const char* n : {"1", "x", "-2"}) {
         auto w = make();
         w.orders = {cmd("uncouple-from", {{"timetowait", n}})};
         trainz::game::runOrders(w, net, {}, {}, 0.5);
@@ -1766,4 +1778,34 @@ TEST(SessionOrders, NavigateToAnIndustrysTrack) {
     }
     EXPECT_EQ(t.orderIndex, 1u) << t.orderNote;
     EXPECT_NEAR(trainz::game::trainFrontEnd(net, t).offset, 380, 25);
+}
+
+// Run Around: the engine parts from its cars and sets off to couple to their other end.
+TEST(SessionOrders, RunAroundAimsAtTheFarCar) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    auto make = [](std::size_t engineAt) {
+        auto t = carTrain(4, 600, +1, 1);
+        t.cars[engineAt].engine = true;
+        trainz::game::DriverCommand c;
+        c.kind = "run-around";
+        t.orders = {c};
+        return t;
+    };
+    EXPECT_EQ(trainz::game::runAroundCar(make(0)), "4");
+    EXPECT_EQ(trainz::game::runAroundCar(make(3)), "1");
+    EXPECT_EQ(trainz::game::runAroundCar(make(1)), "");  // cars on both sides
+    auto t = make(0);
+    trainz::game::runOrders(t, net, {}, {}, 0.5);
+    EXPECT_EQ(t.orderIndex, 0u);  // not done until it has coupled
+    EXPECT_EQ(t.cars.size(), 1u);
+    ASSERT_EQ(t.leftBehind.size(), 1u);
+    EXPECT_EQ(t.leftBehind[0].cars.size(), 3u);
+    EXPECT_EQ(t.orders[0].kind, "couple");
+    EXPECT_EQ(t.orders[0].properties.at("vehiclename"), "4");
+    auto m = make(1);
+    trainz::game::runOrders(m, net, {}, {}, 0.5);
+    EXPECT_EQ(m.orderIndex, 0u);
+    EXPECT_TRUE(m.waitingForOrder);
+    EXPECT_EQ(m.cars.size(), 4u);
 }

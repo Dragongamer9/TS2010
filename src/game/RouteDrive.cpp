@@ -815,6 +815,9 @@ std::string commandKind(const std::string& username) {
     if (n == "uncouplez") {
         return "uncouple-engine";
     }
+    if (n == "run around") {
+        return "run-around";
+    }
     if (n == "uncouplezfrom") {
         return "uncouple-from";
     }
@@ -1248,14 +1251,14 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
             } catch (const std::exception&) {
             }
             const auto g = engineGroup(t);
-            // Vehicle n is the last one kept (a guess). Never leave the engine behind or part it from
-            // its tender: such an order is not followed (the train holds).
-            if (n < 0 || n > 100000 || (g && static_cast<std::size_t>(n) < g->second)) {
+            // The train splits after vehicle n and the engine keeps its side. Never part the engine
+            // from its tender: such an order is not followed (the train holds).
+            if (n < 0 || n > 100000 || (g && g->first <= static_cast<std::size_t>(n) && static_cast<std::size_t>(n) < g->second)) {
                 t.waitingForOrder = true;
-                t.orderNote = "holding: cannot uncouple from vehicle " + std::to_string(n) + " (it would leave the engine)";
+                t.orderNote = "holding: cannot uncouple after vehicle " + std::to_string(n);
                 return;
             }
-            auto left = uncoupleFrom(net, t, static_cast<std::size_t>(n) + 1);
+            auto left = uncoupleFrom(net, t, static_cast<std::size_t>(n) + 1, g && g->first > static_cast<std::size_t>(n));
             const bool any = left.has_value();
             if (left) {
                 t.leftBehind.push_back(std::move(*left));
@@ -1263,6 +1266,32 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
             next(any ? "uncoupled after vehicle " + std::to_string(n) + " (a guess at 'UnCouplezFrom')"
                      : "uncouple: nothing after vehicle " + std::to_string(n));
             return;
+        }
+        if (c.kind == "run-around") {
+            if (std::fabs(t.drive.speed) > 0.1) {
+                t.waitingForOrder = true;
+                t.orderNote = "stopping to run around";
+                return;
+            }
+            const std::string far = runAroundCar(t);
+            if (far.empty()) {
+                t.waitingForOrder = true;
+                t.orderNote = "holding: cannot run around (the engine is not at one end of its cars)";
+                return;
+            }
+            for (auto& p : uncoupleAllButEngine(net, t)) {
+                t.leftBehind.push_back(std::move(p));
+            }
+            // The rest of the order is a Couple to the far end; the order number stays the same.
+            DriverCommand join = c;
+            join.kind = "couple";
+            join.properties = {{"vehiclename", far}};
+            t.orders[t.orderIndex] = std::move(join);
+            t.orderClock = 0;
+            t.destination.reset();
+            t.legs.clear();
+            t.orderNote = "running around to '" + far + "'";
+            return;  // next step, once the cars left behind are among the obstacles
         }
         if (c.kind == "no-effect") {
             next("passed over '" + c.name + "' (acknowledged, not performed)");
@@ -1373,7 +1402,7 @@ std::vector<RouteTrain> uncoupleAllButEngine(const trainz::sim::TrackNetwork& ne
     return out;
 }
 
-std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, RouteTrain& t, std::size_t n) {
+std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, RouteTrain& t, std::size_t n, bool keepRear) {
     if (n == 0 || n >= t.cars.size()) {
         return std::nullopt;
     }
@@ -1383,20 +1412,36 @@ std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, Rou
     for (std::size_t k = 1; k <= n; ++k) {
         middle += 0.5 * lengthOf(k - 1) + (lengthOf(k - 1) > 0 && lengthOf(k) > 0 ? 0.5 : 0.0) + 0.5 * lengthOf(k);
     }
-    RouteTrain rest;
-    rest.cars.assign(t.cars.begin() + static_cast<std::ptrdiff_t>(n), t.cars.end());
-    rest.vehicleCount = rest.cars.size();
-    rest.index = t.index;
-    rest.drive.lead = t.drive.lead;
-    net.advance(rest.drive.lead, -middle);
-    rest.parked = true;
-    rest.drive.controls.brake = 1;
-    refreshTrain(rest);
-    t.cars.resize(n);
-    t.vehicleCount = n;
+    const std::vector<RouteTrain::Car> first(t.cars.begin(), t.cars.begin() + static_cast<std::ptrdiff_t>(n));
+    const std::vector<RouteTrain::Car> second(t.cars.begin() + static_cast<std::ptrdiff_t>(n), t.cars.end());
+    trainz::sim::TrackPosition secondLead = t.drive.lead;
+    net.advance(secondLead, -middle);
+    RouteTrain left;
+    left.cars = keepRear ? first : second;
+    left.drive.lead = keepRear ? t.drive.lead : secondLead;
+    left.vehicleCount = left.cars.size();
+    left.index = t.index;
+    left.parked = true;
+    left.drive.controls.brake = 1;
+    refreshTrain(left);
+    t.cars = keepRear ? second : first;
+    if (keepRear) {
+        t.drive.lead = secondLead;
+    }
+    t.vehicleCount = t.cars.size();
     t.drive.speed = 0;
     refreshTrain(t);
-    return rest;
+    return left;
+}
+
+std::string runAroundCar(const RouteTrain& t) {
+    const auto g = engineGroup(t);
+    if (!g || t.cars.empty() || (g->first == 0) == (g->second + 1 == t.cars.size())) {
+        return {};  // no engine, nothing but the engine, or cars on both sides of it
+    }
+    const std::string name = g->first == 0 ? t.cars.back().name : t.cars.front().name;
+    const auto same = std::count_if(t.cars.begin(), t.cars.end(), [&](const RouteTrain::Car& c) { return c.name == name; });
+    return same == 1 ? name : std::string();
 }
 
 bool recordHasName(const trainz::content::PlacedObject& o, const std::string& name) {
