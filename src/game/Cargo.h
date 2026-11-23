@@ -23,6 +23,7 @@ using ProductLookup = std::function<Product(const trainz::content::Kuid&)>;
 struct CargoQueue {
     std::string name;
     double size = 0, count = 0;           // units
+    bool passengers = false;              // passenger-queue: nobody waits for more to turn up
     Product product;                      // what it holds (id "" when its config names none)
     std::vector<std::string> products;    // others it takes (allowed-products), by id
     std::vector<std::string> categories;  // and whole categories (allowed-categories)

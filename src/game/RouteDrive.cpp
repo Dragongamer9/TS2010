@@ -1055,6 +1055,9 @@ bool advanceShunt(RouteTrain& t, trainz::sim::TrackNetwork& net, double seconds)
 void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
                const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds,
                const std::function<TargetEnds(const std::string&)>& trainEnds, Industries* industries) {
+    if (std::fabs(t.drive.speed) > 0.1) {
+        t.lastMoved = t.drive.speed > 0 ? 1 : -1;
+    }
     t.waitingForOrder = false;
     for (int guard = 0; guard < 64 && t.orderIndex < t.orders.size(); ++guard) {
         const DriverCommand& c = t.orders[t.orderIndex];
@@ -1290,6 +1293,11 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                 return;
             }
             const GoodsStep goods = load ? loadTrain(t, at->second) : unloadTrain(t, at->second);
+            if (std::none_of(t.cars.begin(), t.cars.end(), [](const RouteTrain::Car& car) { return !car.cargo.empty(); })) {
+                t.waitingForOrder = false;  // e.g. coaches whose configs have no queues
+                next(std::string("nothing on this train carries goods: no ") + c.kind + "ing at '" + t.atIndustry + "'");
+                continue;
+            }
             if (!goods.possible) {
                 t.orderNote = "holding: '" + t.atIndustry + (load ? "' has nothing for these cars" : "' takes nothing from these cars");
                 return;
@@ -1531,6 +1539,10 @@ GoodsStep shift(RouteTrain& t, Industry& industry, bool load) {
                     car.spec.massKg = std::max(1000.0, car.spec.massKg + (load ? 1 : -1) * units * from.product.unitKg);
                 }
                 // Waiting helps while the industry still makes what this car takes, or uses up what it brings.
+                // (passengers: whoever is there gets on or off, then the train goes).
+                if (theirs.passengers) {
+                    continue;
+                }
                 if (load ? mine.takes(theirs.product) && mine.room() > 0 && industry.fills(theirs)
                          : mine.count > 0 && theirs.takes(mine.product) && industry.empties(theirs)) {
                     out.done = false;

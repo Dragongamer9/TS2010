@@ -1929,3 +1929,39 @@ TEST(SessionOrders, LoadsAndUnloadsAtAnIndustry) {
     EXPECT_EQ(t.cars[1].cargo[0].count + t.cars[2].cargo[0].count, 0);
     EXPECT_NEAR(t.drive.spec.massKg, empty, 1e-6);
 }
+
+// Passengers: whoever is on the platform gets on, then the train goes (it does not wait for the
+// coaches to fill). A train that carries nothing passes the order over; one with the wrong goods holds.
+TEST(SessionOrders, PassengersAreNotWaitedForAndWrongGoodsHold) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    trainz::game::DriverCommand load;
+    load.kind = "load";
+    trainz::game::Industries industries;
+    auto& station = industries["Station"];
+    station.queues = {goods("on", 174, 10, "people", 65)};
+    station.queues[0].passengers = true;
+    trainz::game::Process spawn;
+    spawn.enabled = true, spawn.duration = 20, spawn.out = {{"on", 1}};
+    station.processes = {spawn};
+    auto t = carTrain(2, 300, +1, 1);
+    t.cars[1].cargo = {goods("seats", 42, 0, "people", 65)};
+    t.orders = {load};
+    t.atIndustry = "Station";
+    trainz::game::runOrders(t, net, {}, {}, 0.5, {}, &industries);
+    EXPECT_EQ(t.orderIndex, 1u);
+    EXPECT_EQ(t.cars[1].cargo[0].count, 10);
+    auto bare = carTrain(2, 300, +1, 1);
+    bare.orders = {load};
+    bare.atIndustry = "Station";
+    trainz::game::runOrders(bare, net, {}, {}, 0.5, {}, &industries);
+    EXPECT_EQ(bare.orderIndex, 1u);
+    auto coal = carTrain(2, 300, +1, 1);
+    coal.cars[1].cargo = {goods("load", 1000, 0, "coal", 0.86)};
+    coal.orders = {load};
+    coal.atIndustry = "Station";
+    trainz::game::runOrders(coal, net, {}, {}, 0.5, {}, &industries);
+    EXPECT_EQ(coal.orderIndex, 0u);
+    EXPECT_TRUE(coal.waitingForOrder);
+    EXPECT_NE(coal.orderNote.find("nothing for these cars"), std::string::npos);
+}

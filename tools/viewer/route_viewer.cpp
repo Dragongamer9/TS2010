@@ -973,6 +973,7 @@ int main(int argc, char** argv) {
                         for (auto& p : t.leftBehind) {
                             std::printf("AI train %zu left %zu cars standing\n", t.index + 1, p.cars.size());
                             if (testRun) {
+                                std::printf("  it last moved with its %s end leading\n", t.lastMoved > 0 ? "front" : t.lastMoved < 0 ? "rear" : "(never moved)");
                                 printCars("kept:", t);
                                 printCars("left by", p);
                             }

@@ -136,6 +136,7 @@ struct RouteTrain {
     // Its session orders and where it is in them (see runOrders).
     std::vector<DriverCommand> orders;
     std::size_t orderIndex = 0;
+    int lastMoved = 0;                // which end led when it last moved: +1 its front, -1 its rear, 0 never
     std::string atIndustry;           // the industry its last Navigate To reached ("" after another place)
     double orderClock = 0;            // seconds waited in the current order
     bool waitingForOrder = false;     // stand still: the current order is a wait

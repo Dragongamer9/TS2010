@@ -57,6 +57,7 @@ std::vector<CargoQueue> parseQueues(const trainz::content::ConfigNode& config, c
         q.name = n.key;
         q.size = std::max(0.0, number(n.child("size")));
         q.count = std::clamp(number(n.child("initial-count")), 0.0, q.size);
+        q.passengers = number(n.child("passenger-queue")) != 0;
         if (const auto* p = n.child("product-kuid")) {
             if (const auto k = p->asKuid()) {
                 q.product = product(*k);
