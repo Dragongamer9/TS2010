@@ -1200,10 +1200,10 @@ TEST(SessionOrders, AShuntToTheFarEndThroughTheTargetIsCaught) {
     EXPECT_FALSE(trainz::game::shuntPassesThrough(net, engine, toNear->legs, farEnd));  // to the near end: clear
 }
 
-// UnCouplez (no settings) leaves the cars behind the engine group and keeps those in front (the
-// port's reading of the sessions' order sequences); UnCouplezFrom n uncouples from vehicle n.
+// UnCouplez (no settings): the engine and its tender part from every other car. UnCouplezFrom n:
+// vehicle n is the last one kept. Both are the port's readings (unconfirmed).
 // A train of wagon, engine, tender, wagon, wagon (10 m cars, middles 600, 589.5, 579, 568.5, 558).
-TEST(SessionOrders, UncoupleLeavesTheCarsBehindTheEngine) {
+TEST(SessionOrders, UncoupleLeavesExactlyTheseCars) {
     const AiLine line;
     trainz::sim::TrackNetwork net(line.layout);
     auto make = [] {
@@ -1220,46 +1220,51 @@ TEST(SessionOrders, UncoupleLeavesTheCarsBehindTheEngine) {
         c.properties = std::move(props);
         return c;
     };
+    auto names = [](const trainz::game::RouteTrain& t) {
+        std::vector<std::string> out;
+        for (const auto& c : t.cars) {
+            out.push_back(c.name);
+        }
+        return out;
+    };
+    using Names = std::vector<std::string>;
     auto t = make();
-    const auto g = trainz::game::engineGroup(t);
-    ASSERT_TRUE(g.has_value());
-    EXPECT_EQ(g->first, 1u);
-    EXPECT_EQ(g->second, 2u);
     t.orders = {cmd("uncouple-engine")};
     trainz::game::runOrders(t, net, {}, {}, 0.5);
     EXPECT_EQ(t.orderIndex, 1u);
-    ASSERT_EQ(t.leftBehind.size(), 1u);
-    EXPECT_EQ(t.leftBehind[0].cars.size(), 2u);  // the two behind the tender
-    EXPECT_TRUE(t.leftBehind[0].parked);
-    EXPECT_NEAR(t.leftBehind[0].drive.lead.offset, 568.5, 1e-9);
-    EXPECT_EQ(t.cars.size(), 3u);  // the wagon in front stays on
-    EXPECT_NEAR(t.drive.lead.offset, 600, 1e-9);
-    // UnCouplezFrom 4: only the last car is left.
+    EXPECT_EQ(names(t), (Names{"Fowler 4F", "Fowler 3500 gallon Tender"}));
+    EXPECT_NEAR(t.drive.lead.offset, 589.5, 1e-9);
+    ASSERT_EQ(t.leftBehind.size(), 2u);
+    EXPECT_EQ(names(t.leftBehind[0]), (Names{"1"}));
+    EXPECT_NEAR(t.leftBehind[0].drive.lead.offset, 600, 1e-9);
+    EXPECT_EQ(names(t.leftBehind[1]), (Names{"4", "5"}));
+    EXPECT_NEAR(t.leftBehind[1].drive.lead.offset, 568.5, 1e-9);
+    EXPECT_TRUE(t.leftBehind[0].parked && t.leftBehind[1].parked);
+    // UnCouplezFrom 3: vehicles 0 to 3 stay, only the last is left.
     auto u = make();
-    u.orders = {cmd("uncouple-from", {{"timetowait", "4"}})};
+    u.orders = {cmd("uncouple-from", {{"timetowait", "3"}})};
     trainz::game::runOrders(u, net, {}, {}, 0.5);
     EXPECT_EQ(u.orderIndex, 1u);
+    EXPECT_EQ(names(u), (Names{"1", "Fowler 4F", "Fowler 3500 gallon Tender", "4"}));
     ASSERT_EQ(u.leftBehind.size(), 1u);
-    EXPECT_EQ(u.leftBehind[0].cars.size(), 1u);
+    EXPECT_EQ(names(u.leftBehind[0]), (Names{"5"}));
     EXPECT_NEAR(u.leftBehind[0].drive.lead.offset, 558, 1e-9);
-    EXPECT_EQ(u.cars.size(), 4u);
-    // From vehicle 1 or 2 would leave the engine or part it from its tender: held, not done.
-    auto w = make();
-    w.orders = {cmd("uncouple-from", {{"timetowait", "2"}})};
-    trainz::game::runOrders(w, net, {}, {}, 0.5);
-    EXPECT_EQ(w.orderIndex, 0u);
-    EXPECT_TRUE(w.waitingForOrder);
-    EXPECT_TRUE(w.leftBehind.empty());
-    EXPECT_EQ(w.cars.size(), 5u);
-    // Nothing behind the engine: nothing to leave, the order is done.
-    auto e = carTrain(2, 600, +1, 1);
-    e.cars[0].engine = true;
-    e.cars[1].name = "Fowler 3500 gallon Tender";
-    trainz::game::refreshTrain(e);
-    e.orders = {cmd("uncouple-engine")};
-    trainz::game::runOrders(e, net, {}, {}, 0.5);
-    EXPECT_EQ(e.orderIndex, 1u);
-    EXPECT_TRUE(e.leftBehind.empty());
+    // After vehicle 0 or 1 the engine would be left, or parted from its tender; "x" is no number: held.
+    for (const char* n : {"0", "1", "x", "-2"}) {
+        auto w = make();
+        w.orders = {cmd("uncouple-from", {{"timetowait", n}})};
+        trainz::game::runOrders(w, net, {}, {}, 0.5);
+        EXPECT_EQ(w.orderIndex, 0u) << n;
+        EXPECT_TRUE(w.waitingForOrder) << n;
+        EXPECT_TRUE(w.leftBehind.empty()) << n;
+        EXPECT_EQ(w.cars.size(), 5u) << n;
+    }
+    // After the last vehicle there is nothing to leave.
+    auto z = make();
+    z.orders = {cmd("uncouple-from", {{"timetowait", "4"}})};
+    trainz::game::runOrders(z, net, {}, {}, 0.5);
+    EXPECT_EQ(z.orderIndex, 1u);
+    EXPECT_TRUE(z.leftBehind.empty());
 }
 
 // A way through another train is never chosen: with a train standing on the only line, the
@@ -1349,7 +1354,7 @@ TEST(SessionOrders, CoupleHoldsWhileOtherWagonsStandInTheDirectWay) {
     trainz::game::refreshTrain(b);
     const auto between = carTrain(2, 165, +1, 10);  // across about 145-170
     std::vector<trainz::game::RouteTrain> trains{carTrain(2, 235, +1, 20)};  // W: near buffer at about 214.5
-    trains[0].cars[0].name = "W";
+    trains[0].cars[1].name = "W";  // the car at the near (rear) end
     const auto ends = [&](const std::string& v) { return trainz::game::vehicleTrainEnds(net, trains, &b, v); };
     b.orders = {coupleTo("W")};
     b.obstacles = occupancy(net, {&between, &trains[0]});
@@ -1564,4 +1569,61 @@ TEST(Coupling, BorrowedPowerGoesToTheEngineCarNotTheFirstCar) {
     trainz::game::refreshTrain(t);
     EXPECT_NEAR(t.drive.spec.drivenMassKg, t.cars[1].spec.massKg, 1.0);
     EXPECT_GT(t.drive.spec.maxTractiveForceN, 0);
+}
+
+// A Couple order joins at the named vehicle's own end. When only the other end can be reached it
+// holds; it never couples there instead (ChatGPT review). Engine west of three wagons (first car
+// "20" at the east end, last car "22" at the west end), one line.
+TEST(SessionOrders, CoupleKeepsToTheNamedVehiclesEnd) {
+    const AiLine line;
+    auto plan = [&](const std::string& vehicle) {
+        trainz::sim::TrackNetwork net(line.layout);
+        auto b = carTrain(1, 95, +1, 1);
+        b.cars[0].spec = trainz::sim::electricLocomotive();
+        trainz::game::refreshTrain(b);
+        const std::vector<trainz::game::RouteTrain> trains{carTrain(3, 300, +1, 20)};
+        b.orders = {coupleTo(vehicle)};
+        b.obstacles = occupancy(net, {&trains[0]});
+        for (int i = 0; i < 60; ++i) {  // past several retries
+            trainz::game::runOrders(b, net, {}, {}, 0.5,
+                                    [&](const std::string& v) { return trainz::game::vehicleTrainEnds(net, trains, &b, v); });
+        }
+        return std::pair{b, trainz::game::trainRearEnd(net, trains[0]).offset};
+    };
+    for (const char* name : {"22", "21"}) {  // the near end's own car; one in the middle (either end)
+        const auto [b, nearEnd] = plan(name);
+        ASSERT_TRUE(b.destination.has_value()) << name;
+        EXPECT_NEAR(b.destination->offset, nearEnd, 1e-9) << name;
+    }
+    const auto [far, nearEnd] = plan("20");  // at the far end, which cannot be reached
+    EXPECT_FALSE(far.destination.has_value());
+    EXPECT_TRUE(far.coupleWith.empty());
+    EXPECT_TRUE(far.waitingForOrder);
+    EXPECT_EQ(far.orderIndex, 0u);
+    EXPECT_NE(far.orderNote.find("holding"), std::string::npos);
+}
+
+// Contact at the wrong end is refused: the train stops, keeps its order and plans again later.
+TEST(Coupling, ContactAtTheWrongEndIsRefused) {
+    const auto wagons = carTrain(3, 300, +1, 20);
+    EXPECT_TRUE(trainz::game::coupleEndAllowed(wagons, "20", true));
+    EXPECT_FALSE(trainz::game::coupleEndAllowed(wagons, "20", false));
+    EXPECT_FALSE(trainz::game::coupleEndAllowed(wagons, "22", true));
+    EXPECT_TRUE(trainz::game::coupleEndAllowed(wagons, "22", false));
+    EXPECT_TRUE(trainz::game::coupleEndAllowed(wagons, "21", true));
+    EXPECT_TRUE(trainz::game::coupleEndAllowed(wagons, "21", false));
+    EXPECT_FALSE(trainz::game::coupleEndAllowed(wagons, "no such car", true));
+    const auto one = carTrain(1, 300, +1, 20);
+    EXPECT_TRUE(trainz::game::coupleEndAllowed(one, "20", true) && trainz::game::coupleEndAllowed(one, "20", false));
+    auto t = carTrain(1, 95, +1, 1);
+    t.orders = {coupleTo("20")};
+    t.coupleWith = "20";
+    t.destination = trainz::sim::TrackPosition{1, 200, +1};
+    t.drive.speed = 0.8;
+    trainz::game::refuseCouple(t);
+    EXPECT_TRUE(t.coupleWith.empty());
+    EXPECT_FALSE(t.destination.has_value());
+    EXPECT_EQ(t.drive.speed, 0);
+    EXPECT_EQ(t.orderIndex, 0u);
+    EXPECT_GT(t.orderClock, 0);
 }
