@@ -241,9 +241,11 @@ std::optional<TrackNetwork::ShuntRoute> TrackNetwork::routeWithReversals(const T
     const auto oddOf = [](int code) { return code == 2 || code == -2 ? 1 : 0; };
     const auto code = [&](int dir, int odd) { return reversals < 0 ? dir : dir * (1 + odd); };
     // Where a train that entered `st` stops to reverse: `clearance` metres on from the vertex it
-    // came in by, over that piece and on through plain joins (no junction between), not onto a
-    // piece to avoid. Yards are built of short pieces; one piece alone is seldom long enough.
-    const auto reverseSpot = [&](const std::pair<std::int32_t, int>& st) -> std::optional<TrackPosition> {
+    // came in by, over that piece and on (no choice of way going in), not onto a piece to avoid.
+    // Yards are built of short pieces; one piece alone is seldom long enough. A junction passed
+    // from a leg has no choice going in but has one backing out: `back` gets the settings for that.
+    const auto reverseSpot = [&](const std::pair<std::int32_t, int>& st,
+                                 std::vector<std::pair<std::int32_t, std::int32_t>>* back) -> std::optional<TrackPosition> {
         std::int32_t piece = st.first;
         int dir = dirOf(st.second);
         double need = clearance;
@@ -258,6 +260,9 @@ std::optional<TrackNetwork::ShuntRoute> TrackNetwork::routeWithReversals(const T
             const auto onward = exits(far, piece);
             if (onward.size() != 1 || (onward[0] != to.piece && avoid.count(onward[0]) != 0)) {
                 return std::nullopt;
+            }
+            if (back != nullptr && exits(far, onward[0]).size() > 1) {
+                back->push_back({far, piece});
             }
             piece = onward[0];
             dir = pieces_.at(piece).from == far ? 1 : -1;
@@ -317,7 +322,7 @@ std::optional<TrackNetwork::ShuntRoute> TrackNetwork::routeWithReversals(const T
         // and back out through that same vertex onto any way there. Costs 2 x clearance, never
         // less than nothing, so the search stays sound (no shortcut loops).
         const std::int32_t near = dirOf(st.second) > 0 ? pc.from : pc.to;
-        if (st != first && reverseSpot(st)) {
+        if (st != first && reverseSpot(st, nullptr)) {
             const auto ways = exits(near, st.first);
             for (const std::int32_t m : ways) {
                 const Piece& mp = pieces_.at(m);
@@ -343,10 +348,12 @@ std::optional<TrackNetwork::ShuntRoute> TrackNetwork::routeWithReversals(const T
         if (c.reversal) {
             // Stop `clearance` past the vertex it came in by, on the piece it reversed on; the
             // next leg starts by backing through that vertex onto `st`.
-            leg.end = *reverseSpot(c.prev);
+            std::vector<std::pair<std::int32_t, std::int32_t>> backSwitches;
+            leg.end = *reverseSpot(c.prev, &backSwitches);
             leg.reverseAfter = true;
             out.legs.push_back(std::move(leg));
             leg = Leg{};
+            leg.switches = std::move(backSwitches);  // back out the way it came in
         }
         if (c.choice) {
             leg.switches.push_back({c.vertex, st.first});

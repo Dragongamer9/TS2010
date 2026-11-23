@@ -1670,3 +1670,33 @@ TEST(Shunting, SaysWhatStopsAPlan) {
     ASSERT_TRUE(never.has_value());
     EXPECT_FALSE(never->point.has_value());
 }
+
+// The reversing track may pass a junction from one of its legs: no choice going in, but one backing
+// out, which the next leg must set (it ran on 9 km down the line instead, in a real session).
+TEST(Shunting, BacksOutThroughAJunctionItPassedFromALeg) {
+    auto l = wyeLessJunction(5);
+    // A siding (piece 20) joins at the trunk's first join (vertex 10); its leg comes first, so the
+    // junction is stored set to the siding.
+    trainz::content::TrackVertex v50;
+    v50.index = 50;
+    v50.x = 60, v50.y = 30;
+    v50.links = {{20, 0}};
+    l.vertices[50] = v50;
+    l.vertices[10].links = {{10, 0}, {20, 1}, {1, 1}};
+    trainz::content::TrackStretch s;
+    s.index = 20, s.from = 50, s.to = 10, s.rest = {0x20, 0, 0, 0};
+    l.stretches.push_back(s);
+    const trainz::sim::TrackNetwork net(l);
+    const trainz::sim::TrackPosition engine{2, 20, +1};
+    const auto plan = net.routeWithReversals(engine, {3, 60, +1}, 40);
+    ASSERT_TRUE(plan.has_value());
+    ASSERT_EQ(plan->legs.size(), 2u);
+    const auto& sw = plan->legs[1].switches;
+    EXPECT_NE(std::find(sw.begin(), sw.end(), std::pair<std::int32_t, std::int32_t>{10, 1}), sw.end());
+    EXPECT_FALSE(trainz::game::shuntBlock(net, engine, plan->legs, {}).has_value());  // it can be followed
+    // Without that setting the plan is not followable: never called clear.
+    auto lost = plan->legs;
+    lost[1].switches.clear();
+    lost[1].switches.push_back({10, 20});
+    EXPECT_TRUE(trainz::game::shuntPassesThrough(net, engine, lost, {1, 5, +1}));
+}

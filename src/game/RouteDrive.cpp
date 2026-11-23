@@ -890,7 +890,7 @@ bool wayBlocked(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPo
 // Walks a shunting plan as the train will drive it: each leg with its own junction settings (on a
 // copy), from where the last one stopped (turned round after a reversal) up to 1 m short of the
 // leg's end. `meets(piece, lo, hi)` is asked about each stretch of track passed; returns true as
-// soon as it says yes. (Working each leg out again as the shortest way could check a different
+// soon as it says yes, or when a leg's end is never reached (a plan that cannot be followed). (Working each leg out again as the shortest way could check a different
 // path from the one the plan sets: an engine running round its cars was refused for the cars.)
 bool walkLegs(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
               const std::vector<trainz::sim::TrackNetwork::Leg>& legs, const std::function<bool(std::int32_t, double, double)>& meets) {
@@ -900,23 +900,23 @@ bool walkLegs(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosi
         for (const auto& [vertex, piece] : leg.switches) {
             scratch.switches[vertex] = piece;
         }
-        bool met = false;
+        bool met = false, reached = false;
         scratch.walk(at, 20000, [&](const trainz::sim::TrackNetwork::Span& s) {
             double lo = std::min(s.from, s.to), hi = std::max(s.from, s.to);
             bool last = false;
             // The leg's end on this stretch, ahead of where the stretch starts: stop 1 m before it.
             if (s.piece == leg.end.piece && leg.end.offset >= lo - 1e-6 && leg.end.offset <= hi + 1e-6) {
-                last = true;
-                const double stop = leg.end.offset - (s.to >= s.from ? 1.0 : -1.0);
-                (s.to >= s.from ? hi : lo) = std::clamp(stop, lo, hi);
+                last = reached = true;
                 if (std::fabs(leg.end.offset - s.from) < 1.0) {
                     return false;  // within the last metre already
                 }
+                const bool up = s.to >= s.from;
+                (up ? hi : lo) = std::clamp(leg.end.offset - (up ? 1.0 : -1.0), lo, hi);
             }
             met = meets(s.piece, lo, hi);
             return !met && !last;
         });
-        if (met) {
+        if (met || !reached) {
             return true;
         }
         at = leg.end;
