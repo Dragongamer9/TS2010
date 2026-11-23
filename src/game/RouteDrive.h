@@ -270,6 +270,17 @@ bool trainCovers(const trainz::sim::TrackNetwork& net, const RouteTrain& t, cons
 bool shuntPassesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
                         const std::vector<trainz::sim::TrackNetwork::Leg>& legs, const trainz::sim::TrackPosition& otherEnd);
 
+// What stops a shunting plan (legs driven as planned, from `from`): the first of `points` met, on
+// which leg (from 0) and how far along it; or a leg whose end is never reached (point empty).
+// Nothing when the way is clear. For the trace.
+struct ShuntBlock {
+    std::size_t leg = 0;
+    double distance = 0;  // along that leg
+    std::optional<trainz::sim::Occupied> point;
+};
+std::optional<ShuntBlock> shuntBlock(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
+                                     const std::vector<trainz::sim::TrackNetwork::Leg>& legs, const std::vector<trainz::sim::Occupied>& points);
+
 // The engine group of a train: its first engine car (Car::engine, or driven) and, right after it, a car named like a
 // tender ("tender" in its name, any case). The port's heuristic. Returns [first, last] car indexes;
 // nullopt if no car is driven.

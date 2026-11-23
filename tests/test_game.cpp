@@ -1651,3 +1651,22 @@ TEST(AiDriver, TrainsNobodyDrivesStand) {
     EXPECT_TRUE(trains[0].parked && trains[1].parked);
     EXPECT_FALSE(trains[2].parked);
 }
+
+// What stops a shunting plan, for the trace: the train met, or a leg that never reaches its end.
+TEST(Shunting, SaysWhatStopsAPlan) {
+    const trainz::sim::TrackNetwork net(wyeLessJunction(1));
+    const trainz::sim::TrackPosition engine{2, 20, +1};
+    const auto plan = net.routeWithReversals(engine, {3, 60, +1}, 40);
+    ASSERT_TRUE(plan.has_value());
+    EXPECT_FALSE(trainz::game::shuntBlock(net, engine, plan->legs, {}).has_value());
+    const auto met = trainz::game::shuntBlock(net, engine, plan->legs, {{3, 30}});
+    ASSERT_TRUE(met && met->point);
+    EXPECT_EQ(met->leg, 1u);
+    EXPECT_EQ(met->point->piece, 3);
+    EXPECT_FALSE(trainz::game::shuntBlock(net, engine, plan->legs, {{3, 80}}).has_value());  // past the end
+    auto lost = plan->legs;
+    lost[0].end = {3, 60, +1};  // leg B cannot be reached without reversing
+    const auto never = trainz::game::shuntBlock(net, engine, lost, {});
+    ASSERT_TRUE(never.has_value());
+    EXPECT_FALSE(never->point.has_value());
+}

@@ -1182,6 +1182,48 @@ int main(int argc, char** argv) {
                         std::printf("  train %zu keeping off the %zu pieces other trains stand on: from front %s, from rear %s; it stands %d@%d..%d@%d, mark %d@%d; near:%s\n",
                                     t.index + 1, taken.size(), legs(roundF).c_str(), legs(roundB).c_str(), fe.piece, static_cast<int>(fe.offset), re.piece,
                                     static_cast<int>(re.offset), mark->second.piece, static_cast<int>(mark->second.offset), near.c_str());
+                        // Each plan's legs, and what stops it.
+                        const auto show = [&](const char* name, const trainz::sim::TrackPosition& from,
+                                              const std::optional<trainz::sim::TrackNetwork::ShuntRoute>& plan) {
+                            if (!plan) {
+                                return;
+                            }
+                            std::printf("    plan %s, %.0f m:", name, plan->distance);
+                            for (const auto& leg : plan->legs) {
+                                std::printf(" to %d@%.0f%s", leg.end.piece, leg.end.offset, leg.reverseAfter ? " (reverse)" : "");
+                            }
+                            const auto block = trainz::game::shuntBlock(*net, from, plan->legs, t.obstacles);
+                            if (!block) {
+                                std::printf("; clear\n");
+                                return;
+                            }
+                            if (!block->point) {
+                                std::printf("; leg %zu never reaches its end\n", block->leg + 1);
+                                return;
+                            }
+                            std::string owner = "a train not built";
+                            const auto holds = [&](const trainz::game::RouteTrain& o) {
+                                const auto pts = trainz::game::trainOccupies(*net, o);
+                                return std::any_of(pts.begin(), pts.end(), [&](const trainz::sim::Occupied& x) {
+                                    return x.piece == block->point->piece && std::fabs(x.offset - block->point->offset) < 0.01;
+                                });
+                            };
+                            if (holds(me)) {
+                                owner = "your train";
+                            }
+                            for (const auto& o : otherTrains) {
+                                if (&o != &t && holds(o)) {
+                                    owner = "train " + std::to_string(o.index + 1);
+                                }
+                            }
+                            std::printf("; leg %zu blocked after %.0f m at %d@%.1f by %s\n", block->leg + 1, block->distance, block->point->piece,
+                                        block->point->offset, owner.c_str());
+                        };
+                        const auto frontAt = trainz::game::trainFrontEnd(*net, t);
+                        show("from the front", frontAt, shuntF);
+                        show("from the rear", back, shuntB);
+                        show("from the front, keeping off", frontAt, roundF);
+                        show("from the rear, keeping off", back, roundB);
                     }
                 }
                 if (!t.coupleWith.empty()) {  // where it is against the train it is to couple to

@@ -1389,6 +1389,49 @@ std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, Rou
     return rest;
 }
 
+std::optional<ShuntBlock> shuntBlock(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
+                                     const std::vector<trainz::sim::TrackNetwork::Leg>& legs, const std::vector<trainz::sim::Occupied>& points) {
+    trainz::sim::TrackNetwork scratch = net;
+    trainz::sim::TrackPosition at = from;
+    for (std::size_t k = 0; k < legs.size(); ++k) {
+        const auto& leg = legs[k];
+        for (const auto& [vertex, piece] : leg.switches) {
+            scratch.switches[vertex] = piece;
+        }
+        std::optional<ShuntBlock> found;
+        bool reached = false;
+        scratch.walk(at, 20000, [&](const trainz::sim::TrackNetwork::Span& sp) {
+            const double length = std::fabs(sp.to - sp.from);
+            double stop = length;  // along this stretch
+            if (sp.piece == leg.end.piece) {
+                const double along = (leg.end.offset - sp.from) * sp.direction;
+                if (along >= -1e-6 && along <= length + 1e-6) {
+                    reached = true;
+                    stop = along - 1.0;  // the last metre is free, as in the check itself
+                }
+            }
+            for (const auto& o : points) {
+                const double along = o.piece == sp.piece ? (o.offset - sp.from) * sp.direction : -1.0;
+                if (along >= 0 && along <= stop && (!found || sp.startDistance + along < found->distance)) {
+                    found = ShuntBlock{k, sp.startDistance + along, o};
+                }
+            }
+            return !found && !reached;
+        });
+        if (found) {
+            return found;
+        }
+        if (!reached) {
+            return ShuntBlock{k, 0, std::nullopt};
+        }
+        at = leg.end;
+        if (leg.reverseAfter) {
+            at.direction = -at.direction;
+        }
+    }
+    return std::nullopt;
+}
+
 std::size_t parkUndriven(std::vector<RouteTrain>& trains) {
     const bool session = std::any_of(trains.begin(), trains.end(), [](const RouteTrain& t) { return !t.orders.empty(); });
     std::size_t n = 0;
