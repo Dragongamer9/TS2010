@@ -93,6 +93,8 @@ struct DriverCommand {
     std::map<std::string, std::string> properties;
     // What the port makes of it (set by the caller from the command asset's name):
     // "navigate-to-trackmark", "navigate-via-trackmark", "wait-for", "wait-for-trigger", "couple",
+// "navigate-to-industry" (Navigate To: `industryname`, `trackname`; stops with its front at the
+// middle of that track, the port's choice),
 // "uncouple-engine" (UnCouplez, no settings: the engine and tender part from every other car),
 // "uncouple-from" (UnCouplezFrom n: "uncouple from vehicle number n, 0 being the first vehicle", its
 // own description; read as: vehicle n is the last one kept; n is stored under "timetowait").
@@ -269,6 +271,27 @@ bool trainCovers(const trainz::sim::TrackNetwork& net, const RouteTrain& t, cons
 // applied on a copy), meets `otherEnd` before that leg's end.
 bool shuntPassesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
                         const std::vector<trainz::sim::TrackNetwork::Leg>& legs, const trainz::sim::TrackPosition& otherEnd);
+
+// Whether an object's record holds `name` as the game stores texts: a u32 length, then the text
+// (the length with or without a closing zero byte). For objects whose name's place is not decoded.
+bool recordHasName(const trainz::content::PlacedObject& o, const std::string& name);
+
+// The key a "Navigate To" order's place is kept under among the marks (no trackmark has a newline).
+std::string industryKey(const std::string& industry, const std::string& track);
+
+// Where an industry's track lies: the points its config names (attached-track / `track` / vertices;
+// its first track when `track` is empty), from its model, at the object's place, each found on the
+// network within `reach` metres. `at` is the middle point of those found.
+struct IndustryTrack {
+    trainz::sim::TrackPosition at;
+    std::string track;
+    std::size_t points = 0, found = 0;
+    double worst = 0;  // metres from a found point to its track
+};
+std::optional<IndustryTrack> industryTrack(const trainz::sim::TrackNetwork& net, const trainz::content::PlacedObject& o,
+                                           const trainz::content::ConfigNode& config,
+                                           const std::map<std::string, trainz::view::LocalFrame>& attachments, const std::string& track,
+                                           double reach = 2.0);
 
 // What stops a shunting plan (legs driven as planned, from `from`): the first of `points` met, on
 // which leg (from 0) and how far along it; or a leg whose end is never reached (point empty).

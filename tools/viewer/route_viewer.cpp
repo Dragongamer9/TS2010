@@ -493,6 +493,54 @@ int main(int argc, char** argv) {
                 }
                 std::printf("session orders: %zu trackmarks and triggers, %zu AI trains with orders, %zu of their %zu orders followed\n",
                             marks.size(), given, followed, all);
+                // The industries the orders name ("Navigate To"): their tracks, found on the network.
+                std::size_t places = 0, placesFound = 0;
+                for (const auto& t : otherTrains) {
+                    for (const auto& c : t.orders) {
+                        const auto in = c.properties.find("industryname"), tr = c.properties.find("trackname");
+                        if (c.kind != "navigate-to-industry" || in == c.properties.end()) {
+                            continue;
+                        }
+                        const std::string track = tr != c.properties.end() ? tr->second : std::string();
+                        const std::string key = trainz::game::industryKey(in->second, track);
+                        if (marks.count(key) != 0) {
+                            continue;
+                        }
+                        ++places;
+                        std::size_t named = 0;
+                        std::string why = "no object of that name";
+                        for (const auto* list : {&extras.sessionObjects, &extras.objects}) {
+                            for (const auto& o : *list) {
+                                if (marks.count(key) != 0 || !trainz::game::recordHasName(o, in->second)) {
+                                    continue;
+                                }
+                                const auto cfg = meshes->config(o.kuid);
+                                if (!cfg || cfg->child("attached-track") == nullptr) {
+                                    continue;  // a trackmark or a sign of the same name
+                                }
+                                ++named;
+                                const auto* mesh = meshes->get(o.kuid);
+                                const auto at = mesh != nullptr
+                                                    ? trainz::game::industryTrack(*net, o, *cfg, mesh->attachments, track)
+                                                    : std::nullopt;
+                                why = mesh == nullptr ? "its model cannot be read" : "its track's points are not on the network";
+                                if (at) {
+                                    marks.emplace(key, at->at);
+                                    ++placesFound;
+                                    std::printf("industry '%s' %s: %s, %zu of %zu points on the track, worst %.2f m\n", in->second.c_str(),
+                                                at->track.c_str(), trainz::content::formatKuid(o.kuid).c_str(), at->found, at->points, at->worst);
+                                }
+                            }
+                        }
+                        if (marks.count(key) == 0) {
+                            std::printf("industry '%s' %s NOT found: %s (%zu objects with that name and a track)\n", in->second.c_str(),
+                                        track.c_str(), why.c_str(), named);
+                        }
+                    }
+                }
+                if (places > 0) {
+                    std::printf("industry tracks named by orders: %zu of %zu found\n", placesFound, places);
+                }
                 // Wagons with no engine ran off to the end of their siding on borrowed power.
                 const std::size_t standingTrainsNow = trainz::game::parkUndriven(otherTrains);
                 std::printf("%zu trains nobody drives: they stand\n", standingTrainsNow);
@@ -584,6 +632,13 @@ int main(int argc, char** argv) {
             for (const auto& t : otherTrains) {
                 if (!t.orders.empty()) {
                     printCars("at the start,", t);
+                    for (std::size_t k = 0; noDraw && k < t.orders.size(); ++k) {
+                        std::printf("    order %zu %s%s:", k, t.orders[k].name.c_str(), t.orders[k].kind.empty() ? " (NOT FOLLOWED)" : "");
+                        for (const auto& [key, value] : t.orders[k].properties) {
+                            std::printf(" %s='%s'", key.c_str(), value.c_str());
+                        }
+                        std::printf("\n");
+                    }
                 }
             }
         }

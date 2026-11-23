@@ -797,6 +797,9 @@ std::string commandKind(const std::string& username) {
     if (n == "navigate to trackmark") {
         return "navigate-to-trackmark";
     }
+    if (n == "navigate to") {
+        return "navigate-to-industry";
+    }
     if (n == "navigate via trackmark") {
         return "navigate-via-trackmark";
     }
@@ -1055,13 +1058,20 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
             t.legs.clear();
             t.orderNote = note;
         };
-        if (c.kind == "navigate-to-trackmark" || c.kind == "navigate-via-trackmark") {
+        if (c.kind == "navigate-to-trackmark" || c.kind == "navigate-via-trackmark" || c.kind == "navigate-to-industry") {
             const bool via = c.kind == "navigate-via-trackmark";
-            const auto mark = marks.find(prop("trackmarkname"));
+            const bool industry = c.kind == "navigate-to-industry";
+            const auto mark = marks.find(industry ? industryKey(prop("industryname"), prop("trackname")) : prop("trackmarkname"));
+            if (industry && mark == marks.end()) {  // not found on the track: hold (skipping it could change everything after)
+                t.waitingForOrder = true;
+                t.orderNote = "holding: no track found for industry '" + prop("industryname") + "' " + prop("trackname");
+                return;
+            }
             if (mark == marks.end()) {
                 next("no trackmark '" + prop("trackmarkname") + "'");
                 continue;
             }
+            const std::string place = industry ? prop("industryname") + (prop("trackname").empty() ? "" : " " + prop("trackname")) : mark->first;
             if (!t.destination && t.orderClock > 0) {  // no way last time: try again in a while
                 t.orderClock -= std::isfinite(seconds) && seconds > 0 ? seconds : 0;
                 t.waitingForOrder = true;
@@ -1080,14 +1090,14 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                 }
                 if (!ahead && !behind) {
                     if (startShunt(t, net, mark->second)) {  // a way with reversals
-                        t.destinationName = mark->first;
-                        t.orderNote = std::string(via ? "via '" : "to '") + mark->first + "' (shunting, " +
+                        t.destinationName = place;
+                        t.orderNote = std::string(via ? "via '" : "to '") + place + "' (shunting, " +
                                       std::to_string(t.legs.size()) + " legs)";
                         return;
                     }
                     // No way now (perhaps another train stands in it): hold, and try again in 10 s.
                     t.waitingForOrder = true;
-                    t.orderNote = "holding: no way to '" + mark->first + "' now";
+                    t.orderNote = "holding: no way to '" + place + "' now";
                     t.orderClock = 10;
                     return;
                 }
@@ -1098,9 +1108,9 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
                     net.switches[vertex] = piece;
                 }
                 t.destination = mark->second;
-                t.destinationName = mark->first;
+                t.destinationName = place;
                 t.destinationVia = via;
-                t.orderNote = std::string(via ? "via '" : "to '") + mark->first + "'" + (t.reversing ? " (backing)" : "");
+                t.orderNote = std::string(via ? "via '" : "to '") + place + "'" + (t.reversing ? " (backing)" : "");
                 return;
             }
             if (advanceShunt(t, net, seconds)) {
@@ -1113,7 +1123,7 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
             const bool arrived = via ? (!r || r->distance < 5)
                                      : stopped && ((r && r->distance < 25) || trainCovers(net, t, mark->second));
             if (arrived) {
-                next(std::string(via ? "passed '" : "reached '") + mark->first + "'");
+                next(std::string(via ? "passed '" : "reached '") + place + "'");
                 continue;
             }
             // It cannot get there from here as planned (no way, or the way now runs into another
@@ -1121,7 +1131,7 @@ void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std
             if (!via && stopped && (!r || wayBlocked(net, movingEnd(net, t), *r, t.obstacles))) {
                 if (!startShunt(t, net, mark->second)) {
                     t.waitingForOrder = true;
-                    t.orderNote = "holding: cannot reach '" + mark->first + "' from here";
+                    t.orderNote = "holding: cannot reach '" + place + "' from here";
                 }
                 return;
             }
@@ -1387,6 +1397,64 @@ std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, Rou
     t.drive.speed = 0;
     refreshTrain(t);
     return rest;
+}
+
+bool recordHasName(const trainz::content::PlacedObject& o, const std::string& name) {
+    if (name.empty() || o.rest.size() < name.size() + 4) {
+        return false;
+    }
+    for (std::size_t at = 0; at + 4 + name.size() <= o.rest.size(); ++at) {
+        std::uint32_t n = 0;
+        std::memcpy(&n, o.rest.data() + at, 4);
+        if ((n == name.size() || n == name.size() + 1) && std::memcmp(o.rest.data() + at + 4, name.data(), name.size()) == 0 &&
+            (n == name.size() || (at + 4 + name.size() < o.rest.size() && o.rest[at + 4 + name.size()] == 0))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string industryKey(const std::string& industry, const std::string& track) { return industry + "\n" + track; }
+
+std::optional<IndustryTrack> industryTrack(const trainz::sim::TrackNetwork& net, const trainz::content::PlacedObject& o,
+                                           const trainz::content::ConfigNode& config,
+                                           const std::map<std::string, trainz::view::LocalFrame>& attachments, const std::string& track,
+                                           double reach) {
+    const auto* tracks = config.child("attached-track");
+    if (tracks == nullptr || tracks->children.empty()) {
+        return std::nullopt;
+    }
+    const auto* chosen = track.empty() ? &tracks->children.front() : tracks->child(track);
+    const auto* vertices = chosen != nullptr ? chosen->child("vertices") : nullptr;
+    if (vertices == nullptr) {
+        return std::nullopt;
+    }
+    IndustryTrack out;
+    out.track = chosen->key;
+    const double c = std::cos(o.yaw), s = std::sin(o.yaw);
+    std::vector<trainz::sim::TrackPosition> found;
+    for (const auto& v : vertices->children) {
+        ++out.points;
+        const auto at = attachments.find(v.text);
+        if (at == attachments.end()) {
+            continue;
+        }
+        const double lx = static_cast<double>(at->second.t[0]), ly = static_cast<double>(at->second.t[1]);
+        const double x = o.worldX() + c * lx - s * ly, y = o.worldY() + s * lx + c * ly;
+        const auto p = net.locate(x, y, reach);
+        const auto w = p ? net.point(*p) : std::nullopt;
+        if (!w) {
+            continue;
+        }
+        out.worst = std::max(out.worst, std::hypot(w->x - x, w->y - y));
+        found.push_back(*p);
+    }
+    out.found = found.size();
+    if (found.empty()) {
+        return std::nullopt;
+    }
+    out.at = found[found.size() / 2];
+    return out;
 }
 
 std::optional<ShuntBlock> shuntBlock(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,

@@ -1002,6 +1002,7 @@ TEST(SessionOrders, CommandKindsByName) {
     EXPECT_EQ(trainz::game::commandKind("Hornz"), "no-effect");
     EXPECT_EQ(trainz::game::commandKind("Change Destination Sign"), "no-effect");
     EXPECT_EQ(trainz::game::commandKind("Couple"), "couple");
+    EXPECT_EQ(trainz::game::commandKind("Navigate To"), "navigate-to-industry");
     EXPECT_EQ(trainz::game::commandKind("UnCouplez"), "uncouple-engine");
     EXPECT_EQ(trainz::game::commandKind("UnCouplezFrom"), "uncouple-from");
 }
@@ -1699,4 +1700,70 @@ TEST(Shunting, BacksOutThroughAJunctionItPassedFromALeg) {
     lost[1].switches.clear();
     lost[1].switches.push_back({10, 20});
     EXPECT_TRUE(trainz::game::shuntPassesThrough(net, engine, lost, {1, 5, +1}));
+}
+
+// "Navigate To" an industry: the object by its stored name, its track's points from its config and
+// model, found on the network; a place that is not found holds the train, never skips the order.
+TEST(SessionOrders, NavigateToAnIndustrysTrack) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    trainz::content::PlacedObject o;
+    o.x = 400, o.y = 5;  // beside the line, turned a quarter: its own +y points to -x
+    o.yaw = static_cast<float>(std::numbers::pi / 2);
+    const std::string name = "Coal Mine 2";
+    o.rest = {9, 9, 9, static_cast<std::uint8_t>(name.size()), 0, 0, 0};
+    o.rest.insert(o.rest.end(), name.begin(), name.end());
+    EXPECT_TRUE(trainz::game::recordHasName(o, name));
+    EXPECT_FALSE(trainz::game::recordHasName(o, "Coal Mine"));  // part of a name is not the name
+    EXPECT_FALSE(trainz::game::recordHasName(o, "Coal Mine 22"));
+    EXPECT_FALSE(trainz::game::recordHasName(o, ""));
+    auto node = [](const std::string& key, const std::string& text, std::vector<trainz::content::ConfigNode> kids) {
+        trainz::content::ConfigNode n;
+        n.key = key;
+        n.text = text;
+        n.children = std::move(kids);
+        return n;
+    };
+    const auto config = node("", "", {node("attached-track", "",
+                                           {node("out_track", "", {node("vertices", "", {node("0", "a.x", {})})}),
+                                            node("in_track", "", {node("vertices", "", {node("0", "a.t0", {}), node("1", "a.t1", {}),
+                                                                                         node("2", "a.t2", {})})})})});
+    std::map<std::string, trainz::view::LocalFrame> at;
+    for (int k = 0; k < 3; ++k) {  // along its own y, 5 m to its left: on the line at x = 400, 380, 360
+        trainz::view::LocalFrame f;
+        f.t[0] = -5, f.t[1] = 20.0F * static_cast<float>(k);
+        at["a.t" + std::to_string(k)] = f;
+    }
+    trainz::view::LocalFrame off;
+    off.t[0] = 300;
+    at["a.x"] = off;  // far from any track
+    const auto in = trainz::game::industryTrack(net, o, config, at, "in_track");
+    ASSERT_TRUE(in.has_value());
+    EXPECT_EQ(in->found, 3u);
+    EXPECT_EQ(in->at.piece, 1);
+    EXPECT_NEAR(in->at.offset, 380, 0.5);
+    EXPECT_FALSE(trainz::game::industryTrack(net, o, config, at, "out_track").has_value());
+    EXPECT_FALSE(trainz::game::industryTrack(net, o, config, at, "no such track").has_value());
+    EXPECT_FALSE(trainz::game::industryTrack(net, o, config, at, "").has_value());  // the first track: off the network
+    // The order: held while the place is unknown, then driven to and done.
+    auto t = carTrain(1, 50, +1, 1);
+    t.cars[0].spec = trainz::sim::electricLocomotive();
+    trainz::game::refreshTrain(t);
+    trainz::game::DriverCommand c;
+    c.kind = "navigate-to-industry";
+    c.properties = {{"industryname", name}, {"trackname", "in_track"}};
+    t.orders = {c};
+    std::map<std::string, trainz::sim::TrackPosition> marks;
+    trainz::game::runOrders(t, net, marks, {}, 0.5);
+    EXPECT_EQ(t.orderIndex, 0u);
+    EXPECT_TRUE(t.waitingForOrder);
+    marks[trainz::game::industryKey(name, "in_track")] = in->at;
+    const trainz::game::AiDriver ai;
+    for (int i = 0; i < 400 && t.orderIndex == 0; ++i) {
+        trainz::game::runOrders(t, net, marks, {}, 0.5);
+        ai.control(t, net, nullptr, {});
+        t.drive.step(net, 0.5);
+    }
+    EXPECT_EQ(t.orderIndex, 1u) << t.orderNote;
+    EXPECT_NEAR(trainz::game::trainFrontEnd(net, t).offset, 380, 25);
 }
