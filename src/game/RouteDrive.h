@@ -96,7 +96,8 @@ struct DriverCommand {
 // "uncouple-engine" (UnCouplez, no settings: the port's GUESS, read from the sessions' order
 // sequences: the cars behind the engine group are left, those in front stay on), "uncouple-from"
 // (UnCouplezFrom: "uncouple from vehicle number n, 0 being the first vehicle", its own
-// description; n is stored under the key "timetowait"), "no-effect" (horn, destination sign, pantograph: acknowledged and passed over, NOT performed),
+// description; n is stored under the key "timetowait"; which side of vehicle n it splits is a
+// guess). Both are unconfirmed: a real run's car lists speak against them (ROADMAP 2026-11-23). "no-effect" (horn, destination sign, pantograph: acknowledged and passed over, NOT performed),
 // or "" (not followed: the train holds).
     std::string kind;
     std::string name;  // the command asset's username, for notes
