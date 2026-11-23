@@ -56,6 +56,7 @@ add_library(trainz_content
   src/content/TrackLayout.cpp
   src/input/ActionMap.cpp
   src/input/KeyBindings.cpp
+  src/game/Cargo.cpp
   src/game/Drive.cpp
   src/game/GeneratedWorld.cpp
   src/game/RouteDrive.cpp

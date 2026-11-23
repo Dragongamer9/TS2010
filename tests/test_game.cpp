@@ -998,10 +998,14 @@ TEST(SessionOrders, CommandKindsByName) {
     EXPECT_EQ(trainz::game::commandKind("Navigate Via Trackmark"), "navigate-via-trackmark");
     EXPECT_EQ(trainz::game::commandKind("WaitFor"), "wait-for");
     EXPECT_EQ(trainz::game::commandKind("WaitForTrigger"), "wait-for-trigger");
-    EXPECT_EQ(trainz::game::commandKind("Load"), "");
+    EXPECT_EQ(trainz::game::commandKind("Load"), "load");
+    EXPECT_EQ(trainz::game::commandKind("Unload"), "unload");
+    EXPECT_EQ(trainz::game::commandKind("Set Camera"), "");
     EXPECT_EQ(trainz::game::commandKind("Hornz"), "no-effect");
     EXPECT_EQ(trainz::game::commandKind("Change Destination Sign"), "no-effect");
     EXPECT_EQ(trainz::game::commandKind("Couple"), "couple");
+    EXPECT_EQ(trainz::game::commandKind("Navigate To"), "navigate-to-industry");
+    EXPECT_EQ(trainz::game::commandKind("Run Around"), "run-around");
     EXPECT_EQ(trainz::game::commandKind("UnCouplez"), "uncouple-engine");
     EXPECT_EQ(trainz::game::commandKind("UnCouplezFrom"), "uncouple-from");
 }
@@ -1249,8 +1253,19 @@ TEST(SessionOrders, UncoupleLeavesExactlyTheseCars) {
     ASSERT_EQ(u.leftBehind.size(), 1u);
     EXPECT_EQ(names(u.leftBehind[0]), (Names{"5"}));
     EXPECT_NEAR(u.leftBehind[0].drive.lead.offset, 558, 1e-9);
-    // After vehicle 0 or 1 the engine would be left, or parted from its tender; "x" is no number: held.
-    for (const char* n : {"0", "1", "x", "-2"}) {
+    // UnCouplezFrom 0: the engine is behind the split and keeps its side; only the first car is left.
+    auto v = make();
+    v.orders = {cmd("uncouple-from", {{"timetowait", "0"}})};
+    trainz::game::runOrders(v, net, {}, {}, 0.5);
+    EXPECT_EQ(v.orderIndex, 1u);
+    EXPECT_EQ(names(v), (Names{"Fowler 4F", "Fowler 3500 gallon Tender", "4", "5"}));
+    EXPECT_NEAR(v.drive.lead.offset, 589.5, 1e-9);
+    ASSERT_EQ(v.leftBehind.size(), 1u);
+    EXPECT_EQ(names(v.leftBehind[0]), (Names{"1"}));
+    EXPECT_NEAR(v.leftBehind[0].drive.lead.offset, 600, 1e-9);
+    EXPECT_TRUE(v.leftBehind[0].parked);
+    // After vehicle 1 the engine would be parted from its tender; "x" is no number: held.
+    for (const char* n : {"1", "x", "-2"}) {
         auto w = make();
         w.orders = {cmd("uncouple-from", {{"timetowait", n}})};
         trainz::game::runOrders(w, net, {}, {}, 0.5);
@@ -1626,4 +1641,327 @@ TEST(Coupling, ContactAtTheWrongEndIsRefused) {
     EXPECT_EQ(t.drive.speed, 0);
     EXPECT_EQ(t.orderIndex, 0u);
     EXPECT_GT(t.orderClock, 0);
+}
+
+// Trains nobody drives stand: a row of wagons had run off to the end of its siding on the borrowed
+// power meant for engines without data of their own.
+TEST(AiDriver, TrainsNobodyDrivesStand) {
+    auto wagons = carTrain(3, 300, +1, 20);
+    wagons.fallbackPower = true;
+    trainz::game::refreshTrain(wagons);
+    auto engine = carTrain(2, 600, +1, 30);
+    engine.cars[0].engine = true;
+    auto ordered = carTrain(2, 900, +1, 40);
+    ordered.cars[0].engine = true;
+    // No driver orders anywhere: only the wagons stand.
+    std::vector<trainz::game::RouteTrain> trains{wagons, engine, ordered};
+    EXPECT_EQ(trainz::game::parkUndriven(trains), 1u);
+    EXPECT_TRUE(trains[0].parked);
+    EXPECT_EQ(trains[0].drive.controls.brake, 1);
+    EXPECT_FALSE(trains[1].parked || trains[2].parked);
+    // A session with orders: whoever has none stands, engine or not.
+    ordered.orders = {coupleTo("20")};
+    trains = {wagons, engine, ordered};
+    EXPECT_EQ(trainz::game::parkUndriven(trains), 2u);
+    EXPECT_TRUE(trains[0].parked && trains[1].parked);
+    EXPECT_FALSE(trains[2].parked);
+}
+
+// What stops a shunting plan, for the trace: the train met, or a leg that never reaches its end.
+TEST(Shunting, SaysWhatStopsAPlan) {
+    const trainz::sim::TrackNetwork net(wyeLessJunction(1));
+    const trainz::sim::TrackPosition engine{2, 20, +1};
+    const auto plan = net.routeWithReversals(engine, {3, 60, +1}, 40);
+    ASSERT_TRUE(plan.has_value());
+    EXPECT_FALSE(trainz::game::shuntBlock(net, engine, plan->legs, {}).has_value());
+    const auto met = trainz::game::shuntBlock(net, engine, plan->legs, {{3, 30}});
+    ASSERT_TRUE(met && met->point);
+    EXPECT_EQ(met->leg, 1u);
+    EXPECT_EQ(met->point->piece, 3);
+    EXPECT_FALSE(trainz::game::shuntBlock(net, engine, plan->legs, {{3, 80}}).has_value());  // past the end
+    auto lost = plan->legs;
+    lost[0].end = {3, 60, +1};  // leg B cannot be reached without reversing
+    const auto never = trainz::game::shuntBlock(net, engine, lost, {});
+    ASSERT_TRUE(never.has_value());
+    EXPECT_FALSE(never->point.has_value());
+}
+
+// The reversing track may pass a junction from one of its legs: no choice going in, but one backing
+// out, which the next leg must set (it ran on 9 km down the line instead, in a real session).
+TEST(Shunting, BacksOutThroughAJunctionItPassedFromALeg) {
+    auto l = wyeLessJunction(5);
+    // A siding (piece 20) joins at the trunk's first join (vertex 10); its leg comes first, so the
+    // junction is stored set to the siding.
+    trainz::content::TrackVertex v50;
+    v50.index = 50;
+    v50.x = 60, v50.y = 30;
+    v50.links = {{20, 0}};
+    l.vertices[50] = v50;
+    l.vertices[10].links = {{10, 0}, {20, 1}, {1, 1}};
+    trainz::content::TrackStretch s;
+    s.index = 20, s.from = 50, s.to = 10, s.rest = {0x20, 0, 0, 0};
+    l.stretches.push_back(s);
+    const trainz::sim::TrackNetwork net(l);
+    const trainz::sim::TrackPosition engine{2, 20, +1};
+    const auto plan = net.routeWithReversals(engine, {3, 60, +1}, 40);
+    ASSERT_TRUE(plan.has_value());
+    ASSERT_EQ(plan->legs.size(), 2u);
+    const auto& sw = plan->legs[1].switches;
+    EXPECT_NE(std::find(sw.begin(), sw.end(), std::pair<std::int32_t, std::int32_t>{10, 1}), sw.end());
+    EXPECT_FALSE(trainz::game::shuntBlock(net, engine, plan->legs, {}).has_value());  // it can be followed
+    // Without that setting the plan is not followable: never called clear.
+    auto lost = plan->legs;
+    lost[1].switches.clear();
+    lost[1].switches.push_back({10, 20});
+    EXPECT_TRUE(trainz::game::shuntPassesThrough(net, engine, lost, {1, 5, +1}));
+}
+
+// "Navigate To" an industry: the object by its stored name, its track's points from its config and
+// model, found on the network; a place that is not found holds the train, never skips the order.
+TEST(SessionOrders, NavigateToAnIndustrysTrack) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    trainz::content::PlacedObject o;
+    o.x = 400, o.y = 5;  // beside the line, turned a quarter: its own +y points to -x
+    o.yaw = static_cast<float>(std::numbers::pi / 2);
+    const std::string name = "Coal Mine 2";
+    o.rest = {9, 9, 9, static_cast<std::uint8_t>(name.size()), 0, 0, 0};
+    o.rest.insert(o.rest.end(), name.begin(), name.end());
+    EXPECT_TRUE(trainz::game::recordHasName(o, name));
+    EXPECT_FALSE(trainz::game::recordHasName(o, "Coal Mine"));  // part of a name is not the name
+    EXPECT_FALSE(trainz::game::recordHasName(o, "Coal Mine 22"));
+    EXPECT_FALSE(trainz::game::recordHasName(o, ""));
+    auto node = [](const std::string& key, const std::string& text, std::vector<trainz::content::ConfigNode> kids) {
+        trainz::content::ConfigNode n;
+        n.key = key;
+        n.text = text;
+        n.children = std::move(kids);
+        return n;
+    };
+    const auto config = node("", "", {node("attached-track", "",
+                                           {node("out_track", "", {node("vertices", "", {node("0", "a.x", {})})}),
+                                            node("in_track", "", {node("vertices", "", {node("0", "a.t0", {}), node("1", "a.t1", {}),
+                                                                                         node("2", "a.t2", {})})})})});
+    std::map<std::string, trainz::view::LocalFrame> at;
+    for (int k = 0; k < 3; ++k) {  // along its own y, 5 m to its left: on the line at x = 400, 380, 360
+        trainz::view::LocalFrame f;
+        f.t[0] = -5, f.t[1] = 20.0F * static_cast<float>(k);
+        at["a.t" + std::to_string(k)] = f;
+    }
+    trainz::view::LocalFrame off;
+    off.t[0] = 300;
+    at["a.x"] = off;  // far from any track
+    const auto in = trainz::game::industryTrack(net, o, config, at, "in_track");
+    ASSERT_TRUE(in.has_value());
+    EXPECT_EQ(in->found, 3u);
+    EXPECT_EQ(in->at.piece, 1);
+    EXPECT_NEAR(in->at.offset, 380, 0.5);
+    EXPECT_FALSE(trainz::game::industryTrack(net, o, config, at, "out_track").has_value());
+    EXPECT_FALSE(trainz::game::industryTrack(net, o, config, at, "no such track").has_value());
+    EXPECT_FALSE(trainz::game::industryTrack(net, o, config, at, "").has_value());  // the first track: off the network
+    // The order: held while the place is unknown, then driven to and done.
+    auto t = carTrain(1, 50, +1, 1);
+    t.cars[0].spec = trainz::sim::electricLocomotive();
+    trainz::game::refreshTrain(t);
+    trainz::game::DriverCommand c;
+    c.kind = "navigate-to-industry";
+    c.properties = {{"industryname", name}, {"trackname", "in_track"}};
+    t.orders = {c};
+    std::map<std::string, trainz::sim::TrackPosition> marks;
+    trainz::game::runOrders(t, net, marks, {}, 0.5);
+    EXPECT_EQ(t.orderIndex, 0u);
+    EXPECT_TRUE(t.waitingForOrder);
+    marks[trainz::game::industryKey(name, "in_track")] = in->at;
+    const trainz::game::AiDriver ai;
+    for (int i = 0; i < 400 && t.orderIndex == 0; ++i) {
+        trainz::game::runOrders(t, net, marks, {}, 0.5);
+        ai.control(t, net, nullptr, {});
+        t.drive.step(net, 0.5);
+    }
+    EXPECT_EQ(t.orderIndex, 1u) << t.orderNote;
+    EXPECT_NEAR(trainz::game::trainFrontEnd(net, t).offset, 380, 25);
+}
+
+// Run Around: the engine parts from its cars and sets off to couple to their other end.
+TEST(SessionOrders, RunAroundAimsAtTheFarCar) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    auto make = [](std::size_t engineAt) {
+        auto t = carTrain(4, 600, +1, 1);
+        t.cars[engineAt].engine = true;
+        trainz::game::DriverCommand c;
+        c.kind = "run-around";
+        t.orders = {c};
+        return t;
+    };
+    EXPECT_EQ(trainz::game::runAroundCar(make(0)), "4");
+    EXPECT_EQ(trainz::game::runAroundCar(make(3)), "1");
+    EXPECT_EQ(trainz::game::runAroundCar(make(1)), "");  // cars on both sides
+    auto t = make(0);
+    trainz::game::runOrders(t, net, {}, {}, 0.5);
+    EXPECT_EQ(t.orderIndex, 0u);  // not done until it has coupled
+    EXPECT_EQ(t.cars.size(), 1u);
+    ASSERT_EQ(t.leftBehind.size(), 1u);
+    EXPECT_EQ(t.leftBehind[0].cars.size(), 3u);
+    EXPECT_EQ(t.orders[0].kind, "couple");
+    EXPECT_EQ(t.orders[0].properties.at("vehiclename"), "4");
+    auto m = make(1);
+    trainz::game::runOrders(m, net, {}, {}, 0.5);
+    EXPECT_EQ(m.orderIndex, 0u);
+    EXPECT_TRUE(m.waitingForOrder);
+    EXPECT_EQ(m.cars.size(), 4u);
+}
+
+namespace {
+trainz::content::ConfigNode cfgNode(const std::string& key, std::vector<trainz::content::ConfigNode> kids = {}, const std::string& text = {}) {
+    trainz::content::ConfigNode n;
+    n.key = key;
+    n.text = text;
+    n.children = std::move(kids);
+    return n;
+}
+trainz::content::ConfigNode cfgInt(const std::string& key, int v) {
+    auto n = cfgNode(key);
+    n.ints = {v};
+    return n;
+}
+trainz::game::CargoQueue goods(const std::string& name, double size, double count, const std::string& product, double kg) {
+    trainz::game::CargoQueue q;
+    q.name = name;
+    q.size = size;
+    q.count = count;
+    q.product = {product, "", kg};
+    return q;
+}
+}  // namespace
+
+// Queues and processes from an industry's config, with the numbers of the disc's coal tipple.
+TEST(Cargo, ReadsAnIndustryAndRunsItsProcess) {
+    const auto lookup = [](const trainz::content::Kuid&) { return trainz::game::Product{"coal", "bulk", 0.86}; };
+    auto product = cfgNode("product-kuid");
+    product.text = "<kuid:44179:60013>";
+    product.type = trainz::content::ConfigType::String;
+    const auto config = cfgNode(
+        "", {cfgNode("queues", {cfgNode("coal_out", {cfgInt("size", 20000), cfgInt("initial-count", 6000), product})}),
+             cfgNode("processes", {cfgNode("p", {cfgInt("start-enabled", 1), cfgInt("duration", 10), cfgNode("inputs"),
+                                                 cfgNode("outputs", {cfgNode("0", {cfgInt("amount", 7540), cfgNode("queue", {}, "coal_out")})})})})});
+    auto mine = trainz::game::Industry::parse(config, lookup);
+    ASSERT_EQ(mine.queues.size(), 1u);
+    EXPECT_EQ(mine.queues[0].count, 6000);
+    EXPECT_EQ(mine.queues[0].product.id, "coal");
+    mine.step(9.5);
+    EXPECT_EQ(mine.queues[0].count, 6000);
+    mine.step(0.5);
+    EXPECT_EQ(mine.queues[0].count, 13540);
+    mine.step(100);  // a full queue takes no more: 13540 + 7540 is over its size
+    EXPECT_EQ(mine.queues[0].count, 13540);
+    mine.step(-5);
+    EXPECT_EQ(mine.queues[0].count, 13540);
+}
+
+// Goods move only where they are taken, within the room there is, and weigh.
+TEST(Cargo, MovesOnlyWhatIsTakenAndFits) {
+    auto coal = goods("out", 100, 60, "coal", 0.86);
+    auto wagon = goods("load", 40, 0, "coal", 0.86);
+    EXPECT_EQ(trainz::game::moveGoods(coal, wagon), 40);
+    EXPECT_EQ(coal.count, 20);
+    EXPECT_EQ(trainz::game::moveGoods(coal, wagon), 0);  // full
+    auto cattle = goods("load", 40, 0, "cattle", 500);
+    EXPECT_EQ(trainz::game::moveGoods(coal, cattle), 0);  // not its goods
+    auto mixed = goods("load", 40, 10, "oil", 1);
+    mixed.products = {"coal"};
+    EXPECT_EQ(trainz::game::moveGoods(coal, mixed), 0);  // it holds other goods
+    mixed.count = 0;
+    EXPECT_EQ(trainz::game::moveGoods(coal, mixed), 20);
+    trainz::game::CargoQueue none;
+    EXPECT_FALSE(none.takes({}));
+}
+
+// Load fills every car, waiting for the mine to make the coal; the cars get heavier. Unload empties
+// them again. Held where no industry is known.
+TEST(SessionOrders, LoadsAndUnloadsAtAnIndustry) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    auto t = carTrain(3, 300, +1, 1);
+    t.cars[0].engine = true;
+    t.cars[1].cargo = {goods("load", 1000, 0, "coal", 0.86)};
+    t.cars[2].cargo = {goods("load", 1000, 0, "coal", 0.86)};
+    const double empty = t.drive.spec.massKg;
+    trainz::game::DriverCommand load, unload;
+    load.kind = "load", unload.kind = "unload";
+    t.orders = {load, unload};
+    trainz::game::Industries industries;
+    auto& mine = industries["Mine"];
+    mine.queues = {goods("out", 5000, 600, "coal", 0.86)};
+    trainz::game::Process dig;
+    dig.enabled = true, dig.duration = 10, dig.out = {{"out", 500}};
+    mine.processes = {dig};
+    auto& power = industries["Power Station"];
+    power.queues = {goods("in", 1500, 0, "coal", 0.86)};
+    trainz::game::Process burn;
+    burn.enabled = true, burn.duration = 10, burn.in = {{"in", 100}};
+    power.processes = {burn};
+    auto run = [&](double seconds) {
+        for (double s = 0; s < seconds; s += 0.5) {
+            mine.step(0.5);
+            power.step(0.5);
+            trainz::game::runOrders(t, net, {}, {}, 0.5, {}, &industries);
+        }
+    };
+    run(5);  // not at an industry: held
+    EXPECT_EQ(t.orderIndex, 0u);
+    EXPECT_TRUE(t.waitingForOrder);
+    EXPECT_EQ(t.drive.spec.massKg, empty);
+    t.atIndustry = "Mine";
+    run(5);  // 600 there at once; the rest must be dug
+    EXPECT_EQ(t.orderIndex, 0u);
+    EXPECT_GE(t.cars[1].cargo[0].count, 600);
+    run(40);
+    EXPECT_EQ(t.cars[1].cargo[0].count, 1000);
+    EXPECT_EQ(t.cars[2].cargo[0].count, 1000);
+    EXPECT_NEAR(t.drive.spec.massKg, empty + 2000 * 0.86, 1e-6);
+    EXPECT_EQ(t.orderIndex, 1u);
+    t.atIndustry = "Power Station";  // room for 1500; the other 500 as it burns them, 100 each 10 s
+    run(5);
+    EXPECT_EQ(t.orderIndex, 1u);
+    run(90);
+    EXPECT_EQ(t.orderIndex, 2u) << t.orderNote;
+    EXPECT_EQ(t.cars[1].cargo[0].count + t.cars[2].cargo[0].count, 0);
+    EXPECT_NEAR(t.drive.spec.massKg, empty, 1e-6);
+}
+
+// Passengers: whoever is on the platform gets on, then the train goes (it does not wait for the
+// coaches to fill). A train that carries nothing passes the order over; one with the wrong goods holds.
+TEST(SessionOrders, PassengersAreNotWaitedForAndWrongGoodsHold) {
+    const AiLine line;
+    trainz::sim::TrackNetwork net(line.layout);
+    trainz::game::DriverCommand load;
+    load.kind = "load";
+    trainz::game::Industries industries;
+    auto& station = industries["Station"];
+    station.queues = {goods("on", 174, 10, "people", 65)};
+    station.queues[0].passengers = true;
+    trainz::game::Process spawn;
+    spawn.enabled = true, spawn.duration = 20, spawn.out = {{"on", 1}};
+    station.processes = {spawn};
+    auto t = carTrain(2, 300, +1, 1);
+    t.cars[1].cargo = {goods("seats", 42, 0, "people", 65)};
+    t.orders = {load};
+    t.atIndustry = "Station";
+    trainz::game::runOrders(t, net, {}, {}, 0.5, {}, &industries);
+    EXPECT_EQ(t.orderIndex, 1u);
+    EXPECT_EQ(t.cars[1].cargo[0].count, 10);
+    auto bare = carTrain(2, 300, +1, 1);
+    bare.orders = {load};
+    bare.atIndustry = "Station";
+    trainz::game::runOrders(bare, net, {}, {}, 0.5, {}, &industries);
+    EXPECT_EQ(bare.orderIndex, 1u);
+    auto coal = carTrain(2, 300, +1, 1);
+    coal.cars[1].cargo = {goods("load", 1000, 0, "coal", 0.86)};
+    coal.orders = {load};
+    coal.atIndustry = "Station";
+    trainz::game::runOrders(coal, net, {}, {}, 0.5, {}, &industries);
+    EXPECT_EQ(coal.orderIndex, 0u);
+    EXPECT_TRUE(coal.waitingForOrder);
+    EXPECT_NE(coal.orderNote.find("nothing for these cars"), std::string::npos);
 }

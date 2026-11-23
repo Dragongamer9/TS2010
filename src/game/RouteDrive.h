@@ -6,6 +6,7 @@
 #include "content/SessionFile.h"
 #include "content/PlacedObject.h"
 #include "content/SignalAsset.h"
+#include "game/Cargo.h"
 #include "game/Drive.h"
 #include "sim/Signals.h"
 #include "sim/TrainPhysics.h"
@@ -93,9 +94,13 @@ struct DriverCommand {
     std::map<std::string, std::string> properties;
     // What the port makes of it (set by the caller from the command asset's name):
     // "navigate-to-trackmark", "navigate-via-trackmark", "wait-for", "wait-for-trigger", "couple",
+// "navigate-to-industry" (Navigate To: `industryname`, `trackname`; stops with its front at the
+// middle of that track, the port's choice),
 // "uncouple-engine" (UnCouplez, no settings: the engine and tender part from every other car),
 // "uncouple-from" (UnCouplezFrom n: "uncouple from vehicle number n, 0 being the first vehicle", its
-// own description; read as: vehicle n is the last one kept; n is stored under "timetowait").
+// own description; read as: the train splits after vehicle n, counted from its front, and the
+// engine keeps its side; n is stored under "timetowait"), "run-around" (Run Around: the engine parts
+// from its cars and couples to their other end; its "state" setting is not known).
 // Both readings are unconfirmed guesses (ROADMAP 2026-11-23). "no-effect" (horn, destination sign, pantograph: acknowledged and passed over, NOT performed),
 // or "" (not followed: the train holds).
     std::string kind;
@@ -116,6 +121,7 @@ struct RouteTrain {
         std::optional<RouteVehicle> vehicle;
         std::string name;  // the vehicle's name in the session (e.g. "Fowler 4F BR Black 7")
         bool engine = false;  // pulls the train: driven by its own data, or (none being) the train's first car
+        std::vector<CargoQueue> cargo = {};  // its queues; loading adds to spec.massKg
     };
     std::vector<Car> cars;
     // The train's air brake, with the pressures of its first car that has them (the locomotive).
@@ -130,6 +136,8 @@ struct RouteTrain {
     // Its session orders and where it is in them (see runOrders).
     std::vector<DriverCommand> orders;
     std::size_t orderIndex = 0;
+    int lastMoved = 0;                // which end led when it last moved: +1 its front, -1 its rear, 0 never
+    std::string atIndustry;           // the industry its last Navigate To reached ("" after another place)
     double orderClock = 0;            // seconds waited in the current order
     bool waitingForOrder = false;     // stand still: the current order is a wait
     std::string coupleWith;           // a Couple order: the vehicle to couple to (the caller couples on contact)
@@ -246,13 +254,18 @@ bool releaseIfOnlySelfHeld(RouteTrain& t, const trainz::sim::SignalSystem& signa
 //  - couple: head for the nearer (by the way along the track) of the two buffer ends of the train
 //    with `vehiclename` (`trainEnds(name)`), forward, backing or shunting; creep the last 40 m;
 //    the caller couples on contact and calls finishCouple;
+//  - load / unload: at the industry last navigated to, goods move between its queues and the cars'
+//    until no car can take (give) more, waiting while the industry still makes (uses) them. The
+//    train stands (the game may move it through the loader); goods shown on the cars, and how the
+//    game decides it is done, are not done. Held when the industry is not known or has nothing
+//    for (takes nothing from) any of the cars;
 //  - anything else: the train stops and holds there (noted): skipping, say, a Load or Couple
 //    order would go on with a plan that no longer matches the session.
 // `marks` holds trackmarks and triggers by name; `trainFront(vehicleName)` the front of the train
 // with that vehicle, if any.
 void runOrders(RouteTrain& t, trainz::sim::TrackNetwork& net, const std::map<std::string, trainz::sim::TrackPosition>& marks,
                const std::function<std::optional<trainz::sim::TrackPosition>(const std::string&)>& trainFront, double seconds,
-               const std::function<TargetEnds(const std::string&)>& trainEnds = {});
+               const std::function<TargetEnds(const std::string&)>& trainEnds = {}, Industries* industries = nullptr);
 // Ends a Couple order once the caller has coupled: on to the next order.
 void finishCouple(RouteTrain& t);
 
@@ -270,6 +283,50 @@ bool trainCovers(const trainz::sim::TrackNetwork& net, const RouteTrain& t, cons
 bool shuntPassesThrough(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
                         const std::vector<trainz::sim::TrackNetwork::Leg>& legs, const trainz::sim::TrackPosition& otherEnd);
 
+// A product by the KUID a config names: its newest copy's KUID, category and unit mass.
+Product assetProduct(trainz::view::AssetMeshes& meshes, const trainz::content::Kuid& kuid);
+
+// Moves goods between a train's cars and an industry, one step; the cars' masses follow.
+struct GoodsStep {
+    double moved = 0;       // units
+    bool possible = false;  // some car and some queue there hold the same goods
+    bool done = true;       // no car can take (give) any more, and waiting would not help
+};
+GoodsStep loadTrain(RouteTrain& t, Industry& industry);
+GoodsStep unloadTrain(RouteTrain& t, Industry& industry);
+
+// Whether an object's record holds `name` as the game stores texts: a u32 length, then the text
+// (the length with or without a closing zero byte). For objects whose name's place is not decoded.
+bool recordHasName(const trainz::content::PlacedObject& o, const std::string& name);
+
+// The key a "Navigate To" order's place is kept under among the marks (no trackmark has a newline).
+std::string industryKey(const std::string& industry, const std::string& track);
+
+// Where an industry's track lies: the points its config names (attached-track / `track` / vertices;
+// its first track when `track` is empty), from its model, at the object's place, each found on the
+// network within `reach` metres. `at` is the middle point of those found.
+struct IndustryTrack {
+    trainz::sim::TrackPosition at;
+    std::string track;
+    std::size_t points = 0, found = 0;
+    double worst = 0;  // metres from a found point to its track
+};
+std::optional<IndustryTrack> industryTrack(const trainz::sim::TrackNetwork& net, const trainz::content::PlacedObject& o,
+                                           const trainz::content::ConfigNode& config,
+                                           const std::map<std::string, trainz::view::LocalFrame>& attachments, const std::string& track,
+                                           double reach = 2.0);
+
+// What stops a shunting plan (legs driven as planned, from `from`): the first of `points` met, on
+// which leg (from 0) and how far along it; or a leg whose end is never reached (point empty).
+// Nothing when the way is clear. For the trace.
+struct ShuntBlock {
+    std::size_t leg = 0;
+    double distance = 0;  // along that leg
+    std::optional<trainz::sim::Occupied> point;
+};
+std::optional<ShuntBlock> shuntBlock(const trainz::sim::TrackNetwork& net, const trainz::sim::TrackPosition& from,
+                                     const std::vector<trainz::sim::TrackNetwork::Leg>& legs, const std::vector<trainz::sim::Occupied>& points);
+
 // The engine group of a train: its first engine car (Car::engine, or driven) and, right after it, a car named like a
 // tender ("tender" in its name, any case). The port's heuristic. Returns [first, last] car indexes;
 // nullopt if no car is driven.
@@ -280,11 +337,21 @@ std::optional<std::pair<std::size_t, std::size_t>> engineGroup(const RouteTrain&
 // first car. Nothing (empty) if there is no engine group or nothing else to leave.
 std::vector<RouteTrain> uncoupleAllButEngine(const trainz::sim::TrackNetwork& net, RouteTrain& t);
 
-// Uncouples the train at vehicle `n` (0 the first, in the train's order from its front): cars n
-// and on become a parked train standing where it is (returned); `t` keeps cars 0 .. n-1 and its
-// lead. Nothing if n is 0 or past the last car.
-std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, RouteTrain& t, std::size_t n);
+// Uncouples the train at vehicle `n` (0 the first, in the train's order from its front) into cars
+// 0 .. n-1 and n on. `t` keeps the first part, or with `keepRear` the second (its lead moved to
+// car n); the other becomes a parked train standing where it is (returned). Nothing if n is 0 or
+// past the last car.
+std::optional<RouteTrain> uncoupleFrom(const trainz::sim::TrackNetwork& net, RouteTrain& t, std::size_t n, bool keepRear = false);
 
+// The car at the end of the train away from its engine, for a Run Around: the engine group must be
+// at one end with other cars, and that car's name be its own. "" if not.
+std::string runAroundCar(const RouteTrain& t);
+
+
+// Parks (brakes on, never driven) the trains nobody drives. In a session with driver orders: every
+// train without any (in the game a train with no driver, or no orders, stands). In one without:
+// only trains with no engine, so the port's simple driver still runs the others. Returns how many.
+std::size_t parkUndriven(std::vector<RouteTrain>& trains);
 
 // Whether one of the train's cars, as it is made up now (after any coupling or uncoupling), has this
 // session name. Not the session's original consist: cars left behind keep their train's index.

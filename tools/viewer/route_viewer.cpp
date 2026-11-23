@@ -409,7 +409,7 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            std::printf("%zu other trains on the track%s\n", otherTrains.size(), aiTrains ? ", driven by the port's AI" : ", standing");
+            std::printf("%zu other trains on the track%s\n", otherTrains.size(), aiTrains ? ", the driven ones by the port's AI" : ", standing");
             if (const auto near = trainz::game::findContact(*net, me, otherTrains, 3000)) {
                 std::printf("nearest train: %.0f m from your %s (train %zu's %s)\n", near->gap, near->atOurFront ? "front" : "rear",
                             otherTrains[near->other].index + 1, near->theirFront ? "front" : "rear");
@@ -439,6 +439,7 @@ int main(int argc, char** argv) {
         // Signals (both modes, with track): turned to their track, placed on the network, and
         // their lamps drawn for the port's aspects. Without --drive every session train stands.
         std::map<std::string, trainz::content::SignalLook> looks;  // by formatted KUID
+        trainz::game::Industries industries;                       // those the orders name
         std::map<std::string, trainz::sim::TrackPosition> marks;   // trackmarks and triggers by name (for orders)
         if (extras.track) {
             if (!net) {
@@ -493,6 +494,64 @@ int main(int argc, char** argv) {
                 }
                 std::printf("session orders: %zu trackmarks and triggers, %zu AI trains with orders, %zu of their %zu orders followed\n",
                             marks.size(), given, followed, all);
+                // The industries the orders name ("Navigate To"): their tracks, found on the network.
+                std::size_t places = 0, placesFound = 0;
+                for (const auto& t : otherTrains) {
+                    for (const auto& c : t.orders) {
+                        const auto in = c.properties.find("industryname"), tr = c.properties.find("trackname");
+                        if (c.kind != "navigate-to-industry" || in == c.properties.end()) {
+                            continue;
+                        }
+                        const std::string track = tr != c.properties.end() ? tr->second : std::string();
+                        const std::string key = trainz::game::industryKey(in->second, track);
+                        if (marks.count(key) != 0) {
+                            continue;
+                        }
+                        ++places;
+                        std::size_t named = 0;
+                        std::string why = "no object of that name";
+                        for (const auto* list : {&extras.sessionObjects, &extras.objects}) {
+                            for (const auto& o : *list) {
+                                if (marks.count(key) != 0 || !trainz::game::recordHasName(o, in->second)) {
+                                    continue;
+                                }
+                                const auto cfg = meshes->config(o.kuid);
+                                if (!cfg || cfg->child("attached-track") == nullptr) {
+                                    continue;  // a trackmark or a sign of the same name
+                                }
+                                ++named;
+                                const auto* mesh = meshes->get(o.kuid);
+                                const auto at = mesh != nullptr
+                                                    ? trainz::game::industryTrack(*net, o, *cfg, mesh->attachments, track)
+                                                    : std::nullopt;
+                                why = mesh == nullptr ? "its model cannot be read" : "its track's points are not on the network";
+                                if (at) {
+                                    marks.emplace(key, at->at);
+                                    if (industries.count(in->second) == 0) {
+                                        industries[in->second] = trainz::game::Industry::parse(
+                                            *cfg, [&](const trainz::content::Kuid& k) { return trainz::game::assetProduct(*meshes, k); });
+                                        for (const auto& q : industries[in->second].queues) {
+                                            std::printf("    queue %s: %.0f of %.0f %s\n", q.name.c_str(), q.count, q.size, q.product.id.c_str());
+                                        }
+                                    }
+                                    ++placesFound;
+                                    std::printf("industry '%s' %s: %s, %zu of %zu points on the track, worst %.2f m\n", in->second.c_str(),
+                                                at->track.c_str(), trainz::content::formatKuid(o.kuid).c_str(), at->found, at->points, at->worst);
+                                }
+                            }
+                        }
+                        if (marks.count(key) == 0) {
+                            std::printf("industry '%s' %s NOT found: %s (%zu objects with that name and a track)\n", in->second.c_str(),
+                                        track.c_str(), why.c_str(), named);
+                        }
+                    }
+                }
+                if (places > 0) {
+                    std::printf("industry tracks named by orders: %zu of %zu found\n", placesFound, places);
+                }
+                // Wagons with no engine ran off to the end of their siding on borrowed power.
+                const std::size_t standingTrainsNow = trainz::game::parkUndriven(otherTrains);
+                std::printf("%zu trains nobody drives: they stand\n", standingTrainsNow);
             }
             std::printf("%zu signals on the track (%zu turned to it), %zu points taken by standing trains\n",
                         signals->signals().size(), turned, standing.size());
@@ -573,7 +632,11 @@ int main(int argc, char** argv) {
         const auto printCars = [](const char* what, const trainz::game::RouteTrain& t) {  // front to rear
             std::printf("  %s train %zu, %zu cars:", what, t.index + 1, t.cars.size());
             for (const auto& c : t.cars) {
-                std::printf(" [%s%s]", c.name.c_str(), c.engine ? " *engine*" : "");
+                double units = 0;
+                for (const auto& q : c.cargo) {
+                    units += q.count;
+                }
+                std::printf(" [%s%s %.1f t, %.0f units]", c.name.c_str(), c.engine ? " *engine*" : "", c.spec.massKg / 1000, units);
             }
             std::printf("\n");
         };
@@ -581,7 +644,40 @@ int main(int argc, char** argv) {
             for (const auto& t : otherTrains) {
                 if (!t.orders.empty()) {
                     printCars("at the start,", t);
+                    for (std::size_t k = 0; noDraw && k < t.orders.size(); ++k) {
+                        std::printf("    order %zu %s%s:", k, t.orders[k].name.c_str(), t.orders[k].kind.empty() ? " (NOT FOLLOWED)" : "");
+                        for (const auto& [key, value] : t.orders[k].properties) {
+                            std::printf(" %s='%s'", key.c_str(), value.c_str());
+                        }
+                        std::printf("\n");
+                    }
                 }
+            }
+        }
+        // --no-draw: where the session puts each car against where the port put it (a row of cars on
+        // the wrong track, or turned end for end, shows here).
+        if (noDraw && extras.trains) {
+            for (const auto& t : otherTrains) {
+                const auto& vs = (*extras.trains)[t.index].vehicles;
+                trainz::sim::TrackPosition middle = t.drive.lead;
+                double before = 0;
+                std::printf("  placed train %zu:", t.index + 1);
+                for (std::size_t k = 0; k < t.cars.size() && k < vs.size(); ++k) {
+                    const double length = t.cars[k].vehicle ? t.cars[k].vehicle->length : 0.0;
+                    if (k > 0) {
+                        net->advance(middle, -(0.5 * before + (before > 0 && length > 0 ? 0.5 : 0.0) + 0.5 * length));
+                    }
+                    before = length;
+                    const double x = vs[k].boardX * trainz::content::kBaseboardSize + static_cast<double>(vs[k].x);
+                    const double y = vs[k].boardY * trainz::content::kBaseboardSize + static_cast<double>(vs[k].y);
+                    const auto here = net->point(middle);
+                    const auto nearest = net->locate(x, y, 50);
+                    const auto onTrack = nearest ? net->point(*nearest) : std::nullopt;
+                    std::printf(" [%s: session %.1f %.1f, nearest piece %d at %.1f m; port piece %d@%.1f, %.1f m off]", t.cars[k].name.c_str(), x, y,
+                                nearest ? nearest->piece : -1, onTrack ? std::hypot(onTrack->x - x, onTrack->y - y) : -1.0, middle.piece,
+                                middle.offset, here ? std::hypot(here->x - x, here->y - y) : -1.0);
+                }
+                std::printf("\n");
             }
         }
         while (running) {
@@ -821,6 +917,9 @@ int main(int argc, char** argv) {
                     takenBy[t + 1] = trainz::game::trainOccupies(*net, otherTrains[t]);
                 }
                 if (aiTrains) {
+                    for (auto& [name, industry] : industries) {
+                        industry.step(frames > 0 ? 0.5 : dt);
+                    }
                     const trainz::game::AiDriver ai;
                     for (std::size_t t = 0; t < otherTrains.size(); ++t) {
                         if (otherTrains[t].parked) {
@@ -852,11 +951,15 @@ int main(int argc, char** argv) {
                             };
                             const std::size_t orderBefore = otherTrains[t].orderIndex;
                             const std::string noteBefore = otherTrains[t].orderNote;
-                            trainz::game::runOrders(otherTrains[t], *net, marks, trainFront, frames > 0 ? 0.5 : dt, trainEnds);
+                            trainz::game::runOrders(otherTrains[t], *net, marks, trainFront, frames > 0 ? 0.5 : dt, trainEnds, &industries);
                             const bool startsHolding = otherTrains[t].orderNote != noteBefore && otherTrains[t].orderNote.rfind("holding", 0) == 0;
                             if (testRun && (otherTrains[t].orderIndex != orderBefore || startsHolding)) {  // test runs: each order step
                                 std::printf("AI train %zu order %zu of %zu: %s\n", otherTrains[t].index + 1, otherTrains[t].orderIndex,
                                             otherTrains[t].orders.size(), otherTrains[t].orderNote.c_str());
+                                if (orderBefore < otherTrains[t].orders.size() &&
+                                    (otherTrains[t].orders[orderBefore].kind == "load" || otherTrains[t].orders[orderBefore].kind == "unload")) {
+                                    printCars("after the goods,", otherTrains[t]);
+                                }
                             }
                         }
                         ai.control(otherTrains[t], *net, signals ? &*signals : nullptr, others);
@@ -870,6 +973,7 @@ int main(int argc, char** argv) {
                         for (auto& p : t.leftBehind) {
                             std::printf("AI train %zu left %zu cars standing\n", t.index + 1, p.cars.size());
                             if (testRun) {
+                                std::printf("  it last moved with its %s end leading\n", t.lastMoved > 0 ? "front" : t.lastMoved < 0 ? "rear" : "(never moved)");
                                 printCars("kept:", t);
                                 printCars("left by", p);
                             }
@@ -1153,6 +1257,48 @@ int main(int argc, char** argv) {
                         std::printf("  train %zu keeping off the %zu pieces other trains stand on: from front %s, from rear %s; it stands %d@%d..%d@%d, mark %d@%d; near:%s\n",
                                     t.index + 1, taken.size(), legs(roundF).c_str(), legs(roundB).c_str(), fe.piece, static_cast<int>(fe.offset), re.piece,
                                     static_cast<int>(re.offset), mark->second.piece, static_cast<int>(mark->second.offset), near.c_str());
+                        // Each plan's legs, and what stops it.
+                        const auto show = [&](const char* name, const trainz::sim::TrackPosition& from,
+                                              const std::optional<trainz::sim::TrackNetwork::ShuntRoute>& plan) {
+                            if (!plan) {
+                                return;
+                            }
+                            std::printf("    plan %s, %.0f m:", name, plan->distance);
+                            for (const auto& leg : plan->legs) {
+                                std::printf(" to %d@%.0f%s", leg.end.piece, leg.end.offset, leg.reverseAfter ? " (reverse)" : "");
+                            }
+                            const auto block = trainz::game::shuntBlock(*net, from, plan->legs, t.obstacles);
+                            if (!block) {
+                                std::printf("; clear\n");
+                                return;
+                            }
+                            if (!block->point) {
+                                std::printf("; leg %zu never reaches its end\n", block->leg + 1);
+                                return;
+                            }
+                            std::string owner = "a train not built";
+                            const auto holds = [&](const trainz::game::RouteTrain& o) {
+                                const auto pts = trainz::game::trainOccupies(*net, o);
+                                return std::any_of(pts.begin(), pts.end(), [&](const trainz::sim::Occupied& x) {
+                                    return x.piece == block->point->piece && std::fabs(x.offset - block->point->offset) < 0.01;
+                                });
+                            };
+                            if (holds(me)) {
+                                owner = "your train";
+                            }
+                            for (const auto& o : otherTrains) {
+                                if (&o != &t && holds(o)) {
+                                    owner = "train " + std::to_string(o.index + 1);
+                                }
+                            }
+                            std::printf("; leg %zu blocked after %.0f m at %d@%.1f by %s\n", block->leg + 1, block->distance, block->point->piece,
+                                        block->point->offset, owner.c_str());
+                        };
+                        const auto frontAt = trainz::game::trainFrontEnd(*net, t);
+                        show("from the front", frontAt, shuntF);
+                        show("from the rear", back, shuntB);
+                        show("from the front, keeping off", frontAt, roundF);
+                        show("from the rear, keeping off", back, roundB);
                     }
                 }
                 if (!t.coupleWith.empty()) {  // where it is against the train it is to couple to
